@@ -11,7 +11,7 @@ import type { AppState } from '../state/store';
 import type { Teardown } from '../../shared/teardown';
 import { boxToView, errorText, getCoverMap, urlFlag } from '../camera/frame';
 import { live } from '../detect/live';
-import { setStatus } from '../hud/hudStore';
+import { setHoldFrozen, setStatus, useHud } from '../hud/hudStore';
 import { pickPart } from '../lib/flow';
 import { BoxRig } from './boxRig';
 import type { ScreenBox } from './boxRig';
@@ -54,6 +54,11 @@ class OverlayEngine {
   private readonly labels: LabelLayer;
   private readonly handRig: HandRig;
   private boxRig: BoxRig | null = null;
+  /** The previous object's rig, collapsing after a reset before it is disposed. */
+  private retiring: BoxRig | null = null;
+  /** Armed once the current rig has been exploded; fires the unfreeze when it is collapsed again. */
+  private collapseArmed = false;
+  private wasFrozen = false;
   private teardownRef: Teardown | null = null;
   private teardownSig = '';
   private vw = 0;
@@ -129,9 +134,18 @@ class OverlayEngine {
     const sig = td ? teardownSignature(td) : '';
     if (sig !== this.teardownSig) {
       this.teardownSig = sig;
-      this.boxRig?.dispose();
+      const old = this.boxRig;
       this.boxRig = null;
+      this.collapseArmed = false;
       this.labels.clear();
+      this.endRetire();
+      if (old && !td && old.explodeLevel() > 0.05) {
+        // "Put it back" by reset: collapse the parts over the same frozen image, then let go.
+        this.retiring = old;
+        if (this.wasFrozen) setHoldFrozen(true);
+      } else {
+        old?.dispose();
+      }
       this.dwellPart = null;
       if (td && td.anchor !== 'hand') {
         this.boxRig = new BoxRig(td, this.scene);
@@ -181,6 +195,14 @@ class OverlayEngine {
   pick(x: number, y: number): void {
     const id = this.partAt(x, y);
     if (id) pickPart(id);
+  }
+
+  private endRetire(): void {
+    if (this.retiring) {
+      this.retiring.dispose();
+      this.retiring = null;
+    }
+    setHoldFrozen(false);
   }
 
   tick(now: number): void {
@@ -233,6 +255,22 @@ class OverlayEngine {
       bounds = handOut.bounds;
     }
 
+    if (this.retiring) {
+      this.retiring.update({ now, dt, vw, vh, box: null, explodeTarget: 0, highlighted: new Set(), hold: true });
+      if (this.retiring.explodeLevel() < 0.01) this.endRetire();
+    }
+
+    // "Put it back" by collapsing (explode amount 0): once the parts are home, unfreeze.
+    if (this.boxRig && td) {
+      const level = this.boxRig.explodeLevel();
+      if (s.explodeAmount > 0 && level > 0.5) this.collapseArmed = true;
+      if (this.collapseArmed && s.explodeAmount <= 0 && level < 0.02) {
+        this.collapseArmed = false;
+        if (s.frozen) s.setFrozen(false);
+      }
+    }
+    this.wasFrozen = s.frozen;
+
     this.labels.update(labelItems, bounds, vw, vh);
     this.updateDwell(now, td);
     this.renderer.render(this.scene, this.camera);
@@ -268,6 +306,7 @@ class OverlayEngine {
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.boxRig?.dispose();
     this.boxRig = null;
+    this.endRetire();
     this.handRig.dispose();
     this.labels.dispose();
     this.renderer.dispose();
@@ -276,9 +315,13 @@ class OverlayEngine {
   }
 }
 
-/** Object labels: shown while the overlay is on and nothing is exploded; while an explode is loading, only its target. */
+/**
+ * Object labels: shown while the overlay is on and nothing is exploded (a collapsed teardown counts
+ * as nothing once the frame is live again); while an explode is loading, only its target.
+ */
 function tickObjectLabels(layer: ObjectLabelLayer, now: number, dt: number): void {
   const s = useStore.getState();
+  const exploding = s.teardown !== null && (s.explodeAmount > 0 || s.frozen);
   const names = new Map<string, string | undefined>();
   for (const o of s.objects) names.set(o.id, o.name);
   const loading = s.teardownStatus === 'loading';
@@ -292,7 +335,7 @@ function tickObjectLabels(layer: ObjectLabelLayer, now: number, dt: number): voi
     names,
     focusedId: s.focusedObjectId,
     only: loading ? new Set(s.selectedObjectId ? [s.selectedObjectId] : []) : null,
-    visible: s.overlayOn && s.teardown === null,
+    visible: s.overlayOn && !exploding && !useHud.getState().holdFrozen,
   });
 }
 
