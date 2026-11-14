@@ -47,7 +47,7 @@ Names match `CLIENT_TOOL_NAMES`. Each takes a parameters object and returns a st
 
 | Tool | Params | Does | Returns |
 | --- | --- | --- | --- |
-| `get_scene` | none | reads the store | JSON: objects, focused id, teardown parts (id, name, summary, safety), status, explode amount, highlight, step |
+| `get_scene` | none | reads the store | JSON: overlay_on, objects, focused id, teardown parts (id, name, summary, safety), status, explode amount, highlight, step |
 | `set_overlay` | `on` (boolean) | `true` = label what is in view ("Hey Blowfish, overlay on"); `false` = clean view, also resets | text |
 | `select_object` | `object_id?` | selects it (default: focused) | text |
 | `explode` | `object_id?`, `amount?` | `amount` 0 collapses; otherwise loads and explodes (default 1) | text, e.g. "Exploded MacBook Air 13-inch (M3, 2024): 12 parts." |
@@ -56,7 +56,7 @@ Names match `CLIENT_TOOL_NAMES`. Each takes a parameters object and returns a st
 | `reset_view` | none | `resetAll()` | text |
 | `get_pose` | none | reads hands | JSON: per hand: handedness, finger curl and pressing, activeFinger, action, muscles (part ids) |
 
-`set_lens` still exists in code but is deprecated (Blowfish has no lenses): do not add it to the ElevenLabs dashboard. It is removed in #32.
+There is no `set_lens` tool: Blowfish has no lenses.
 
 `get_pose` muscle mapping: index, middle, ring or pinky pressing -> `fdp`, `fds`, `flexor-tendons`; thumb pressing -> `fpl`, `thenar`; active finger not pressing (lifting) -> `extensor-digitorum`.
 

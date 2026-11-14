@@ -6,12 +6,14 @@
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
 import type { Teardown } from '../../shared/teardown';
+import { DEMO_IDENTIFY } from '../../shared/demo';
 import { boxToView, errorText, getCoverMap, urlFlag } from '../camera/frame';
 import { live } from '../detect/live';
-import { setHoldFrozen, setStatus, useHud } from '../hud/hudStore';
+import { devLog, setHoldFrozen, setStatus, useHud } from '../hud/hudStore';
 import { pickPart } from '../lib/flow';
 import { BoxRig } from './boxRig';
 import type { ScreenBox } from './boxRig';
@@ -19,6 +21,7 @@ import { HandRig } from './handRig';
 import { LabelLayer } from './labels';
 import type { LabelItem, StackBounds } from './labels';
 import { ObjectLabelLayer } from './objectLabels';
+import { preloadTeardownMeshes } from './glbCache';
 
 const DWELL_MS = 1200;
 /**
@@ -27,6 +30,8 @@ const DWELL_MS = 1200;
  * tutor asked about it) by itself a second after every explode.
  */
 const DWELL_ENABLED = urlFlag('dwell');
+/** Load the demo laptop's real models this long after start, in the background. */
+const PRELOAD_DELAY_MS = 2500;
 
 function teardownSignature(td: Teardown): string {
   return [
@@ -71,6 +76,9 @@ class OverlayEngine {
   private dwellStart = 0;
   private dwellFired = false;
   private readonly canvas: HTMLCanvasElement;
+  private envTex: THREE.Texture | null = null;
+  private preloadTimer: ReturnType<typeof setTimeout> | null = null;
+  private disposed = false;
 
   constructor(host: HTMLDivElement, labelHost: HTMLDivElement) {
     this.canvas = document.createElement('canvas');
@@ -89,6 +97,8 @@ class OverlayEngine {
       powerPreference: 'high-performance',
     });
     this.renderer.setClearColor(0x000000, 0);
+    // Neutral tone mapping keeps the parts' own colours while real models get soft highlights.
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
     host.appendChild(this.canvas);
     this.canvas.addEventListener('webglcontextlost', this.onContextLost);
 
@@ -101,6 +111,21 @@ class OverlayEngine {
     const dir = new THREE.DirectionalLight(0xffffff, 1.4);
     dir.position.set(-0.4, 1, 1.2);
     this.scene.add(dir);
+    // Neutral studio environment for reflections on real models (and a soft sheen on the glass).
+    try {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      this.scene.environment = this.envTex;
+      pmrem.dispose();
+    } catch (e) {
+      devLog(`No environment light: ${errorText(e)}`, 'warn');
+    }
+    // The demo laptop's models, parsed once in the background so the first explode shows them at once.
+    this.preloadTimer = setTimeout(() => {
+      this.preloadTimer = null;
+      const id = DEMO_IDENTIFY.laptop.object_id;
+      void preloadTeardownMeshes(id, () => this.disposed).then((n) => devLog(`Preloaded ${n} models for ${id}`));
+    }, PRELOAD_DELAY_MS);
 
     this.labels = new LabelLayer(labelHost);
     this.handRig = new HandRig(this.scene);
@@ -303,6 +328,9 @@ class OverlayEngine {
   }
 
   dispose(): void {
+    this.disposed = true;
+    if (this.preloadTimer) clearTimeout(this.preloadTimer);
+    this.envTex?.dispose();
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.boxRig?.dispose();
     this.boxRig = null;

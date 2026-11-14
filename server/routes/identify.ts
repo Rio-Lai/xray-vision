@@ -4,7 +4,7 @@ import { mockIdentify } from '../../shared/demo';
 import { hasAnthropic } from '../lib/env';
 import { identifyLive } from '../lib/claude';
 
-/** POST /api/identify { image, lens, hint? } -> IdentifyResponse (+ mock / fallback flags) */
+/** POST /api/identify { image, lens (hint only), hint? } -> IdentifyResponse (+ mock / fallback / shortcut flags) */
 export async function identify(req: Request, res: Response) {
   const parsed = IdentifyRequestSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -12,8 +12,8 @@ export async function identify(req: Request, res: Response) {
   }
   const { image, lens, hint } = parsed.data;
 
-  // A hand in the biology lens is always the checked finger-muscles teardown; skip the vision call.
-  if (lens === 'biology' && /hand/i.test(hint ?? '')) {
+  // A hand is always the checked finger-muscles teardown (CONTRACTS.md), whatever the lens hint (not a "handbag"); skip the vision call.
+  if (/\bhands?\b/i.test(hint ?? '')) {
     return res.json({ ...mockIdentify(hint, lens), shortcut: true });
   }
 
@@ -21,8 +21,11 @@ export async function identify(req: Request, res: Response) {
     return res.json({ ...mockIdentify(hint, lens), mock: true });
   }
 
+  // `lens` is only a hint (kindOf in shared/demo.ts); Claude decides what the thing is.
+  const started = Date.now();
   try {
     const result = await identifyLive({ image, lens, hint });
+    console.info(`[identify] ${result.object_id} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
     return res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
