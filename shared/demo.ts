@@ -3,7 +3,18 @@
  * when /api/identify fails, so the demo objects always resolve to their
  * checked cache files in public/cache/.
  */
-import type { IdentifyResponse, Lens } from './teardown';
+import type { AnchorKind, IdentifyResponse, Lens } from './teardown';
+
+/** "hand" or "hands" as a word, so a detected "handbag" is not a hand. */
+const HAND = /\bhands?\b/i;
+
+/**
+ * Which kind of parts list fits an object: hands -> biology, everything else -> engineering.
+ * Internal metadata only (it picks the server prompt); Blowfish has no lenses the user sees or sets.
+ */
+export function kindOf(label: string | undefined, anchor?: AnchorKind): Lens {
+  return anchor === 'hand' || HAND.test(label ?? '') ? 'biology' : 'engineering';
+}
 
 export const DEMO_IDENTIFY: Record<'laptop' | 'hand', IdentifyResponse> = {
   laptop: {
@@ -29,17 +40,20 @@ export function slugify(s: string): string {
   return slug || 'object';
 }
 
-/** Map a detector label to a demo object. Unknown labels get a slug id with no cache file. */
-export function mockIdentify(hint: string | undefined, lens: Lens): IdentifyResponse {
-  const h = (hint ?? '').toLowerCase();
-  if (h.includes('hand')) return DEMO_IDENTIFY.hand;
+/**
+ * Map a detector label to a demo object. Unknown labels get a slug id with no cache file.
+ * `kind` (see kindOf) only matters when there is no label at all.
+ */
+export function mockIdentify(hint: string | undefined, kind?: Lens): IdentifyResponse {
+  const h = (hint ?? '').toLowerCase().trim();
+  if (HAND.test(h)) return DEMO_IDENTIFY.hand;
   if (h.includes('laptop') || h.includes('macbook') || h.includes('computer') || h.includes('keyboard')) {
     return DEMO_IDENTIFY.laptop;
   }
-  if (!h) return lens === 'biology' ? DEMO_IDENTIFY.hand : DEMO_IDENTIFY.laptop;
+  if (!h) return kind === 'biology' ? DEMO_IDENTIFY.hand : DEMO_IDENTIFY.laptop;
   return {
     object_id: slugify(h),
-    name: hint ?? h,
+    name: hint?.trim() || h,
     confidence: 0.3,
     summary: `A ${h}.`,
   };
