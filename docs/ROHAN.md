@@ -13,6 +13,12 @@
 - Press **/** to open the typed command box (developer fallback, never shown during the demo). Enter sends it (to the agent when connected, otherwise to `localCommands.ts`); Esc or clicking away closes it.
 - Missing ElevenLabs keys or a voice error never show on screen: the pill says "Voice off" and the reason is in the browser console.
 
+## Claude routes (identify, teardown)
+
+- **No lenses.** The `lens` in a request is only a hint from the detector. Claude decides whether the thing is a machine (`engineering`) or a living thing (`biology`) and sets the parts list's `lens` itself. A detector label of "hand" always maps to `hand-finger-muscles` without a Claude call.
+- **Speed.** Calls use `output_config.effort`, set by `ANTHROPIC_EFFORT` in `.env` (`low` by default; `medium`/`high` for better parts lists if there is time; `none` for older models that reject effort). `ANTHROPIC_MODEL` picks the model. The server logs each call's time: `[teardown] live <id> (<n> parts) in <s> s`.
+- **Validation.** Sizes are clamped to 0..1, offsets to -0.5..0.5 and layers to whole numbers before the schema check. Invalid JSON is retried once with the errors. If it still fails, `/api/teardown` returns 502 with one sentence the tutor can say ("I could not work out the parts for the <name>. Try again in a moment.").
+
 ## Setup
 
 1. ElevenLabs dashboard: create an agent. Turn on authentication so the app uses a signed URL.
