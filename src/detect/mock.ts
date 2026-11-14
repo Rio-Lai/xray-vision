@@ -1,19 +1,33 @@
 /**
- * ?mock=1 data: a centred laptop box and an animated right hand (palm down, seen from above,
+ * ?mock=1 data: a laptop box and an animated right hand (palm down, seen from above,
  * fingers pointing up the image) that "types": one finger presses every second, and every
  * fourth beat a finger lifts quickly (extension) so both glows can be tested without a camera.
+ * Both are always in view. `?mock=1` puts the laptop in the centre (it is "this");
+ * `?mock=hand` puts the hand in the centre and the laptop off to the left.
  */
 import type { SceneObject } from '../state/store';
 import type { FingerName } from '../state/store';
 import type { Landmark } from './handTracker';
 import { FINGER_CHAINS } from './handTracker';
 
-export function mockLaptop(): SceneObject {
+export function mockLaptop(centred: boolean): SceneObject {
   return {
     id: 'laptop-1',
     label: 'laptop',
     confidence: 0.93,
-    box: { x: 0.3, y: 0.26, w: 0.4, h: 0.48 },
+    box: centred ? { x: 0.3, y: 0.26, w: 0.4, h: 0.48 } : { x: 0.03, y: 0.3, w: 0.28, h: 0.34 },
+    lens: 'engineering',
+    anchor: 'box',
+  };
+}
+
+/** A small phone at the lower left, so "everything is labelled" can be seen in mock mode. */
+export function mockPhone(): SceneObject {
+  return {
+    id: 'cell-phone-1',
+    label: 'cell phone',
+    confidence: 0.81,
+    box: { x: 0.12, y: 0.7, w: 0.08, h: 0.16 },
     lens: 'engineering',
     anchor: 'box',
   };
@@ -70,7 +84,8 @@ function profile(kind: 'press' | 'extend', t: number): number {
   return 0;
 }
 
-export function mockHandLandmarks(now: number): Landmark[] {
+/** `dx`: horizontal shift as a fraction of the frame width (0 = centred). */
+export function mockHandLandmarks(now: number, dx = 0): Landmark[] {
   const beat = Math.floor(now / BEAT_MS);
   const t = now - beat * BEAT_MS;
   const step = SEQUENCE[beat % SEQUENCE.length];
@@ -82,6 +97,6 @@ export function mockHandLandmarks(now: number): Landmark[] {
     if (i === chain[3]) dy = d;
     else if (i === chain[2]) dy = d * 0.5;
     else if (i === chain[1]) dy = d * 0.15;
-    return { x: (x + sway) / 1280, y: (y + dy) / 720, z: 0 };
+    return { x: (x + sway) / 1280 + dx, y: (y + dy) / 720, z: 0 };
   });
 }

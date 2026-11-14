@@ -10,26 +10,34 @@
  */
 import type { Box } from '../state/store';
 
-/** `?mock=1` in the URL: no MediaPipe, fake laptop + hand. */
-export const MOCK_MODE: boolean = (() => {
+function urlParam(name: string): string | null {
   try {
-    const v = new URLSearchParams(window.location.search).get('mock');
-    return v === '1' || v === 'true';
+    return new URLSearchParams(window.location.search).get(name);
   } catch {
-    return false;
+    return null;
   }
-})();
+}
+
+const MOCK_RAW = urlParam('mock');
+
+/** `?mock=1` in the URL: no camera models, a fake laptop and a fake typing hand. */
+export const MOCK_MODE: boolean = MOCK_RAW === '1' || MOCK_RAW === 'true' || MOCK_RAW === 'laptop' || MOCK_RAW === 'hand';
+
+/** Which mock object sits in the centre of view (is "this"): `?mock=hand` for the hand, else the laptop. */
+export const MOCK_SCENE: 'laptop' | 'hand' = MOCK_RAW === 'hand' ? 'hand' : 'laptop';
+
+/** true for `?name=1` or `?name=true`. */
+export function urlFlag(name: string): boolean {
+  const v = urlParam(name);
+  return v === '1' || v === 'true';
+}
 
 /** Read a numeric URL param, e.g. `?press=0.6`, for live tuning without a rebuild. */
 export function urlNumber(name: string, fallback: number): number {
-  try {
-    const raw = new URLSearchParams(window.location.search).get(name);
-    if (raw === null) return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : fallback;
-  } catch {
-    return fallback;
-  }
+  const raw = urlParam(name);
+  if (raw === null || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 export interface FrameRuntime {

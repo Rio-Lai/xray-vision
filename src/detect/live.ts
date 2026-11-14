@@ -13,7 +13,7 @@ export interface LiveStats {
 }
 
 export interface LiveData {
-  /** engineering objects + hands, latest tracked boxes */
+  /** every tracked thing (detector objects and hands), latest boxes */
   objects: SceneObject[];
   hands: TrackedHand[];
   stats: LiveStats;

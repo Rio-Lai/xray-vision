@@ -1,14 +1,14 @@
 /**
- * Detection engine, ticked once per animation frame by Stage.
+ * Detection engine, ticked once per animation frame by Stage. Runs all the time, whether the
+ * overlay is on or off, so "this" (focusedObjectId) is always ready for a voice command.
  *  - hand landmarker on every new video frame
  *  - object detector on every 3rd new video frame, paused while store.frozen
- *  - focus = object of the current lens under the frame centre
+ *  - focus = the thing of any kind nearest the frame centre (with a short hysteresis)
  *  - store writes throttled to ~15 Hz; per-frame data goes to `live`
  */
 import { useStore } from '../state/store';
 import type { SceneObject } from '../state/store';
-import type { Lens } from '../../shared/teardown';
-import { errorText, frame, frameSize, MOCK_MODE } from '../camera/frame';
+import { errorText, frame, frameSize, MOCK_MODE, MOCK_SCENE } from '../camera/frame';
 import { setStatus } from '../hud/hudStore';
 import { loadVisionTasks, USEFUL_CLASSES } from './mediapipe';
 import type { VisionTasks } from './mediapipe';
@@ -16,7 +16,7 @@ import { ObjectTracker } from './objectTracker';
 import type { RawDetection } from './objectTracker';
 import { HandTracker } from './handTracker';
 import type { RawHand } from './handTracker';
-import { mockHandLandmarks, mockLaptop } from './mock';
+import { mockHandLandmarks, mockLaptop, mockPhone } from './mock';
 import { live } from './live';
 
 /**
@@ -93,12 +93,19 @@ function parseHands(res: unknown): RawHand[] {
   return out;
 }
 
-/** Object of `lens` whose box contains the frame centre (smallest), else nearest centre within 20% of frame width. */
-export function computeFocus(objects: SceneObject[], lens: Lens, fw: number, fh: number): string | null {
+/** Max distance (fraction of frame width) from the frame centre to an object's centre to count as "this". */
+const FOCUS_MAX_DIST = 0.25;
+/** A new candidate must win for this long before focus moves to it (no flicker between overlapping boxes). */
+const FOCUS_SWITCH_MS = 200;
+
+/**
+ * The thing of any kind at the frame centre: the smallest box that contains the centre
+ * (most specific: a hand on a laptop wins), else the nearest box centre within FOCUS_MAX_DIST.
+ */
+export function focusCandidate(objects: SceneObject[], fw: number, fh: number): string | null {
   let best: string | null = null;
   let bestArea = Infinity;
   for (const o of objects) {
-    if (o.lens !== lens) continue;
     const b = o.box;
     if (0.5 >= b.x && 0.5 <= b.x + b.w && 0.5 >= b.y && 0.5 <= b.y + b.h) {
       const a = b.w * b.h;
@@ -109,9 +116,8 @@ export function computeFocus(objects: SceneObject[], lens: Lens, fw: number, fh:
     }
   }
   if (best) return best;
-  let bestD = 0.2 * fw;
+  let bestD = FOCUS_MAX_DIST * fw;
   for (const o of objects) {
-    if (o.lens !== lens) continue;
     const dx = (o.box.x + o.box.w / 2 - 0.5) * fw;
     const dy = (o.box.y + o.box.h / 2 - 0.5) * fh;
     const d = Math.hypot(dx, dy);
@@ -121,6 +127,31 @@ export function computeFocus(objects: SceneObject[], lens: Lens, fw: number, fh:
     }
   }
   return best;
+}
+
+/** focusCandidate with hysteresis: switches only after FOCUS_SWITCH_MS, or at once if the focused thing is gone. */
+export class FocusTracker {
+  private current: string | null = null;
+  private pending: string | null = null;
+  private pendingSince = 0;
+
+  update(objects: SceneObject[], now: number, fw: number, fh: number): string | null {
+    const cand = focusCandidate(objects, fw, fh);
+    const alive = this.current !== null && objects.some((o) => o.id === this.current);
+    if (!alive || cand === this.current) {
+      this.current = alive ? this.current : cand;
+      this.pending = null;
+      return this.current;
+    }
+    if (cand !== this.pending) {
+      this.pending = cand;
+      this.pendingSince = now;
+    } else if (now - this.pendingSince >= FOCUS_SWITCH_MS) {
+      this.current = cand;
+      this.pending = null;
+    }
+    return this.current;
+  }
 }
 
 /** Keep names that /api/identify patched onto store objects. */
@@ -143,6 +174,7 @@ export function createDetectionEngine(): DetectionEngine {
   let tasks: VisionTasks | null = null;
   const objTracker = new ObjectTracker();
   const handTracker = new HandTracker();
+  const focusTracker = new FocusTracker();
   let lastVideoTime = -1;
   let newFrames = 0;
   let lastObjTs = 0;
@@ -154,7 +186,7 @@ export function createDetectionEngine(): DetectionEngine {
   let publishedEmpty = false;
 
   if (MOCK_MODE) {
-    setStatus('models', 'warn', 'MOCK MODE (?mock=1): fake laptop + hand, MediaPipe skipped');
+    setStatus('models', 'warn', `Mock mode (${MOCK_SCENE} in the centre): fake laptop, phone and hand; MediaPipe skipped`);
   } else {
     setStatus('models', 'info', 'Loading vision models...');
     loadVisionTasks()
@@ -224,12 +256,10 @@ export function createDetectionEngine(): DetectionEngine {
 
     let engObjects: SceneObject[];
     if (MOCK_MODE) {
-      engObjects = [mockLaptop()];
-      if (st.lens === 'biology') {
-        handTracker.update([{ handedness: 'right', score: 0.99, landmarks: mockHandLandmarks(now) }], now, fw, fh);
-      } else {
-        handTracker.prune(now + 1e6); // drop the mock hand
-      }
+      const handInCentre = MOCK_SCENE === 'hand';
+      engObjects = [mockLaptop(!handInCentre), mockPhone()];
+      const lm = mockHandLandmarks(now, handInCentre ? 0 : 0.3);
+      handTracker.update([{ handedness: 'right', score: 0.99, landmarks: lm }], now, fw, fh);
     } else {
       runVision(now, frozen, fw, fh);
       if (!frozen) objTracker.prune(now);
@@ -242,7 +272,7 @@ export function createDetectionEngine(): DetectionEngine {
 
     if (now - lastPublish >= PUBLISH_MS) {
       lastPublish = now;
-      const focus = computeFocus(live.objects, st.lens, fw, fh);
+      const focus = focusTracker.update(live.objects, now, fw, fh);
       if (focus !== st.focusedObjectId) st.setFocusedObject(focus);
       const empty = live.objects.length === 0;
       if (!empty || !publishedEmpty) st.setObjects(withNames(live.objects, st.objects));
