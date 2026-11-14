@@ -4,7 +4,8 @@
  * focused thing ("this"). Updated imperatively every frame from detect/live (no React re-renders).
  *
  *  - a label appears only after its object has been tracked for STABLE_MS (no flicker on false hits)
- *  - at most MAX_LABELS at once: the focused thing first, then the largest / most central
+ *  - at most MAX_LABELS (four) at once, so the view stays quiet: the focused thing first, then the
+ *    things nearest the centre of the view (hands count like any other thing)
  *  - a pill that would overlap another pill or dot goes below its dot, or further out on a longer hairline
  *  - fade and scale in over ~250 ms (CSS), staggered when the overlay is switched on
  *
@@ -16,7 +17,9 @@ import type { CoverMap } from '../camera/frame';
 import { displayName } from '../hud/names';
 
 const STABLE_MS = 500;
-const MAX_LABELS = 6;
+const MAX_LABELS = 4;
+/** Ranking lead (fraction of the centre-to-corner distance) for a label that is already showing. */
+const KEEP_BONUS = 0.06;
 const STAGGER_MS = 90;
 const STEM_PX = 16;
 const DOT_GAP_PX = 4;
@@ -159,16 +162,17 @@ export class ObjectLabelLayer {
         n.w = n.pill.offsetWidth || text.length * 9 + 30;
         n.h = n.pill.offsetHeight || 34;
       }
+      // 0 at the centre of the view, 1 at a corner: nearest the centre ranks first. A label already
+      // showing keeps a small lead, so two things at about the same distance do not swap back and forth.
       const dist = Math.hypot(tx - vw / 2, ty - vh / 2) / Math.hypot(vw / 2, vh / 2);
-      const size = Math.sqrt(Math.max(1, b.w * b.h)) / Math.max(1, Math.min(vw, vh));
       const focused = o.id === input.focusedId;
-      const score = (focused ? 10 : 0) + size * 1.2 + (1 - Math.min(1, dist));
+      const score = (focused ? 10 : 0) + (1 - Math.min(1, dist)) + (n.shown ? KEEP_BONUS : 0);
       const eligible =
         input.visible && now - n.firstSeen >= STABLE_MS && (input.only === null || input.only.has(o.id));
       if (eligible) candidates.push({ id: o.id, o, n, score, box: b });
     }
 
-    // 2. Pick and place: focused first, then largest / most central; lift pills that would overlap.
+    // 2. Pick and place: focused first, then nearest the centre; lift pills that would overlap.
     candidates.sort((a, b) => b.score - a.score);
     const chosen = candidates.slice(0, MAX_LABELS);
     // Every chosen label's dot is an obstacle too, so a pill never covers another object's dot.

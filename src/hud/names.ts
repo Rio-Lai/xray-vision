@@ -5,17 +5,36 @@
  */
 import type { SceneObject } from '../state/store';
 
+/** One per class in USEFUL_CLASSES (src/detect/mediapipe.ts), plus hands. */
 const FRIENDLY: Record<string, string> = {
   laptop: 'Laptop',
   'cell phone': 'Phone',
   hand: 'Hand',
   keyboard: 'Keyboard',
   mouse: 'Mouse',
+  remote: 'Remote',
+  tv: 'Screen',
+  book: 'Book',
+  clock: 'Clock',
+  scissors: 'Scissors',
   cup: 'Cup',
   bottle: 'Bottle',
-  book: 'Book',
-  tv: 'Screen',
-  remote: 'Remote',
+  bowl: 'Bowl',
+  fork: 'Fork',
+  knife: 'Knife',
+  spoon: 'Spoon',
+  banana: 'Banana',
+  apple: 'Apple',
+  orange: 'Orange',
+  backpack: 'Backpack',
+  handbag: 'Bag',
+  umbrella: 'Umbrella',
+  chair: 'Chair',
+  'potted plant': 'Plant',
+  vase: 'Vase',
+  'teddy bear': 'Teddy bear',
+  toothbrush: 'Toothbrush',
+  'sports ball': 'Ball',
 };
 
 const MAX_LEN = 34;

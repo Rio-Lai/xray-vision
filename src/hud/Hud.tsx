@@ -20,6 +20,8 @@ import { gestureLive } from '../detect/gestureDriver';
 import { GESTURE_TUNING_DEFAULTS } from '../detect/gestures';
 import type { GestureTuning } from '../detect/gestures';
 import { gestureTuning, gestureTuningUrl, setGestureTuning } from '../detect/gestureTuning';
+import { isPinnedId } from '../detect/centre';
+import { shortName } from './names';
 
 /** Something is open: exploded in freeze / follow, or any model on stage (even at explode 0). */
 function isShowing(s: AppState): boolean {
@@ -50,10 +52,21 @@ function useFreshFor(key: string | null, ms: number): boolean {
   return key !== null && expired !== key;
 }
 
-/** The one status pill: an error if there is one, else a developer warning, else "Looking...". */
+/**
+ * While "analyse this" loads something Claude named in the middle of the view (#80), its name;
+ * null while it is still being looked at, and for anything the detector found.
+ */
+function namedInCentre(s: AppState): string | null {
+  if (s.teardownStatus !== 'loading' || !isPinnedId(s.selectedObjectId)) return null;
+  const name = s.objects.find((o) => o.id === s.selectedObjectId)?.name;
+  return name ? shortName(name) : null;
+}
+
+/** The one status pill: an error if there is one, else a developer warning, else "Looking..." (then the name, #80). */
 function StatusPill() {
   const tdStatus = useStore((s) => s.teardownStatus);
   const tdError = useStore((s) => s.teardownError);
+  const centreName = useStore(namedInCentre);
   const status = useHud((s) => s.status);
   const toast = useHud((s) => s.toast);
   const busy = useHud((s) => s.busy);
@@ -79,7 +92,7 @@ function StatusPill() {
     text = toast.text;
   } else if (tdStatus === 'loading') {
     kind = 'busy';
-    text = busy ?? 'Looking\u2026';
+    text = busy ?? centreName ?? 'Looking\u2026';
   }
   if (!kind) return null;
   return (

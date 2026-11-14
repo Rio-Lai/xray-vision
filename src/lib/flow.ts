@@ -6,10 +6,11 @@ import { useStore, type SceneObject } from '../state/store';
 import type { IdentifyResponse, Lens, Teardown } from '../../shared/teardown';
 import { isDemoObject, kindOf, mockIdentify } from '../../shared/demo';
 import { partPrompt } from '../../shared/prompts';
-import { ApiError, SERVER_DOWN_MESSAGE, api, isServerDown, type ServerFlags } from './api';
+import { ApiError, SERVER_DOWN_MESSAGE, api, isServerDown, isTimeout, type ServerFlags } from './api';
 import { voiceBridge } from '../voice/bridge';
 import { stageTeardownFor } from '../stage/armTeardown';
 import { setBusyText } from '../hud/hudStore';
+import { centreDistance, centreRegion, inCentre, pinObject, pinnedIdent, unpinObject } from '../detect/centre';
 
 /**
  * How long "analyse this" waits for Claude to name a detected object before it goes on with the
@@ -24,6 +25,22 @@ export const IDENTIFY_TIMEOUT_MS = 4_000;
  * MacBook seen from a bad angle stays the MacBook.
  */
 export const SWITCH_MIN_CONFIDENCE = 0.7;
+
+/**
+ * How long "analyse this" waits for Claude to name something in the middle of the view that the
+ * detector did not find (#80). Longer than IDENTIFY_TIMEOUT_MS: there is no label to fall back on.
+ */
+export const CENTRE_IDENTIFY_TIMEOUT_MS = 12_000;
+
+/** Sentences for the tutor and the status pill when the middle of the view cannot be named (#80). */
+const NOTHING_IN_VIEW = 'Nothing in view to explode. Look at an object first.';
+const CENTRE_NO_CLAUDE = "I can't name that without Claude.";
+const CENTRE_UNKNOWN = 'I could not tell what that is. Hold it in the middle of the view and try again.';
+const CENTRE_SLOW = 'I could not name that in time. Try again in a moment.';
+const CENTRE_FAILED = 'I could not name that just now. Try again in a moment.';
+
+/** inFlight id while the middle of the view is being named and there is no scene object yet. */
+const CENTRE_SCAN = '(centre)';
 
 /** Bumped by resetAll and each new explode, so stale async results are dropped. */
 let runId = 0;
@@ -44,7 +61,11 @@ const corrected = new Map<string, IdentifyResponse>();
 /** The explode in progress, so a second "explode this" for the same object joins it instead of cancelling it. */
 let inFlight: { sceneId: string; promise: Promise<ExplodeResult> } | null = null;
 
-/** What "this" means: the named scene object, else the focused one, else the selected one, else the most confident. Any kind. */
+/**
+ * What "this" means: the named scene object, else the focused one, else the selected one, else the
+ * thing nearest the centre among those whose centre is in the middle of the view. Any kind, hands
+ * included. null = nothing detected in the middle: explodeObject then asks Claude what is there (#80).
+ */
 function pickTarget(objectId?: string): SceneObject | null {
   const s = useStore.getState();
   const byId = (id: string | null | undefined) => (id ? s.objects.find((o) => o.id === id) ?? null : null);
@@ -56,8 +77,10 @@ function pickTarget(objectId?: string): SceneObject | null {
   }
   const direct = byId(s.focusedObjectId) ?? byId(s.selectedObjectId);
   if (direct) return direct;
-  if (s.objects.length === 0) return null;
-  return s.objects.reduce((a, b) => (b.confidence > a.confidence ? b : a));
+  const region = centreRegion();
+  const middle = s.objects.filter((o) => inCentre(o, region));
+  if (middle.length === 0) return null;
+  return middle.reduce((a, b) => (centreDistance(b) < centreDistance(a) ? b : a));
 }
 
 /** Text pushed to the voice agent after an explode, so it knows the parts without calling get_scene. */
@@ -90,12 +113,11 @@ export function explodeObject(objectId?: string): Promise<ExplodeResult> {
   const s = useStore.getState();
   if (!s.overlayOn) s.setOverlayOn(true);
   const target = pickTarget(objectId);
-  if (!target) {
-    return Promise.resolve({ ok: false, message: 'Nothing in view to explode. Look at an object first.' });
-  }
-  if (inFlight && inFlight.sceneId === target.id) return inFlight.promise;
-  const promise = runExplode(target);
-  const entry = { sceneId: target.id, promise };
+  const sceneId = target ? target.id : CENTRE_SCAN;
+  if (inFlight && inFlight.sceneId === sceneId) return inFlight.promise;
+  // Nothing detected in the middle of the view: ask Claude what is there (#80).
+  const promise = target ? runExplode(target) : analyseCentre();
+  const entry = { sceneId, promise };
   inFlight = entry;
   const clear = () => {
     if (inFlight === entry) inFlight = null;
@@ -133,10 +155,12 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   const guess = mockIdentify(target.label, kind);
   let ident: IdentifyResponse = guess;
   let background: Promise<(IdentifyResponse & ServerFlags) | null> | null = null;
+  // Something Claude has already named (in the middle of the view, #80, or a correction of a
+  // cached guess, #84) is not asked about again.
   const fix = corrected.get(target.id);
-  if (fix && fix.name === target.name) {
-    // Claude already said this is not the cached guess: straight on to what it is.
-    ident = fix;
+  const known = pinnedIdent(target.id) ?? (fix && fix.name === target.name ? fix : null);
+  if (known) {
+    ident = known;
   } else if (isDemoObject(guess.object_id)) {
     // Cached (the MacBook, a hand): never wait on the network. Open it now from the label and ask
     // Claude in the background; its answer is checked once the model is shown (step 5, #84). The
@@ -190,6 +214,68 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   }
 
   return { ok: true, message: `Exploded ${td.name}: ${td.parts.length} parts.` };
+}
+
+/** Claude's answer is a name, not a shrug ("unknown", or too unsure to build a parts list on). */
+function isNamed(ident: IdentifyResponse): boolean {
+  const name = ident.name.trim();
+  return (
+    ident.confidence >= 0.3 &&
+    name !== '' &&
+    !['unknown', 'unknown-object', 'object', 'nothing', 'none', 'unclear'].includes(ident.object_id) &&
+    !/^(unknown|unclear|unidentified|nothing|no object)\b/i.test(name)
+  );
+}
+
+/**
+ * "Analyse this" with nothing detected in the middle of the view (#80): crop the middle (the
+ * central 50% x 60%, src/detect/centre.ts), ask Claude what it is (at most
+ * CENTRE_IDENTIFY_TIMEOUT_MS; the status pill says "Looking…" meanwhile), add it as a scene object
+ * where the crop was, and go on with the normal flow: its parts list (from Claude, as it is not
+ * cached), the floating model, fal models as usual. No key, no answer or no clear answer: the pill
+ * and the reply say so, and nothing else happens.
+ */
+async function analyseCentre(): Promise<ExplodeResult> {
+  const region = centreRegion();
+  const crop = useStore.getState().camera?.captureCrop(region) ?? null;
+  if (!crop) return { ok: false, message: NOTHING_IN_VIEW };
+  const myRun = ++runId;
+  const stale = () => myRun !== runId;
+  const fail = (message: string): ExplodeResult => {
+    if (stale()) return { ok: false, message: 'Cancelled.' };
+    useStore.getState().setTeardownStatus('error', message);
+    return { ok: false, message };
+  };
+  setBusyText(null);
+  useStore.getState().setTeardownStatus('loading');
+
+  let ident: Awaited<ReturnType<typeof api.identify>>;
+  try {
+    // No hint: there is no detector label. The lens is only a hint too; Claude decides.
+    ident = await api.identify({ image: crop, lens: 'engineering' }, { timeoutMs: CENTRE_IDENTIFY_TIMEOUT_MS });
+  } catch (err) {
+    console.warn('[flow] naming the middle of the view failed', err);
+    if (isServerDown(err)) return fail(SERVER_DOWN_MESSAGE);
+    return fail(isTimeout(err) ? CENTRE_SLOW : CENTRE_FAILED);
+  }
+  if (stale()) return { ok: false, message: 'Cancelled.' };
+  // With no key (mock) or after a failed live call (fallback) the server answers with its demo
+  // mapping, which for no label is the MacBook: never pass that off as the thing in view.
+  if (ident.mock) return fail(CENTRE_NO_CLAUDE);
+  if (ident.fallback) return fail(CENTRE_FAILED);
+  if (!isNamed(ident)) return fail(CENTRE_UNKNOWN);
+
+  const obj = pinObject(region, ident);
+  // From here a second "analyse this" means this object: it joins, as for any other.
+  if (inFlight && inFlight.sceneId === CENTRE_SCAN) inFlight.sceneId = obj.id;
+  const result = await runExplode(obj);
+  if (!result.ok) {
+    // Its parts did not load (or it was cancelled): take the temporary object away again.
+    unpinObject(obj.id);
+    const s = useStore.getState();
+    if (s.selectedObjectId === obj.id) s.selectObject(null);
+  }
+  return result;
 }
 
 /**
@@ -292,9 +378,22 @@ async function switchTeardown(target: SceneObject, opened: Teardown, ident: Iden
   return { ok: true, message: `Exploded ${td.name}: ${td.parts.length} parts.` };
 }
 
-/** Two fal jobs at a time. Stops on mock mode, skips failures silently. */
+/**
+ * fal models asked for per live (uncached) parts list. A stopgap for the nearly spent fal credit
+ * now that #80 makes live objects common (server-side ticket #75): the outermost and largest parts
+ * get models, the rest stay placeholder shapes.
+ */
+export const MAX_LIVE_MESHES = 4;
+
+/** Two fal jobs at a time. Stops on mock mode, skips failures silently. Live objects: at most MAX_LIVE_MESHES. */
 async function generateMeshes(td: Teardown, myRun: number) {
-  const queue = td.parts.filter((p) => !p.mesh_url);
+  let queue = td.parts.filter((p) => !p.mesh_url);
+  if (td.source === 'live' && queue.length > MAX_LIVE_MESHES) {
+    const volume = (p: Teardown['parts'][number]) => p.size[0] * p.size[1] * p.size[2];
+    const wanted = queue.length;
+    queue = [...queue].sort((a, b) => a.layer - b.layer || volume(b) - volume(a)).slice(0, MAX_LIVE_MESHES);
+    console.info(`[flow] ${td.object_id}: asking fal for ${queue.length} of ${wanted} part models (${wanted - queue.length} skipped, MAX_LIVE_MESHES)`);
+  }
   let stop = false;
   const worker = async () => {
     while (!stop && queue.length > 0 && myRun === runId) {
@@ -344,6 +443,7 @@ function putAway(): void {
   runId++;
   explodedSceneId = null;
   inFlight = null;
+  unpinObject();
   useStore.getState().resetView();
 }
 

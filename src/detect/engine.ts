@@ -4,6 +4,7 @@
  *  - hand landmarker on every new video frame
  *  - object detector on every 3rd new video frame, paused while store.frozen
  *  - focus = the thing of any kind nearest the frame centre (with a short hysteresis)
+ *  - plus one pinned object for "analyse this" on something undetected (centre.ts), republished while selected
  *  - store writes throttled to ~15 Hz; per-frame data goes to `live`
  */
 import { useStore } from '../state/store';
@@ -17,6 +18,7 @@ import type { RawDetection } from './objectTracker';
 import { HandTracker, handTuning } from './handTracker';
 import type { RawHand } from './handTracker';
 import { mockHandLandmarks, mockLaptop, mockPhone } from './mock';
+import { pinnedObjects } from './centre';
 import { mockGestureHands } from './mockGesture';
 
 /** ?mock=gesture: the scripted hands start this long after the page (the laptop is analysed first). */
@@ -278,7 +280,8 @@ export function createDetectionEngine(): DetectionEngine {
     }
 
     live.hands = handTracker.hands;
-    live.objects = engObjects.concat(handTracker.sceneObjects());
+    // Plus the thing Claude named in the middle of the view, while it is selected (centre.ts, #80).
+    live.objects = engObjects.concat(handTracker.sceneObjects(), pinnedObjects(st.selectedObjectId, now));
 
     if (now - lastPublish >= PUBLISH_MS) {
       lastPublish = now;
