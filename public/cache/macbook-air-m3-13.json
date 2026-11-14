@@ -108,7 +108,7 @@
       "summary": "A four-speaker system that sends sound out through the gap near the hinge.",
       "details": "There are no speaker grilles on the keyboard deck. The sound comes out through the slot between the keyboard and the display.",
       "safety": null,
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/speakers.glb"
     },
     {
       "id": "magsafe-port",
@@ -134,7 +134,7 @@
       "summary": "Two USB-C ports on the left edge for charging, data and one external display.",
       "details": "Both ports support Thunderbolt and USB 4. With the lid open, the 13-inch M3 Air drives one external display; with the lid closed it can drive two.",
       "safety": null,
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/thunderbolt-ports.glb"
     },
     {
       "id": "headphone-jack",
