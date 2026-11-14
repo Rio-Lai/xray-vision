@@ -4,9 +4,9 @@
  */
 import { useStore, type SceneObject } from '../state/store';
 import type { IdentifyResponse, Teardown } from '../../shared/teardown';
-import { mockIdentify } from '../../shared/demo';
+import { kindOf, mockIdentify } from '../../shared/demo';
 import { partPrompt } from '../../shared/prompts';
-import { api } from './api';
+import { ApiError, SERVER_DOWN_MESSAGE, api, isServerDown } from './api';
 import { voiceBridge } from '../voice/bridge';
 
 /** Bumped by resetAll and each new explode, so stale async results are dropped. */
@@ -21,6 +21,7 @@ export interface ExplodeResult {
 /** The explode in progress, so a second "explode this" for the same object joins it instead of cancelling it. */
 let inFlight: { sceneId: string; promise: Promise<ExplodeResult> } | null = null;
 
+/** What "this" means: the named scene object, else the focused one, else the selected one, else the most confident. Any kind. */
 function pickTarget(objectId?: string): SceneObject | null {
   const s = useStore.getState();
   const byId = (id: string | null | undefined) => (id ? s.objects.find((o) => o.id === id) ?? null : null);
@@ -32,9 +33,8 @@ function pickTarget(objectId?: string): SceneObject | null {
   }
   const direct = byId(s.focusedObjectId) ?? byId(s.selectedObjectId);
   if (direct) return direct;
-  const inLens = s.objects.filter((o) => o.lens === s.lens);
-  if (inLens.length === 0) return null;
-  return inLens.reduce((a, b) => (b.confidence > a.confidence ? b : a));
+  if (s.objects.length === 0) return null;
+  return s.objects.reduce((a, b) => (b.confidence > a.confidence ? b : a));
 }
 
 /** Text pushed to the voice agent after an explode, so it knows the parts without calling get_scene. */
@@ -44,7 +44,7 @@ export function describeTeardown(td: Teardown): string {
     .join('\n');
   const steps = td.steps.map((s) => `${s.n}. ${s.text}`).join('\n');
   return [
-    `The user is now looking at an exploded view of: ${td.name} (lens: ${td.lens}, source: ${td.source}${
+    `The user is now looking at an exploded view of: ${td.name} (source: ${td.source}${
       td.source === 'live' ? ', AI-estimated, not checked' : ''
     }).`,
     `Parts (use these ids with highlight_part):\n${parts}`,
@@ -54,7 +54,18 @@ export function describeTeardown(td: Teardown): string {
     .join('\n\n');
 }
 
+/** The tutor reads this aloud, so it is short and never a raw error. */
+function teardownFailMessage(err: unknown, name: string): string {
+  if (isServerDown(err)) return SERVER_DOWN_MESSAGE;
+  // Our server's only 404: no checked parts list and no Anthropic key to make one.
+  if (err instanceof ApiError && err.status === 404) return `I do not have parts for the ${name} yet.`;
+  return `I could not load the parts for the ${name}. Try again in a moment.`;
+}
+
 export function explodeObject(objectId?: string): Promise<ExplodeResult> {
+  // "Explode this" means Blowfish is on: show the labels if they were off.
+  const s = useStore.getState();
+  if (!s.overlayOn) s.setOverlayOn(true);
   const target = pickTarget(objectId);
   if (!target) {
     return Promise.resolve({ ok: false, message: 'Nothing in view to explode. Look at an object first.' });
@@ -84,30 +95,36 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
 
   const myRun = ++runId;
   const stale = () => myRun !== runId;
+  const fail = (message: string): ExplodeResult => {
+    if (stale()) return { ok: false, message: 'Cancelled.' };
+    useStore.getState().setTeardownStatus('error', message);
+    if (froze) useStore.getState().setFrozen(false);
+    return { ok: false, message };
+  };
   store.setTeardownStatus('loading');
+  // Which server prompt to use comes from the object itself, never from a UI setting.
+  const kind = kindOf(target.label, target.anchor);
 
-  // 1. Identify. Any failure falls back to the mock mapping by detector label.
+  // 1. Identify. Any failure except "server not running" falls back to the mock mapping by detector label.
   let ident: IdentifyResponse | null = null;
   try {
     const crop = useStore.getState().camera?.captureCrop(target.box) ?? null;
-    if (crop) ident = await api.identify({ image: crop, lens: target.lens, hint: target.label });
+    if (crop) ident = await api.identify({ image: crop, lens: kind, hint: target.label });
   } catch (err) {
+    if (isServerDown(err)) return fail(SERVER_DOWN_MESSAGE);
     console.warn('[flow] identify failed, using mock mapping', err);
   }
-  if (!ident) ident = mockIdentify(target.label, target.lens);
+  if (!ident) ident = mockIdentify(target.label, kind);
   if (stale()) return { ok: false, message: 'Cancelled.' };
   useStore.getState().patchObject(target.id, { name: ident.name });
 
   // 2. Teardown (server is cache-first).
   let td: Teardown;
   try {
-    td = await api.teardown({ object_id: ident.object_id, name: ident.name, lens: target.lens });
+    td = await api.teardown({ object_id: ident.object_id, name: ident.name, lens: kind });
   } catch (err) {
-    if (stale()) return { ok: false, message: 'Cancelled.' };
-    const message = err instanceof Error ? err.message : String(err);
-    useStore.getState().setTeardownStatus('error', message);
-    if (froze) useStore.getState().setFrozen(false);
-    return { ok: false, message: `Could not load parts for ${ident.name}: ${message}` };
+    console.warn(`[flow] teardown for ${ident.object_id} failed`, err);
+    return fail(teardownFailMessage(err, ident.name));
   }
   if (stale()) return { ok: false, message: 'Cancelled.' };
 
