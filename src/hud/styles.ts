@@ -42,6 +42,12 @@ export const HUD_CSS = `
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 0 56px rgba(77, 163, 255, 0.2), 0 0 36px rgba(77, 163, 255, 0.1); }
 .bf-focusglow.on { opacity: 1; }
 
+/* ---- the pinch cue: one tiny soft dot at an active pinch point (hand gestures) ---- */
+.bf-pinch { position: absolute; left: 0; top: 0; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.16), 0 0 14px rgba(255, 255, 255, 0.45);
+  opacity: 0; transition: opacity 140ms ease-out; will-change: transform, opacity; }
+.bf-pinch.on { opacity: 0.9; }
+
 /* ---- part labels (exploded) ---- */
 .bf-plabel { position: absolute; left: 0; top: 0; will-change: transform, opacity; }
 .bf-plabel.hl { background: rgba(77, 163, 255, 0.34); border-color: rgba(120, 186, 255, 0.95); font-size: 17px; font-weight: 600;
@@ -91,7 +97,9 @@ export const HUD_CSS = `
 .bf-debug { position: absolute; left: 18px; top: 56px; max-width: calc(100vw - 36px); max-height: calc(100vh - 200px); overflow: hidden;
   padding: 10px 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.72); color: #e8e8e8;
   font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace !important; white-space: pre; }
-.bf-tuning { position: absolute; top: 16px; right: 18px; width: 320px; padding: 12px 14px; border-radius: 10px; pointer-events: auto;
+.bf-tuning-col { position: absolute; top: 16px; right: 18px; width: 320px; max-height: calc(100vh - 32px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+.bf-tuning { box-sizing: border-box; width: 100%; padding: 12px 14px; border-radius: 10px; pointer-events: auto;
   background: rgba(0, 0, 0, 0.78); color: #e8e8e8; font-size: 13px !important; display: flex; flex-direction: column; gap: 8px; }
 .bf-tuning * { font-size: 13px; }
 .bf-tuning-title { font-weight: 600; }
