@@ -1,13 +1,14 @@
 /**
- * Camera: getUserMedia feed (not mirrored, object-fit: cover), device picker,
- * freeze snapshot, and the captureCrop() API registered in the store.
+ * Camera: getUserMedia feed (not mirrored, object-fit: cover), freeze snapshot, and the
+ * captureCrop() API registered in the store. The device picker only exists inside the hidden
+ * debug panel (key D), at its top-left.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChangeEvent, CSSProperties } from 'react';
 import { useStore } from '../state/store';
 import type { Box, CameraApi } from '../state/store';
 import { errorText, frame, MOCK_MODE } from './frame';
-import { setStatus } from '../hud/hudStore';
+import { setStatus, useHud } from '../hud/hudStore';
 
 const LS_KEY = 'xray.cameraDeviceId';
 
@@ -140,6 +141,7 @@ export function Camera() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [requestedId, setRequestedId] = useState<string | null>(() => readRemembered());
   const frozen = useStore((s) => s.frozen);
+  const debug = useHud((s) => s.debug);
 
   // Publish element refs to the frame runtime.
   useEffect(() => {
@@ -293,7 +295,7 @@ export function Camera() {
         style={{ ...fill, visibility: frozen ? 'hidden' : 'visible' }}
       />
       <canvas ref={canvasRef} style={{ ...fill, display: frozen ? 'block' : 'none' }} />
-      {devices.length > 0 && (
+      {debug && devices.length > 0 && (
         <select
           data-xr-ui
           value={activeId ?? ''}
@@ -301,7 +303,7 @@ export function Camera() {
           title="Camera"
           style={{
             position: 'absolute',
-            top: 66,
+            top: 16,
             left: 18,
             zIndex: 20,
             maxWidth: 260,
@@ -311,7 +313,7 @@ export function Camera() {
             border: '1px solid rgba(125,227,255,0.45)',
             borderRadius: 4,
             padding: '3px 6px',
-            opacity: 0.75,
+            pointerEvents: 'auto',
           }}
         >
           {activeId === null && <option value="">camera...</option>}
