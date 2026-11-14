@@ -165,6 +165,19 @@ const tools: Record<ClientToolName, Tool> = {
     return on ? 'Overlay on. Objects in view are now labelled.' : 'Overlay off. Clean view.';
   },
 
+  async rotate_model(p) {
+    const s = useStore.getState();
+    if (!s.teardown) return 'Nothing is on stage yet. Call explode first.';
+    const dir = (str(p, 'direction') ?? 'right').toLowerCase();
+    const deg = Math.min(360, Math.max(5, num(p, 'degrees') ?? (dir === 'around' || dir === 'flip' ? 180 : 45)));
+    const rad = (deg * Math.PI) / 180;
+    if (dir === 'left') s.rotateModel(-rad, 0);
+    else if (dir === 'up') s.rotateModel(0, -rad);
+    else if (dir === 'down') s.rotateModel(0, rad);
+    else s.rotateModel(rad, 0); // right, around, flip
+    return `Turned ${dir} by ${Math.round(deg)} degrees.`;
+  },
+
   async get_pose() {
     const hands = useStore.getState().hands.map(describeHand);
     if (hands.length === 0) return json({ hands: [], note: 'No hands in view.' });

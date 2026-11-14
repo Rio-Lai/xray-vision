@@ -54,6 +54,7 @@ Names match `CLIENT_TOOL_NAMES`. Each takes a parameters object and returns a st
 | `highlight_part` | `part_id` | highlights; accepts an id or a loose name | JSON: part id, name, summary, details, safety |
 | `show_step` | `n` | sets `activeStep` | JSON: step text and part ids |
 | `reset_view` | none | `resetAll()` | text |
+| `rotate_model` | `direction` ("left", "right", "up", "down", "around"), `degrees?` (default 45; "around" = 180) | turns the floating model (`store.rotateModel`) | text |
 | `get_pose` | none | reads hands | JSON: per hand: handedness, finger curl and pressing, activeFinger, action, muscles (part ids) |
 
 There is no `set_lens` tool: Blowfish has no lenses.

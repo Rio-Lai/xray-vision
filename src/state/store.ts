@@ -48,7 +48,13 @@ export interface HandState {
   activeFinger: FingerName | null;
 }
 
-export type TrackingMode = 'freeze' | 'follow' | 'mat';
+/**
+ * Where a model is drawn.
+ * stage  = floating in the middle of the view over the live camera feed (the product's main mode).
+ * freeze = the frame freezes and the parts sit over the frozen object (fallback).
+ * follow = the parts follow the object's box live (fallback; hands always follow).
+ */
+export type TrackingMode = 'stage' | 'freeze' | 'follow';
 export type TeardownStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type VoiceStatus = 'disconnected' | 'connecting' | 'connected';
 
@@ -87,6 +93,12 @@ export interface AppState {
 
   frozen: boolean;
   trackingMode: TrackingMode;
+  /**
+   * Target orientation of the model on stage, in radians (yaw = turn left/right, pitch = tip up/down).
+   * Hand gestures and the rotate_model voice tool write it; the overlay eases towards it.
+   */
+  modelYaw: number;
+  modelPitch: number;
 
   voiceStatus: VoiceStatus;
   agentSpeaking: boolean;
@@ -112,6 +124,8 @@ export interface AppState {
   showStep: (n: number | null) => void;
   setFrozen: (frozen: boolean) => void;
   setTrackingMode: (mode: TrackingMode) => void;
+  /** Add to the model's target orientation (radians). Pitch is clamped to about +-70 degrees. */
+  rotateModel: (dYaw: number, dPitch: number) => void;
   /** Collapse, clear the selection, unfreeze. */
   resetView: () => void;
 
@@ -141,6 +155,8 @@ export const useStore = create<AppState>((set) => ({
 
   frozen: false,
   trackingMode: 'freeze',
+  modelYaw: 0,
+  modelPitch: 0,
 
   voiceStatus: 'disconnected',
   agentSpeaking: false,
@@ -176,6 +192,11 @@ export const useStore = create<AppState>((set) => ({
   showStep: (activeStep) => set({ activeStep }),
   setFrozen: (frozen) => set({ frozen }),
   setTrackingMode: (trackingMode) => set({ trackingMode }),
+  rotateModel: (dYaw, dPitch) =>
+    set((s) => ({
+      modelYaw: s.modelYaw + dYaw,
+      modelPitch: Math.min(1.2, Math.max(-1.2, s.modelPitch + dPitch)),
+    })),
   resetView: () =>
     set({
       selectedObjectId: null,
@@ -186,6 +207,8 @@ export const useStore = create<AppState>((set) => ({
       highlightedPartId: null,
       activeStep: null,
       frozen: false,
+      modelYaw: 0,
+      modelPitch: 0,
     }),
 
   setVoiceStatus: (voiceStatus) => set({ voiceStatus }),
