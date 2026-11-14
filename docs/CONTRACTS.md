@@ -18,7 +18,7 @@ See `TeardownSchema` in `shared/teardown.ts`. Conventions:
 
 ## API
 
-All JSON. The Vite dev server proxies `/api` to `http://localhost:8787`.
+All JSON. The Vite dev server proxies `/api` to the local API server on `127.0.0.1` (default port 8791; `PORT` in `.env` moves both; one definition in `server/lib/env.ts`).
 
 | Route | Request | Response |
 | --- | --- | --- |
@@ -30,13 +30,13 @@ All JSON. The Vite dev server proxies `/api` to `http://localhost:8787`.
 
 Mock mode: a route with its key missing (or `MOCK=1`) answers from the cache.
 
-- identify: hint containing "laptop" -> `macbook-air-m3-13`; "hand" -> `hand-finger-muscles` (see `shared/demo.ts`). A hand in the biology lens always maps to `hand-finger-muscles`, even with a key.
+- identify: hint containing "laptop" -> `macbook-air-m3-13`; "hand" -> `hand-finger-muscles` (see `shared/demo.ts`). A hand always maps to `hand-finger-muscles`, even with a key. There are no lenses: the `lens` value in a request is only an internal hint (`kindOf(label, anchor)` in `shared/demo.ts`: hand -> biology, anything else -> engineering); the user never sees or sets it.
 - teardown: cache-first always. Order: `public/cache/<id>.json`, then `.cache-live/<id>.json`, then Claude.
 - generate-part: checked GLB in `public/cache/meshes/`, then `.cache-live/meshes.json`, then fal.
 
 ## Flow (`src/lib/flow.ts`)
 
-- `explodeObject(objectId?)`: target = objectId (if it names a scene object), else focused, else selected, else the most confident object of the current lens. Selects it, freezes the frame for box anchors in freeze mode (unfreezes again if loading fails), identifies, loads the teardown, sets explode to 1, tells the voice agent, then fetches meshes in the background (two at a time; never for `anchor: 'hand'`). A second call for the same object while one is loading joins it. Returns `{ ok, message }`.
+- `explodeObject(objectId?)`: target = objectId (if it names a scene object), else focused, else selected, else the most confident object of any kind. Turns the overlay on (`setOverlayOn(true)`) if it was off. Selects it, freezes the frame for box anchors in freeze mode (unfreezes again if loading fails), identifies, loads the teardown, sets explode to 1, tells the voice agent, then fetches meshes in the background (two at a time; never for `anchor: 'hand'`). A second call for the same object while one is loading joins it. Returns `{ ok, message }`. On failure `message` is one sentence the tutor can say: "I do not have parts for the <name> yet." (no checked parts list and no Anthropic key), "Blowfish server is not running. Check the terminal where npm run dev was started.", or "I could not load the parts for the <name>. Try again in a moment."
 - `pickPart(partId)`: highlight, and ask the tutor about it if voice is connected.
 - `resetAll()`: `store.resetView()` and drops any in-flight explode.
 - `describeTeardown(td)`: the text sent to the agent as a contextual update.
@@ -47,14 +47,16 @@ Names match `CLIENT_TOOL_NAMES`. Each takes a parameters object and returns a st
 
 | Tool | Params | Does | Returns |
 | --- | --- | --- | --- |
-| `get_scene` | none | reads the store | JSON: lens, objects, focused id, teardown parts (id, name, summary, safety), status, explode amount, highlight, step |
+| `get_scene` | none | reads the store | JSON: objects, focused id, teardown parts (id, name, summary, safety), status, explode amount, highlight, step |
+| `set_overlay` | `on` (boolean) | `true` = label what is in view ("Hey Blowfish, overlay on"); `false` = clean view, also resets | text |
 | `select_object` | `object_id?` | selects it (default: focused) | text |
 | `explode` | `object_id?`, `amount?` | `amount` 0 collapses; otherwise loads and explodes (default 1) | text, e.g. "Exploded MacBook Air 13-inch (M3, 2024): 12 parts." |
 | `highlight_part` | `part_id` | highlights; accepts an id or a loose name | JSON: part id, name, summary, details, safety |
 | `show_step` | `n` | sets `activeStep` | JSON: step text and part ids |
 | `reset_view` | none | `resetAll()` | text |
-| `set_lens` | `lens` ("engineering" or "biology") | switches lens | text |
 | `get_pose` | none | reads hands | JSON: per hand: handedness, finger curl and pressing, activeFinger, action, muscles (part ids) |
+
+`set_lens` still exists in code but is deprecated (Blowfish has no lenses): do not add it to the ElevenLabs dashboard. It is removed in #32.
 
 `get_pose` muscle mapping: index, middle, ring or pinky pressing -> `fdp`, `fds`, `flexor-tendons`; thumb pressing -> `fpl`, `thenar`; active finger not pressing (lifting) -> `extensor-digitorum`.
 
