@@ -28,6 +28,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
+        id: install
         run: |
           if [ -f package-lock.json ]; then
             npm ci
@@ -38,5 +39,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Runs even when the typecheck fails, so one run shows both error lists.
       - name: Build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build
