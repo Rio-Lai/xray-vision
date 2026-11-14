@@ -12,7 +12,14 @@ export async function agentToken(_req: Request, res: Response) {
 
   const agentId = process.env.ELEVENLABS_AGENT_ID!;
   const url = `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`;
-  const r = await fetch(url, { headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY! } });
+  let r: globalThis.Response;
+  try {
+    r = await fetch(url, { headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY! }, signal: AbortSignal.timeout(10_000) });
+  } catch (err) {
+    // No network, DNS failure or timeout: the app shows "Voice off" instead of crashing.
+    console.error('[agent-token] could not reach ElevenLabs:', err instanceof Error ? err.message : err);
+    return res.status(502).json({ error: 'elevenlabs_unreachable', message: 'Could not reach ElevenLabs. Check the network.' });
+  }
   if (!r.ok) {
     const text = await r.text().catch(() => '');
     console.error(`[agent-token] ElevenLabs ${r.status}: ${text.slice(0, 300)}`);

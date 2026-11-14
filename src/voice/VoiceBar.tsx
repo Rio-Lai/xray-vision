@@ -13,12 +13,14 @@ import { useVoiceAgent } from './useVoiceAgent';
 import { voiceBridge } from './bridge';
 import { runLocalCommand } from './localCommands';
 import { VOICE_CSS } from './voiceStyles';
+import { shouldMute, usePtt } from './pushToTalk';
 
-type PillState = 'off' | 'connecting' | 'listening' | 'thinking' | 'speaking';
+type PillState = 'off' | 'connecting' | 'hold' | 'listening' | 'thinking' | 'speaking';
 
 const PILL_TEXT: Record<PillState, string> = {
   off: 'Voice off',
   connecting: 'Connecting',
+  hold: 'Hold to talk',
   listening: 'Listening',
   thinking: 'Thinking',
   speaking: 'Speaking',
@@ -109,6 +111,7 @@ export function VoiceBar() {
   const connected = voiceStatus === 'connected';
   const busy = voiceStatus === 'connecting';
   const thinking = useThinking(connected, speaking);
+  const micMuted = usePtt(shouldMute);
 
   // Errors never go on screen; the pill just says "Voice off".
   useEffect(() => {
@@ -179,7 +182,9 @@ export function VoiceBar() {
       ? 'speaking'
       : thinking
         ? 'thinking'
-        : 'listening'
+        : micMuted
+          ? 'hold'
+          : 'listening'
     : busy
       ? 'connecting'
       : 'off';
