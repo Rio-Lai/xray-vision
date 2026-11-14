@@ -4,53 +4,8 @@
  * never ends up talking to some other program on our port).
  */
 import 'dotenv/config';
-import net from 'node:net';
 import { DEFAULT_PORT, WEB_PORT, apiPort, portInUseMessage } from './env';
-
-/** Can we bind host:port ourselves? Only "in use" counts as taken; a missing IPv6 stack does not. */
-function canListen(port: number, host: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', (err: Error) => {
-      const code = (err as NodeJS.ErrnoException).code;
-      resolve(!(code === 'EADDRINUSE' || code === 'EACCES'));
-    });
-    srv.once('listening', () => srv.close(() => resolve(true)));
-    srv.listen(port, host);
-  });
-}
-
-/** Does anything accept connections on host:port? Catches wildcard listeners that macOS lets us bind beside. */
-function answers(port: number, host: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const sock = net.connect({ port, host });
-    const done = (result: boolean) => {
-      sock.destroy();
-      resolve(result);
-    };
-    sock.setTimeout(500, () => done(false));
-    sock.once('connect', () => done(true));
-    sock.once('error', () => done(false));
-  });
-}
-
-async function taken(port: number, hosts: string[]): Promise<boolean> {
-  for (const host of hosts) {
-    if (!(await canListen(port, host)) || (await answers(port, host))) return true;
-  }
-  return false;
-}
-
-/** Is the program on this port one of our own servers? Same check as the browser does in src/lib/api.ts. */
-async function isBlowfish(port: number): Promise<boolean> {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1000) });
-    const body = (await res.json()) as { ok?: unknown; keys?: unknown; model?: unknown };
-    return res.ok && body.ok === true && typeof body.keys === 'object' && typeof body.model === 'string';
-  } catch {
-    return false;
-  }
-}
+import { isBlowfish, taken } from './ports';
 
 async function main() {
   let port: number;
