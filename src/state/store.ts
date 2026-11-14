@@ -70,8 +70,6 @@ export interface AppState {
    * Toggled by voice ("Hey Blowfish, overlay on") through the set_overlay tool.
    */
   overlayOn: boolean;
-  /** DEPRECATED: Blowfish has no lenses. Do not read this in new code; it will be removed. */
-  lens: Lens;
   objects: SceneObject[];
   /** Object under the centre gaze reticle. This is what "this" means in "explode this". */
   focusedObjectId: string | null;
@@ -98,8 +96,6 @@ export interface AppState {
 
   // ---- actions ----
   setOverlayOn: (on: boolean) => void;
-  /** DEPRECATED with `lens`. */
-  setLens: (lens: Lens) => void;
   setObjects: (objects: SceneObject[]) => void;
   setFocusedObject: (id: string | null) => void;
   setHands: (hands: HandState[]) => void;
@@ -130,7 +126,6 @@ const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
 export const useStore = create<AppState>((set) => ({
   overlayOn: false,
-  lens: 'engineering',
   objects: [],
   focusedObjectId: null,
   selectedObjectId: null,
@@ -154,7 +149,6 @@ export const useStore = create<AppState>((set) => ({
   camera: null,
 
   setOverlayOn: (overlayOn) => set({ overlayOn }),
-  setLens: (lens) => set({ lens }),
   setObjects: (objects) => set({ objects }),
   setFocusedObject: (focusedObjectId) => set({ focusedObjectId }),
   setHands: (hands) => set({ hands }),
