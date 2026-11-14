@@ -1,0 +1,203 @@
+{
+  "object_id": "macbook-air-m3-13",
+  "name": "MacBook Air 13-inch (M3, 2024)",
+  "lens": "engineering",
+  "anchor": "box",
+  "explode_axis": "z",
+  "source": "cached",
+  "parts": [
+    {
+      "id": "display-assembly",
+      "name": "Display assembly",
+      "layer": 0,
+      "size": [0.96, 0.4, 0.03],
+      "offset": [0, -0.29],
+      "shape": "board",
+      "color": "#2b3440",
+      "summary": "The 13.6-inch Liquid Retina screen in its aluminium lid, with the 1080p FaceTime camera in the notch.",
+      "details": "The lid holds the LCD panel, its backlight and the camera. Thin cables run down through the hinge area to the logic board. On this design the whole lid is usually replaced as one assembly rather than just the glass.",
+      "safety": "The panel and its cables are fragile. Do not flex the lid or pull the display cables while the laptop is open on the bench.",
+      "mesh_url": null
+    },
+    {
+      "id": "keyboard-top-case",
+      "name": "Keyboard and top case",
+      "layer": 0,
+      "size": [0.96, 0.56, 0.04],
+      "offset": [0, 0.21],
+      "shape": "board",
+      "color": "#9aa4ae",
+      "summary": "The aluminium deck you type on, with the Magic Keyboard and the Touch ID power key built in.",
+      "details": "The top case is the main structural shell. The keyboard is fixed into it, so a keyboard repair normally means a new top case. Most other parts mount to its underside.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "trackpad",
+      "name": "Force Touch trackpad",
+      "layer": 1,
+      "size": [0.42, 0.18, 0.02],
+      "offset": [0, 0.37],
+      "shape": "board",
+      "color": "#c9d1d9",
+      "summary": "A glass trackpad that senses pressure; the click you feel is a vibration from a haptic motor, not a moving switch.",
+      "details": "Force sensors measure how hard you press and a Taptic Engine pulses to fake the click. That is why it clicks anywhere on its surface. It connects to the logic board with a ribbon cable.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "hinges",
+      "name": "Hinges",
+      "layer": 1,
+      "size": [0.9, 0.04, 0.03],
+      "offset": [0, -0.08],
+      "shape": "cylinder",
+      "color": "#6b7480",
+      "summary": "Two hinges join the lid to the base and hold the screen at any angle.",
+      "details": "They are screwed to the top case. The display cables pass close to them, which is why a worn hinge or a hard knock to the lid can damage the screen connection.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "antennas",
+      "name": "Wi-Fi and Bluetooth antennas",
+      "layer": 1,
+      "size": [0.5, 0.03, 0.01],
+      "offset": [0, -0.11],
+      "shape": "tube",
+      "color": "#d4a017",
+      "summary": "The antennas for Wi-Fi 6E and Bluetooth 5.3, placed near the hinge where the metal case does not block the signal.",
+      "details": "An all-aluminium body would shield radio waves, so the antennas sit behind a gap or plastic window near the hinge. Thin coaxial cables link them to the wireless chips on the logic board.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "logic-board",
+      "name": "Logic board with M3 chip",
+      "layer": 2,
+      "size": [0.36, 0.14, 0.02],
+      "offset": [0, 0.03],
+      "shape": "board",
+      "color": "#1f7a4d",
+      "summary": "The main circuit board, carrying the M3 chip with its memory in the same package, plus the soldered SSD storage.",
+      "details": "The MacBook Air has no fan. A thin heat spreader and thermal pads move heat from the M3 into the aluminium case, which acts as a radiator. Under long heavy loads the chip slows itself down to stay cool. Memory and storage are soldered, so they cannot be upgraded later.",
+      "safety": "Disconnect the battery before touching the logic board. The board stays powered while the battery is connected.",
+      "mesh_url": null
+    },
+    {
+      "id": "battery",
+      "name": "Battery",
+      "layer": 2,
+      "size": [0.86, 0.26, 0.03],
+      "offset": [0, 0.27],
+      "shape": "box",
+      "color": "#3a3f47",
+      "summary": "A multi-cell lithium-polymer battery, about 52.6 Wh, spread under the palm rest.",
+      "details": "The flat cells are glued to the top case with stretch-release adhesive strips. You remove them by pulling the tabs slowly, which lets the adhesive let go without prying. Apple rates it for up to 18 hours of video playback.",
+      "safety": "Lithium battery: never puncture, bend or pry against the cells. A damaged cell can overheat and catch fire. Disconnect it before working on anything else.",
+      "mesh_url": null
+    },
+    {
+      "id": "speakers",
+      "name": "Speakers",
+      "layer": 2,
+      "size": [0.9, 0.05, 0.03],
+      "offset": [0, -0.05],
+      "shape": "box",
+      "color": "#4a5568",
+      "summary": "A four-speaker system that sends sound out through the gap near the hinge.",
+      "details": "There are no speaker grilles on the keyboard deck. The drivers sit at the back of the base and fire towards the hinge and screen, which reflects the sound towards you.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "magsafe-port",
+      "name": "MagSafe 3 charging port",
+      "layer": 3,
+      "size": [0.06, 0.08, 0.02],
+      "offset": [-0.45, -0.02],
+      "shape": "box",
+      "color": "#8fd3ff",
+      "summary": "The magnetic charging port on the left edge; the cable pops off safely if someone trips over it.",
+      "details": "MagSafe 3 holds the plug with magnets, so a tug pulls the cable away instead of dragging the laptop off the table. You can still charge from either USB-C port instead.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "thunderbolt-ports",
+      "name": "Thunderbolt / USB 4 ports",
+      "layer": 3,
+      "size": [0.06, 0.14, 0.02],
+      "offset": [-0.45, 0.1],
+      "shape": "box",
+      "color": "#7de3ff",
+      "summary": "Two USB-C ports on the left edge for charging, data and one external display.",
+      "details": "Both ports support Thunderbolt and USB 4. With the lid open, the 13-inch M3 Air drives one external display; with the lid closed it can drive two.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "headphone-jack",
+      "name": "Headphone jack",
+      "layer": 3,
+      "size": [0.05, 0.06, 0.02],
+      "offset": [0.45, 0.05],
+      "shape": "cylinder",
+      "color": "#b794f4",
+      "summary": "A 3.5 mm headphone jack on the right edge that also works with high-impedance headphones.",
+      "details": "It sits on its own small board on the right side of the base, linked to the logic board by a cable. That keeps wear from plugging in headphones away from the main board.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "bottom-case",
+      "name": "Bottom case",
+      "layer": 4,
+      "size": [0.96, 0.58, 0.02],
+      "offset": [0, 0.21],
+      "shape": "board",
+      "color": "#8b949e",
+      "summary": "The aluminium base plate, held on by four P5 pentalobe screws.",
+      "details": "Pentalobe screws need a special five-point driver, which discourages casual opening. The case also has rubber feet and helps spread heat away from the chip.",
+      "safety": "Shut down and unplug the charger before opening the case.",
+      "mesh_url": null
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "text": "Shut the Mac down fully (not sleep) and unplug the charger.",
+      "part_ids": ["magsafe-port"]
+    },
+    {
+      "n": 2,
+      "text": "Close the lid, turn it over on a soft mat and remove the four P5 pentalobe screws from the bottom case.",
+      "part_ids": ["bottom-case"]
+    },
+    {
+      "n": 3,
+      "text": "Lift the bottom case away gently. It can also be held by clips, so do not force it.",
+      "part_ids": ["bottom-case"]
+    },
+    {
+      "n": 4,
+      "text": "Disconnect the battery from the logic board before touching anything else.",
+      "part_ids": ["battery", "logic-board"]
+    },
+    {
+      "n": 5,
+      "text": "Pull each adhesive tab slowly and keep it low and flat, so the stretch-release glue lets go of the cells. Never pry under the cells.",
+      "part_ids": ["battery"]
+    },
+    {
+      "n": 6,
+      "text": "Fit the new battery, reconnect it last, then refit the bottom case and its screws.",
+      "part_ids": ["battery", "bottom-case"]
+    },
+    {
+      "n": 7,
+      "text": "Power on and check the battery in System Settings > Battery.",
+      "part_ids": ["battery"]
+    }
+  ]
+}

@@ -1,0 +1,190 @@
+{
+  "object_id": "hand-finger-muscles",
+  "name": "Hand and finger muscles",
+  "lens": "biology",
+  "anchor": "hand",
+  "explode_axis": "z",
+  "source": "cached",
+  "parts": [
+    {
+      "id": "skin",
+      "name": "Skin",
+      "layer": 0,
+      "size": [1.0, 1.0, 0.25],
+      "offset": [0, 0],
+      "shape": "box",
+      "color": "#e8b89a",
+      "summary": "The outer layer of the hand, packed with touch sensors in the fingertips.",
+      "details": "Fingertip skin has some of the densest touch receptors in the body, which is how you feel the edge of a key without looking. Palm skin is thick and tied down to the tissue underneath so your grip does not slide.",
+      "safety": "Educational, not medical advice. Pain, numbness or tingling in the hand should be checked by a clinician.",
+      "mesh_url": null
+    },
+    {
+      "id": "extensor-digitorum",
+      "name": "Extensor digitorum",
+      "layer": 1,
+      "size": [0.6, 0.85, 0.03],
+      "offset": [0, 0.05],
+      "shape": "tube",
+      "color": "#d96c5f",
+      "summary": "A muscle on the back of the forearm whose four tendons straighten the fingers and lift them off a key.",
+      "details": "Its tendons run over the back of the hand, the side you see when you look down at your typing hands. They spread into a thin hood over each finger, which the small hand muscles also pull on to straighten the finger joints.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "bones",
+      "name": "Bones of the hand",
+      "layer": 2,
+      "size": [0.8, 0.95, 0.12],
+      "offset": [0, -0.02],
+      "shape": "tube",
+      "color": "#efe6cf",
+      "summary": "27 bones in the wrist and hand: 8 carpals, 5 metacarpals and 14 phalanges.",
+      "details": "Each finger has three phalanges and the thumb has two. The muscles never touch the keys themselves; they pull on tendons that rotate these bones like levers around the knuckle joints.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "interossei",
+      "name": "Interossei",
+      "layer": 2,
+      "size": [0.55, 0.25, 0.08],
+      "offset": [0, 0.15],
+      "shape": "box",
+      "color": "#c0504d",
+      "summary": "Small muscles between the long bones of the hand that spread the fingers apart and pull them together.",
+      "details": "The dorsal interossei spread the fingers and the palmar interossei bring them back together, which helps you reach between keys. They also help bend the knuckle while keeping the finger straight. They are supplied by the ulnar nerve.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "lumbricals",
+      "name": "Lumbricals",
+      "layer": 3,
+      "size": [0.5, 0.2, 0.05],
+      "offset": [0, 0.12],
+      "shape": "tube",
+      "color": "#e07b67",
+      "summary": "Four thin muscles inside the palm that bend the knuckles while keeping the fingers straight.",
+      "details": "Unusually, they start on the tendons of flexor digitorum profundus rather than on bone, and end on the extensor hood on the back of each finger. That lets them fine-tune finger position, such as hovering over the home row.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "fdp",
+      "name": "Flexor digitorum profundus (FDP)",
+      "layer": 3,
+      "size": [0.3, 0.25, 0.12],
+      "offset": [0.08, 0.45],
+      "shape": "cylinder",
+      "color": "#a93226",
+      "summary": "A deep forearm muscle that bends the fingertip joint; it is the only muscle that can do that.",
+      "details": "Its belly sits in the forearm. Its four tendons pass through the carpal tunnel and through a split in the FDS tendons to reach the last bone of each finger. The index and middle finger parts are supplied by the median nerve, the ring and little finger parts by the ulnar nerve.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "fpl",
+      "name": "Flexor pollicis longus (FPL)",
+      "layer": 3,
+      "size": [0.15, 0.25, 0.08],
+      "offset": [-0.28, 0.42],
+      "shape": "cylinder",
+      "color": "#b03a2e",
+      "summary": "A forearm muscle whose single tendon bends the tip joint of the thumb.",
+      "details": "It lies deep in the forearm on the thumb side. Its tendon runs through the carpal tunnel with the finger flexor tendons, then along the thumb to its last bone.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "flexor-tendons",
+      "name": "Flexor tendons",
+      "layer": 4,
+      "size": [0.55, 0.8, 0.03],
+      "offset": [0, 0],
+      "shape": "tube",
+      "color": "#f2efe6",
+      "summary": "The long cords on the palm side that carry the pull of the forearm flexors to the fingers.",
+      "details": "Nine tendons (four FDS, four FDP and the FPL) pass through the carpal tunnel at the wrist, alongside the median nerve. Along each finger, fibrous pulleys hold them close to the bone, like the guides on a fishing rod.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "fds",
+      "name": "Flexor digitorum superficialis (FDS)",
+      "layer": 4,
+      "size": [0.35, 0.25, 0.12],
+      "offset": [-0.06, 0.45],
+      "shape": "cylinder",
+      "color": "#c0392b",
+      "summary": "A forearm muscle that bends the middle joint of each finger.",
+      "details": "Its belly sits in the forearm, nearer the palm-side surface than FDP. Each of its four tendons splits in two near the middle bone of the finger, letting the FDP tendon pass through to the fingertip. It is supplied by the median nerve.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "thenar",
+      "name": "Thenar muscles",
+      "layer": 5,
+      "size": [0.25, 0.22, 0.1],
+      "offset": [-0.3, 0.25],
+      "shape": "sphere",
+      "color": "#cd6155",
+      "summary": "The fleshy pad at the base of the thumb; these muscles move the thumb, for example onto the space bar.",
+      "details": "Three short muscles: abductor pollicis brevis, flexor pollicis brevis and opponens pollicis. They swing the thumb out and across the palm. Most of them are supplied by the median nerve.",
+      "safety": null,
+      "mesh_url": null
+    },
+    {
+      "id": "hypothenar",
+      "name": "Hypothenar muscles",
+      "layer": 5,
+      "size": [0.18, 0.25, 0.08],
+      "offset": [0.33, 0.25],
+      "shape": "sphere",
+      "color": "#d98880",
+      "summary": "The pad at the base of the little finger; these muscles move the little finger, for example out to Shift or Enter.",
+      "details": "Three short muscles: abductor digiti minimi, flexor digiti minimi brevis and opponens digiti minimi. They are supplied by the ulnar nerve.",
+      "safety": null,
+      "mesh_url": null
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "text": "Your brain sends a signal down the arm. The median and ulnar nerves carry it to the finger flexor muscles in the forearm.",
+      "part_ids": ["fds", "fdp"]
+    },
+    {
+      "n": 2,
+      "text": "The small muscles inside the hand, the lumbricals and interossei, line the finger up over the key.",
+      "part_ids": ["lumbricals", "interossei"]
+    },
+    {
+      "n": 3,
+      "text": "The forearm flexors contract. FDS bends the middle joint of the finger and FDP bends the fingertip joint.",
+      "part_ids": ["fds", "fdp"]
+    },
+    {
+      "n": 4,
+      "text": "The pull travels along the flexor tendons, through the carpal tunnel at the wrist and along the palm side of the finger.",
+      "part_ids": ["flexor-tendons"]
+    },
+    {
+      "n": 5,
+      "text": "The finger bones swing like levers around the knuckle joints and the fingertip pushes the key down.",
+      "part_ids": ["bones", "skin"]
+    },
+    {
+      "n": 6,
+      "text": "For the space bar, the thenar muscles move the thumb and flexor pollicis longus can bend its tip.",
+      "part_ids": ["thenar", "fpl"]
+    },
+    {
+      "n": 7,
+      "text": "To let go, extensor digitorum on the back of the forearm lifts the finger back up, ready for the next key.",
+      "part_ids": ["extensor-digitorum"]
+    }
+  ]
+}

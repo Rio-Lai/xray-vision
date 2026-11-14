@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.env.local
+.DS_Store
+# Unreviewed AI output (live teardowns, fal meshes). Promote by hand into public/cache/.
+.cache-live
+*.log
