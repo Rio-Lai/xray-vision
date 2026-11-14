@@ -7,6 +7,10 @@
  * Stage mode (the default): the box rig lifts the model out of the object and floats it in the
  * middle of the view, turned by store.modelYaw / modelPitch, plus a very slow idle drift once
  * nothing has touched it for IDLE_MS. "Put it away" (reset) glides it back into its object.
+ * A hand teardown goes on stage the same way once its parts have models (mesh_url; it switches
+ * by itself when they appear): the 3D hand and forearm float in the middle, while the
+ * landmark-drawn tendons and muscles keep following the real hand (not exploded, still lit by
+ * key presses). A highlight shows on both. Without models a hand is drawn on the real hand only.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import * as THREE from 'three';
@@ -29,6 +33,7 @@ import { preloadTeardownMeshes } from './glbCache';
 import { modelControl } from '../stage/modelControl';
 import { gestureLive } from '../detect/gestureDriver';
 import { PinchDotLayer } from './pinchDots';
+import { hasPartMeshes } from './stageState';
 
 const DWELL_MS = 1200;
 /**
@@ -51,6 +56,13 @@ function teardownSignature(td: Teardown): string {
     td.explode_axis,
     ...td.parts.map((p) => `${p.id}:${p.layer}:${p.shape}:${p.size.join('/')}:${p.offset.join('/')}:${p.color}`),
   ].join('|');
+}
+
+/** Whether the teardown gets the box rig: every non-hand teardown; a hand only on stage with models. */
+function wantsBoxRig(td: Teardown | null, s: AppState): boolean {
+  if (!td) return false;
+  if (td.anchor !== 'hand') return true;
+  return s.trackingMode === 'stage' && hasPartMeshes(td);
 }
 
 function highlightSet(s: AppState): Set<string> {
@@ -144,8 +156,14 @@ class OverlayEngine {
     // The demo laptop's models, parsed once in the background so the first explode shows them at once.
     this.preloadTimer = setTimeout(() => {
       this.preloadTimer = null;
-      const id = DEMO_IDENTIFY.laptop.object_id;
-      void preloadTeardownMeshes(id, () => this.disposed).then((n) => devLog(`Preloaded ${n} models for ${id}`));
+      void (async () => {
+        // The demo laptop first, then the hand (nothing to load until its models exist).
+        for (const id of [DEMO_IDENTIFY.laptop.object_id, DEMO_IDENTIFY.hand.object_id]) {
+          if (this.disposed) return;
+          const n = await preloadTeardownMeshes(id, () => this.disposed);
+          if (n > 0) devLog(`Preloaded ${n} models for ${id}`);
+        }
+      })();
     }, PRELOAD_DELAY_MS);
 
     this.labels = new LabelLayer(labelHost);
@@ -201,14 +219,34 @@ class OverlayEngine {
       }
       this.dwellPart = null;
       this.rigObjectId = null;
-      if (td && td.anchor !== 'hand') {
-        this.boxRig = new BoxRig(td, this.scene);
-        this.rigObjectId = s.selectedObjectId ?? s.focusedObjectId;
-        this.drift = 0;
-        this.lastInput = performance.now();
-      }
+      if (td && wantsBoxRig(td, s)) this.createRig(td, s);
     }
     if (td && this.boxRig) this.boxRig.syncMeshes(td);
+  }
+
+  private createRig(td: Teardown, s: AppState): void {
+    // A hand on stage shows only the parts that have models; the rest stay on the real hand.
+    this.boxRig = new BoxRig(td, this.scene, { meshOnly: td.anchor === 'hand' });
+    this.rigObjectId = s.selectedObjectId ?? s.focusedObjectId;
+    this.drift = 0;
+    this.lastInput = performance.now();
+    this.boxRig.syncMeshes(td);
+  }
+
+  /**
+   * A hand teardown gains or loses its stage model without a new parts list: its models appeared
+   * (mesh_url), or the tracking mode changed (hidden M key). Box teardowns always keep their rig.
+   */
+  private syncHandRig(td: Teardown | null, s: AppState): void {
+    if (!td || td.anchor !== 'hand') return;
+    const want = wantsBoxRig(td, s);
+    if (want && !this.boxRig) {
+      this.createRig(td, s);
+    } else if (!want && this.boxRig) {
+      this.boxRig.dispose();
+      this.boxRig = null;
+      this.labels.clear();
+    }
   }
 
   /**
@@ -290,6 +328,7 @@ class OverlayEngine {
     const s = useStore.getState();
     if (s.teardown !== this.teardownRef) this.onTeardown(s.teardown);
     const td = s.teardown;
+    this.syncHandRig(td, s);
     const hl = highlightSet(s);
     const vw = this.vw;
     const vh = this.vh;
@@ -314,6 +353,8 @@ class OverlayEngine {
     }
 
     const handTd = td && td.anchor === 'hand' ? td : null;
+    // The hand's model is on stage: the live drawing stays on the real hand, collapsed, without labels.
+    const handOnStage = handTd !== null && this.boxRig !== null;
     const sel = s.selectedObjectId && s.selectedObjectId.startsWith('hand-') ? s.selectedObjectId : null;
     const foc = s.focusedObjectId && s.focusedObjectId.startsWith('hand-') ? s.focusedObjectId : null;
     const handOut = this.handRig.update({
@@ -327,10 +368,10 @@ class OverlayEngine {
       teardown: handTd,
       // Live tendons on a focused hand once the overlay is on (the full layers come with explode).
       preview: !td && s.overlayOn && foc !== null,
-      explodeTarget: s.explodeAmount,
+      explodeTarget: handOnStage ? 0 : s.explodeAmount,
       highlighted: hl,
     });
-    if (handOut && handTd) {
+    if (handOut && handTd && !handOnStage) {
       labelItems = handOut.labels;
       bounds = handOut.bounds;
     }
