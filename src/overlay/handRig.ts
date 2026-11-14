@@ -1,7 +1,11 @@
 /**
- * Hand anchor (biology): an anatomical X-ray overlay rebuilt every frame from the tracked hand's
+ * Hand anchor (biology): an anatomical overlay rebuilt every frame from the tracked hand's
  * landmarks (viewport px). Layers lift apart up-left with explodeAmount; pressing fingers glow warm
- * on their flexor tendon + FDS/FDP (thumb: FPL + thenar); quick extensions glow extensor-digitorum.
+ * orange (#FF9F45) on their flexor tendon + FDS/FDP (thumb: FPL + thenar); quick extensions glow
+ * extensor-digitorum.
+ * Look (PROJECT.md section 2): soft, semi-transparent shapes with feathered edges (see ribbon.ts),
+ * mostly white with a hint of each tissue's colour, so the real hand stays visible underneath;
+ * the part the tutor talks about turns accent blue. Nothing pulses.
  *
  * The rig's root is flipped (scale y = -1) so local coordinates ARE viewport pixels (y down).
  */
@@ -13,7 +17,7 @@ import { FINGERS, FINGER_CHAINS } from '../detect/handTracker';
 import { frameToView } from '../camera/frame';
 import type { CoverMap } from '../camera/frame';
 import { ExplodeAnimator, smoothstep } from './explodeAnimator';
-import { CYAN, Ribbon, bone, spindle } from './ribbon';
+import { Ribbon, bone, spindle } from './ribbon';
 import type { Path, V2 } from './ribbon';
 import type { LabelItem, StackBounds } from './labels';
 
@@ -50,6 +54,14 @@ const DEFAULTS: Record<HandPartId, { layer: number; color: string; name: string;
 const PREVIEW_PARTS = new Set<HandPartId>(['bones', 'flexor-tendons', 'extensor-digitorum']);
 
 const UP_LEFT = { x: -0.48, y: -0.88 };
+const WHITE = new THREE.Color('#ffffff');
+const ACCENT = new THREE.Color('#4DA3FF');
+/** How much of a tissue's own colour tints the soft white shapes. */
+const TISSUE_TINT = 0.35;
+
+function tissueColor(css: string): THREE.Color {
+  return WHITE.clone().lerp(new THREE.Color(css), TISSUE_TINT);
+}
 
 interface PartRig {
   id: HandPartId;
@@ -62,6 +74,8 @@ interface PartRig {
   inTeardown: boolean;
   hl: number;
   dim: number;
+  /** scratch colour: base tinted towards the accent when highlighted */
+  shown: THREE.Color;
 }
 
 interface Glow {
@@ -288,13 +302,14 @@ export class HandRig {
         id,
         name: d.name,
         layer: d.layer,
-        base: new THREE.Color(d.color).lerp(CYAN, 0.55),
+        base: tissueColor(d.color),
         fill: d.fill,
         group,
         ribbons,
         inTeardown: false,
         hl: 0,
         dim: 0,
+        shown: new THREE.Color(),
       });
     }
     this.anim.setLayers(this.parts.map((p) => p.layer));
@@ -314,7 +329,7 @@ export class HandRig {
       rig.layer = tp?.layer ?? d.layer;
       let color = d.color;
       if (tp && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(tp.color.trim())) color = tp.color.trim();
-      rig.base = new THREE.Color(color).lerp(CYAN, 0.55);
+      rig.base = tissueColor(color);
     }
     this.anim.setLayers(this.parts.map((p) => p.layer));
   }
@@ -385,7 +400,6 @@ export class HandRig {
     const hs = Math.max(12, len(sub(P[9], P[0])));
     const lift = 0.9 * hs * 1.9;
     const anyHl = input.highlighted.size > 0;
-    const pulse = 0.5 + 0.5 * Math.sin(now * 0.006);
     const kHl = 1 - Math.exp(-dt * 10);
     const labels: LabelItem[] = [];
     this.labelAnchors.clear();
@@ -416,15 +430,16 @@ export class HandRig {
       const isHl = input.highlighted.has(rig.id);
       rig.hl += ((isHl ? 1 : 0) - rig.hl) * kHl;
       rig.dim += ((anyHl && !isHl ? 1 : 0) - rig.dim) * kHl;
-      const base = input.teardown ? rig.fill : rig.fill * 0.55;
-      const opacity = this.presence * (base + rig.hl * (0.3 + 0.2 * pulse)) * (1 - 0.75 * rig.dim);
+      const base = input.teardown ? rig.fill : rig.fill * 0.6;
+      const opacity = this.presence * (base + rig.hl * 0.35) * (1 - 0.7 * rig.dim);
+      rig.shown.copy(rig.base).lerp(ACCENT, 0.6 * rig.hl);
       const order = 100 + (this.anim.layerCount - this.anim.rankOf(rig.layer)) * 3;
       const g = geo[rig.id];
       rig.ribbons.forEach((rb, i) => {
         const paths = g.paths[i] ?? [];
         const glow = glowFor(rig.id, i, this.glow) * this.presence;
         rb.setPaths(paths, glow);
-        rb.setStyle(rig.base, opacity, glow, order);
+        rb.setStyle(rig.shown, opacity, glow, order);
       });
 
       const anchor = add(g.anchor, off);
