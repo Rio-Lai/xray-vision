@@ -10,24 +10,46 @@
 ### Pre-generation
 
 ```bash
-npm run pregenerate -- macbook-air-m3-13
-npm run pregenerate -- hand-finger-muscles
+npm run pregenerate -- macbook-air-m3-13            # or a path: public/cache/macbook-air-m3-13.json; add --white for untextured
+npm run pregenerate -- macbook-air-m3-13 --promote  # after review: compress + copy into public/cache/meshes, set mesh_url
 ```
 
-For every part without a mesh it runs the fal pipeline, downloads the GLB to `.cache-live/review/meshes/<object_id>/<part_id>.glb`, and writes `.cache-live/review/<object_id>.json` with `mesh_url` set to `/cache/meshes/<object_id>/<part_id>.glb`. Look at the meshes (for example drag them into https://gltf-viewer.donmccurdy.com). Then promote the good ones:
+- Generate: every part WITHOUT a GLB (in `public/cache/meshes/<id>/` or the review folder) goes through fal, up to 4 at once.
+  A part that has a GLB is never paid for twice; to redo one, move its GLB away first. Prints OK/FAIL, seconds and both
+  request ids per part, then a table; runs are logged in `.cache-live/review/<id>.runs.json`.
+- Output goes to `.cache-live/review/` (gitignored) for a human to check, e.g. `scripts/mesh-sheet.html?object=<id>&review=1`
+  (serve the repo root with any static server) or https://gltf-viewer.donmccurdy.com.
+- Promote: compresses each GLB (1024 px JPEG textures, quantized geometry: ~3-5 MB -> ~0.8 MB) and edits only the
+  `mesh_url` lines of `public/cache/<id>.json`.
+- Safety: refuses `"mesh_source": "procedural"` teardowns (the eye) and hand teardowns; after "balance exhausted" it starts
+  nothing new and never retries (each retry is another billable job). The `/api/generate-part` route does the same.
+- Rejected meshes: `.cache-live/review/rejected/<id>/` (moved out so `--promote` skips them and a re-run regenerates them).
+
+MacBook Air status: 10 of 12 meshes are good and committed. The first run (prompt "isolated X from a MacBook Air")
+drew consumer products for 7 parts (router, hi-fi speaker, charger...); with the new "bare internal component" prompt
+5 of those came back right. `speakers` and `thunderbolt-ports` are still weak (a generic housing and an empty frame), so
+they show the placeholder shape. Re-running `npm run pregenerate -- macbook-air-m3-13` redoes only those two (~$0.90).
+
+### The eye (procedural, not fal 3D)
 
 ```bash
-mkdir -p public/cache/meshes/<object_id>
-cp .cache-live/review/meshes/<object_id>/<part_id>.glb public/cache/meshes/<object_id>/
+npm run build-eye
 ```
 
-and set that part's `mesh_url` in `public/cache/<object_id>.json`. The server also serves any GLB in `public/cache/meshes/` straight away, even without a key.
+`scripts/build-eye.ts` builds each eye part from code with real adult proportions (right eye; +z anterior, +y superior,
++x nasal; eyeball = 1.0 across) into `public/cache/meshes/eye/<part>.glb`. fal makes only the 2D textures
+(`scripts/eye/textures.ts`: iris with flux/dev, retinal fundus with flux-pro), cached in `public/cache/eye/textures/`
+and never regenerated unless deleted. `scripts/eye/texture-prep.ts` maps them onto the meshes (iris rubber-sheet
+unwrap, fundus mirrored to a right eye and re-projected with the fovea at the posterior pole and the disc 15 degrees nasal).
+If a raw texture is regenerated, re-measure the pixel positions at the top of that file.
+Previews: `public/cache/eye/preview/*.png`; interactive: `scripts/eye/preview.html` (E explode, C cut).
 
 ## Cache layout
 
 ```
 public/cache/<object_id>.json                   checked teardowns (committed)
 public/cache/meshes/<object_id>/<part_id>.glb   checked meshes (committed)
+public/cache/eye/                               eye textures (fal) and preview renders
 .cache-live/                                    unreviewed AI output (gitignored)
 ```
 

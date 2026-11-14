@@ -1,0 +1,16 @@
+{
+  "iris": {
+    "file": "iris.raw.png",
+    "model": "fal-ai/flux/dev",
+    "prompt": "extreme macro photograph of a single human iris seen straight on, perfectly centred, the iris fills the whole square frame edge to edge, radial fibres and crypts, collarette ring, hazel brown-green, round black pupil exactly in the centre, even soft lighting, no eyelids, no eyelashes, no reflections",
+    "request_id": "01a1db87-0b08-7ed2-90ea-37456e60daf1",
+    "image_url": "https://v3b.fal.media/files/b/0ab2789a/Qqu0UQFIDGlmXhXlZqz8g.png"
+  },
+  "retina": {
+    "file": "retina.raw.png",
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Colour fundus photograph of a normal healthy right eye, as taken by a retinal camera in an eye clinic, circular image on a black background. Small pale optic disc on the right side of the image, retinal arteries and veins branching from it and sweeping in long arcs above and below the centre of the image. Uniform orange-red retina, the centre of the image is plain, slightly darker retina. Photorealistic, ophthalmology textbook image.",
+    "request_id": "01a1db90-20f8-73c2-a7ca-a36b8ee18cd0",
+    "image_url": "https://v3b.fal.media/files/b/0ab278d6/L62Q-hEiNEA1-qjPnqjNu_329aeed55baa4cce9f027a410b91d1f0.png"
+  }
+}

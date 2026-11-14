@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>mesh sheet</title>
+    <style>
+      html, body { margin: 0; background: #11151c; color: #c9d1d9; font: 14px -apple-system, Helvetica, sans-serif; }
+      #grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 8px; }
+      .cell { position: relative; aspect-ratio: 1; background: #1b222c; border-radius: 8px; overflow: hidden; }
+      .cell span { position: absolute; left: 10px; bottom: 8px; }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }
+    </script>
+  </head>
+  <body>
+    <div id="grid"></div>
+    <script type="module">
+      // Contact sheet of every part mesh of one teardown, for reviewing fal output before committing.
+      // Serve the repo root and open /scripts/mesh-sheet.html?object=<object_id>
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+      const objectId = new URLSearchParams(location.search).get('object') || 'macbook-air-m3-13';
+      const review = new URLSearchParams(location.search).get('review'); // 1 = look at .cache-live/review instead
+      const td = await (await fetch(`/public/cache/${objectId}.json`)).json();
+      const size = 360;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(size, size);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const env = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+      const loader = new GLTFLoader();
+      const grid = document.getElementById('grid');
+      for (const part of td.parts) {
+        const url = review ? `/.cache-live/review/meshes/${objectId}/${part.id}.glb` : `/public/cache/meshes/${objectId}/${part.id}.glb`;
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.innerHTML = `<span>${part.id}</span>`;
+        grid.appendChild(cell);
+        try {
+          const gltf = await loader.loadAsync(url);
+          const scene = new THREE.Scene();
+          scene.environment = env;
+          scene.background = new THREE.Color('#1b222c');
+          const obj = gltf.scene;
+          const box = new THREE.Box3().setFromObject(obj);
+          const c = box.getCenter(new THREE.Vector3());
+          const r = box.getSize(new THREE.Vector3()).length() / 2;
+          obj.position.sub(c);
+          scene.add(obj);
+          const cam = new THREE.PerspectiveCamera(30, 1, r / 100, r * 100);
+          cam.position.set(r * 1.7, r * 1.3, r * 2.6);
+          cam.lookAt(0, 0, 0);
+          renderer.render(scene, cam);
+          const img = new Image();
+          img.src = renderer.domElement.toDataURL();
+          img.style.width = '100%';
+          cell.prepend(img);
+        } catch (e) {
+          cell.innerHTML += `<br>failed: ${e.message}`;
+        }
+      }
+      document.title = 'ready';
+    </script>
+  </body>
+</html>
