@@ -3,8 +3,9 @@
  * keyboard handlers, the HUD and the voice client tools.
  */
 import { useStore, type SceneObject } from '../state/store';
-import type { IdentifyResponse, Teardown, TeardownPart } from '../../shared/teardown';
+import type { IdentifyResponse, Teardown } from '../../shared/teardown';
 import { mockIdentify } from '../../shared/demo';
+import { partPrompt } from '../../shared/prompts';
 import { api } from './api';
 import { voiceBridge } from '../voice/bridge';
 
@@ -99,13 +100,6 @@ export async function explodeObject(objectId?: string): Promise<{ ok: boolean; m
   void generateMeshes(td, myRun);
 
   return { ok: true, message: `Exploded ${td.name}: ${td.parts.length} parts.` };
-}
-
-function partPrompt(td: Teardown, part: TeardownPart): string {
-  if (td.lens === 'biology') {
-    return `anatomical 3D model of the ${part.name} of the human hand, isolated single object, medical illustration style, plain white background`;
-  }
-  return `isolated ${part.name} from a ${td.name}, single object, studio product render, plain white background, high detail`;
 }
 
 /** Two fal jobs at a time. Stops on mock mode, skips failures silently. */
