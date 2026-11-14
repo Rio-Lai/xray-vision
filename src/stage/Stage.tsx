@@ -1,6 +1,11 @@
 /**
  * Stage: camera + 3D overlay + HUD, the single requestAnimationFrame loop (detection, then
- * overlay render), keyboard shortcuts, and click-to-pick. Cleans up fully on unmount.
+ * overlay render), hidden developer keys, and click-to-pick. Cleans up fully on unmount.
+ *
+ * Developer keys (never shown on screen; listed in the debug panel):
+ *   O overlay on/off   E explode "this"   R reset   D debug panel
+ *   F freeze   S next step   M tracking mode   Left/Right or [ ] previous/next part
+ * `?overlay=1` starts with the overlay on.
  */
 import { useEffect, useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
@@ -8,13 +13,13 @@ import { useStore } from '../state/store';
 import type { TrackingMode } from '../state/store';
 import { explodeObject, pickPart, resetAll } from '../lib/flow';
 import { Camera } from '../camera/Camera';
-import { errorText } from '../camera/frame';
+import { errorText, urlFlag } from '../camera/frame';
 import { createDetectionEngine } from '../detect/engine';
 import { live } from '../detect/live';
 import { Overlay } from '../overlay/Overlay';
 import type { OverlayHandle } from '../overlay/Overlay';
 import { Hud } from '../hud/Hud';
-import { setStatus, showToast, toggleDebug, toggleLegend } from '../hud/hudStore';
+import { devLog, setStatus, showToast, toggleDebug } from '../hud/hudStore';
 
 const MODES: TrackingMode[] = ['freeze', 'follow', 'mat'];
 
@@ -29,7 +34,7 @@ function cyclePart(dir: 1 | -1): void {
   const s = useStore.getState();
   const td = s.teardown;
   if (!td || td.parts.length === 0) {
-    showToast('Nothing exploded yet (press E)', 'warn');
+    showToast('Nothing is exploded yet', 'warn');
     return;
   }
   const parts = td.parts
@@ -55,8 +60,16 @@ function nextStep(): void {
   if (next === null) showToast('Steps done', 'info', 1500);
 }
 
+function setOverlay(on: boolean): void {
+  // Same as the set_overlay voice tool: turning it off also puts everything back.
+  useStore.getState().setOverlayOn(on);
+  if (!on) resetAll();
+  devLog(`Overlay ${on ? 'on' : 'off'}`);
+}
+
 function runExplode(): void {
-  showToast('Exploding...', 'info', 1500);
+  if (!useStore.getState().overlayOn) useStore.getState().setOverlayOn(true);
+  devLog('Explode requested');
   explodeObject()
     .then((r) => showToast(r.message, r.ok ? 'info' : 'warn'))
     .catch((e: unknown) => showToast(`Explode failed: ${errorText(e)}`, 'error'));
@@ -64,6 +77,11 @@ function runExplode(): void {
 
 export function Stage() {
   const overlayRef = useRef<OverlayHandle>(null);
+
+  // Developer convenience: ?overlay=1 starts with the overlay on.
+  useEffect(() => {
+    if (urlFlag('overlay')) useStore.getState().setOverlayOn(true);
+  }, []);
 
   // The single animation loop: detection first, then the overlay reads its results and renders.
   useEffect(() => {
@@ -119,6 +137,9 @@ export function Stage() {
       }
       if (e.repeat) return;
       switch (key.toLowerCase()) {
+        case 'o':
+          setOverlay(!s.overlayOn);
+          break;
         case 'e':
           runExplode();
           break;
@@ -128,14 +149,8 @@ export function Stage() {
           break;
         case 'f':
           s.setFrozen(!s.frozen);
+          devLog(`Frozen: ${!s.frozen}`);
           break;
-        case 'l': {
-          const next = s.lens === 'engineering' ? 'biology' : 'engineering';
-          resetAll();
-          useStore.getState().setLens(next);
-          showToast(`Lens: ${next}`, 'info', 1500);
-          break;
-        }
         case 's':
           nextStep();
           break;
@@ -147,9 +162,6 @@ export function Stage() {
           showToast(`Tracking: ${next}`, 'info', 1500);
           break;
         }
-        case 'h':
-          toggleLegend();
-          break;
         case 'd':
           toggleDebug();
           break;

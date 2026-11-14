@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
 import type { Teardown } from '../../shared/teardown';
-import { boxToView, errorText, getCoverMap } from '../camera/frame';
+import { boxToView, errorText, getCoverMap, urlFlag } from '../camera/frame';
 import { live } from '../detect/live';
 import { setStatus } from '../hud/hudStore';
 import { pickPart } from '../lib/flow';
@@ -19,6 +19,12 @@ import { LabelLayer } from './labels';
 import type { LabelItem, StackBounds } from './labels';
 
 const DWELL_MS = 1200;
+/**
+ * Gaze dwell (look at a part for DWELL_MS to pick it) is OFF unless `?dwell=1`: in freeze mode the
+ * stack does not move with the head, so the part at the screen centre would be picked (and the
+ * tutor asked about it) by itself a second after every explode.
+ */
+const DWELL_ENABLED = urlFlag('dwell');
 
 function teardownSignature(td: Teardown): string {
   return [
@@ -140,7 +146,7 @@ class OverlayEngine {
     }
     const id = s.selectedObjectId ?? s.focusedObjectId;
     let obj = id ? live.objects.find((o) => o.id === id) : undefined;
-    if (!obj && !id) obj = live.objects.find((o) => o.lens === 'engineering');
+    if (!obj && !id) obj = live.objects.find((o) => o.anchor === 'box');
     if (!obj) return null;
     const b = boxToView(getCoverMap(), obj.box);
     return { cx: b.x + b.w / 2, cy: b.y + b.h / 2, w: b.w, h: b.h };
@@ -213,7 +219,8 @@ class OverlayEngine {
       hands: live.hands,
       preferredId: sel ?? foc,
       teardown: handTd,
-      preview: !td && s.lens === 'biology',
+      // Live tendons on a focused hand once the overlay is on (the full layers come with explode).
+      preview: !td && s.overlayOn && foc !== null,
       explodeTarget: s.explodeAmount,
       highlighted: hl,
     });
@@ -228,6 +235,7 @@ class OverlayEngine {
   }
 
   private updateDwell(now: number, td: Teardown | null): void {
+    if (!DWELL_ENABLED) return;
     const level = this.boxRig ? this.boxRig.explodeLevel() : td && td.anchor === 'hand' ? this.handRig.explodeLevel() : 0;
     if (!td || level < 0.6) {
       this.dwellPart = null;
