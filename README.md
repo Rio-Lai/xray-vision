@@ -9,7 +9,7 @@ Two lenses:
 
 ## Quick start
 
-Needs Node 20 or newer and Chrome.
+Needs Node 20 or newer and Chrome (not Safari).
 
 ```bash
 git clone https://github.com/Rio-Lai/xray-vision.git
@@ -20,7 +20,9 @@ cp .env.example .env   # add keys; any missing key means that route runs in mock
 npm run dev
 ```
 
-Open http://localhost:5173 in Chrome and allow the camera and microphone. Both servers listen on this machine only (localhost); that is deliberate, so nobody on the venue Wi-Fi can spend the API credits.
+`npm run dev` prints two URLs. Open the app, http://localhost:5173, in **Chrome, not Safari** (the app is built and tested for Chrome only), and allow the camera and microphone. Both servers listen on this machine only (localhost); that is deliberate, so nobody on the venue Wi-Fi can spend the API credits.
+
+If the app says "Blowfish server is not running", look at the terminal where you ran `npm run dev`. If a port is taken, `npm run dev` stops and says which one: the API server uses port 8791 (change it with `PORT=` in `.env`; the Vite proxy follows automatically), the app uses 5173. Do not use port 8787: other dev tools listen there.
 
 With no keys at all the app still runs: identify and teardown answer from `public/cache/`, meshes stay as placeholder shapes, and the voice bar says "Voice not configured yet". You can type commands into the voice bar instead ("explode this", "step 2", "what is the battery", "reset").
 
@@ -49,7 +51,7 @@ Contracts and rules: `docs/CONTRACTS.md`.
 
 ## Scripts
 
-- `npm run dev`: server (port 8787) and Vite (port 5173) together
+- `npm run dev`: checks both ports are free, then starts the API server (port 8791, or `PORT` from `.env`) and Vite (port 5173) together
 - `npm run dev:server`, `npm run dev:web`: one at a time
 - `npm run typecheck`
 - `npm run fetch-models`: download the MediaPipe models into `public/models/` (run once)

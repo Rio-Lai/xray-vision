@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { errorHandler, wrap } from './lib/http';
-import { anthropicModel, hasAnthropic, hasEleven, hasFal, isMock } from './lib/env';
+import { WEB_PORT, anthropicModel, apiPort, hasAnthropic, hasEleven, hasFal, isMock, portInUseMessage } from './lib/env';
 import { identify } from './routes/identify';
 import { teardown } from './routes/teardown';
 import { generatePart } from './routes/generate-part';
@@ -33,12 +33,27 @@ app.get('/api/agent-token', wrap(agentToken));
 
 app.use(errorHandler);
 
-const port = Number(process.env.PORT) || 8787;
+const port = apiPort(); // PORT in .env, default in server/lib/env.ts (vite.config.ts proxies to the same one)
 // Loopback only, so nobody on the hackathon Wi-Fi can spend our API credits. vite.config.ts proxies to 127.0.0.1.
 const host = process.env.HOST || '127.0.0.1';
-app.listen(port, host, () => {
-  console.log(`[server] http://${host}:${port}`);
+const server = app.listen(port, host, () => {
+  console.log(`[server] Blowfish API listening on http://${host}:${port}`);
   console.log(
     `[server] anthropic=${hasAnthropic()} fal=${hasFal()} elevenlabs=${hasEleven()} mock=${isMock()}`,
   );
+  console.log('');
+  console.log(`  App (open in Chrome):  http://localhost:${WEB_PORT}`);
+  console.log(`  API health:            http://localhost:${WEB_PORT}/api/health`);
+  console.log('');
+});
+server.on('error', (err: Error) => {
+  const code = (err as NodeJS.ErrnoException).code;
+  console.error('');
+  console.error(
+    code === 'EADDRINUSE'
+      ? portInUseMessage(port, null)
+      : `[server] could not listen on ${host}:${port}: ${err.message}`,
+  );
+  console.error('');
+  process.exit(1);
 });
