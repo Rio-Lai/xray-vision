@@ -3,6 +3,10 @@
  * pixels, DPR capped at 2), the part label layer, and the object label layer (live view, pure DOM,
  * so it still works when WebGL does not). Stage calls tick(now) once per animation frame,
  * and pick(x, y) on clicks.
+ *
+ * Stage mode (the default): the box rig lifts the model out of the object and floats it in the
+ * middle of the view, turned by store.modelYaw / modelPitch, plus a very slow idle drift once
+ * nothing has touched it for IDLE_MS. "Put it away" (reset) glides it back into its object.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import * as THREE from 'three';
@@ -22,6 +26,7 @@ import { LabelLayer } from './labels';
 import type { LabelItem, StackBounds } from './labels';
 import { ObjectLabelLayer } from './objectLabels';
 import { preloadTeardownMeshes } from './glbCache';
+import { modelControl } from '../stage/modelControl';
 
 const DWELL_MS = 1200;
 /**
@@ -32,6 +37,10 @@ const DWELL_MS = 1200;
 const DWELL_ENABLED = urlFlag('dwell');
 /** Load the demo laptop's real models this long after start, in the background. */
 const PRELOAD_DELAY_MS = 2500;
+/** Stage: the model starts turning slowly by itself after this long without any input... */
+const IDLE_MS = 4000;
+/** ...at this speed (rad/s): a full turn a minute. */
+const IDLE_SPIN = 0.1;
 
 function teardownSignature(td: Teardown): string {
   return [
@@ -63,6 +72,16 @@ class OverlayEngine {
   private retiring: BoxRig | null = null;
   /** Armed once the current rig has been exploded; fires the unfreeze when it is collapsed again. */
   private collapseArmed = false;
+  /** Stage: which scene object the current / retiring model came out of (to go back into it). */
+  private rigObjectId: string | null = null;
+  private retiringObjectId: string | null = null;
+  private retiringStage = false;
+  /** Stage idle drift: extra yaw added to store.modelYaw, and what was last seen of the inputs. */
+  private drift = 0;
+  private seenYaw = 0;
+  private seenPitch = 0;
+  private seenExplode = 0;
+  private lastInput = 0;
   private wasFrozen = false;
   private teardownRef: Teardown | null = null;
   private teardownSig = '';
@@ -164,35 +183,65 @@ class OverlayEngine {
       this.collapseArmed = false;
       this.labels.clear();
       this.endRetire();
-      if (old && !td && old.explodeLevel() > 0.05) {
+      const s = useStore.getState();
+      if (old && !td && s.trackingMode === 'stage') {
+        // "Put it away": the floating model glides back into its object and fades.
+        this.retiring = old;
+        this.retiringStage = true;
+        this.retiringObjectId = this.rigObjectId;
+      } else if (old && !td && old.explodeLevel() > 0.05) {
         // "Put it back" by reset: collapse the parts over the same frozen image, then let go.
         this.retiring = old;
+        this.retiringStage = false;
         if (this.wasFrozen) setHoldFrozen(true);
       } else {
         old?.dispose();
       }
       this.dwellPart = null;
+      this.rigObjectId = null;
       if (td && td.anchor !== 'hand') {
         this.boxRig = new BoxRig(td, this.scene);
+        this.rigObjectId = s.selectedObjectId ?? s.focusedObjectId;
+        this.drift = 0;
+        this.lastInput = performance.now();
       }
     }
     if (td && this.boxRig) this.boxRig.syncMeshes(td);
   }
 
-  /** Viewport-px box of the object the teardown belongs to. */
-  private targetBox(s: AppState): ScreenBox | null {
-    const vw = this.vw;
-    const vh = this.vh;
-    if (s.trackingMode === 'stage') {
-      const w = vw * 0.42;
-      return { cx: vw / 2, cy: vh * 0.47, w, h: w * 0.68 };
-    }
-    const id = s.selectedObjectId ?? s.focusedObjectId;
+  /**
+   * Viewport-px box of the object the teardown belongs to (in stage mode: the object the model
+   * lifts out of and goes back into), or null when it is not in view.
+   */
+  private targetBox(s: AppState, objectId?: string | null): ScreenBox | null {
+    const id = objectId !== undefined ? objectId : s.selectedObjectId ?? s.focusedObjectId;
     let obj = id ? live.objects.find((o) => o.id === id) : undefined;
     if (!obj && !id) obj = live.objects.find((o) => o.anchor === 'box');
     if (!obj) return null;
     const b = boxToView(getCoverMap(), obj.box);
     return { cx: b.x + b.w / 2, cy: b.y + b.h / 2, w: b.w, h: b.h };
+  }
+
+  /** Stage: yaw target with the idle drift (after IDLE_MS without input; any input stops it). */
+  private stageYaw(s: AppState, now: number, dt: number): number {
+    if (
+      s.modelYaw !== this.seenYaw ||
+      s.modelPitch !== this.seenPitch ||
+      s.explodeAmount !== this.seenExplode ||
+      modelControl.lastInputAt > this.lastInput
+    ) {
+      this.lastInput = Math.max(now, modelControl.lastInputAt);
+      this.seenYaw = s.modelYaw;
+      this.seenPitch = s.modelPitch;
+      this.seenExplode = s.explodeAmount;
+    }
+    if (now - this.lastInput > IDLE_MS) this.drift += IDLE_SPIN * dt;
+    return s.modelYaw + this.drift;
+  }
+
+  /** true while the floating model is gliding back into its object after "put it away". */
+  isPuttingAway(): boolean {
+    return this.retiring !== null && this.retiringStage;
   }
 
   /** Part id under viewport point (x, y), if any. */
@@ -227,6 +276,8 @@ class OverlayEngine {
       this.retiring.dispose();
       this.retiring = null;
     }
+    this.retiringStage = false;
+    this.retiringObjectId = null;
     setHoldFrozen(false);
   }
 
@@ -245,14 +296,16 @@ class OverlayEngine {
     let bounds: StackBounds = { left: vw / 2, right: vw / 2, top: vh / 2, bottom: vh / 2 };
 
     if (this.boxRig && td) {
+      const stage = s.trackingMode === 'stage';
       const out = this.boxRig.update({
         now,
         dt,
         vw,
         vh,
-        box: this.targetBox(s),
+        box: this.targetBox(s, stage ? this.rigObjectId : undefined),
         explodeTarget: s.explodeAmount,
         highlighted: hl,
+        stage: stage ? { yaw: this.stageYaw(s, now, dt), pitch: s.modelPitch, putAway: false } : null,
       });
       labelItems = out.labels;
       bounds = out.bounds;
@@ -281,8 +334,15 @@ class OverlayEngine {
     }
 
     if (this.retiring) {
-      this.retiring.update({ now, dt, vw, vh, box: null, explodeTarget: 0, highlighted: new Set(), hold: true });
-      if (this.retiring.explodeLevel() < 0.01) this.endRetire();
+      if (this.retiringStage) {
+        const box = this.retiringObjectId ? this.targetBox(s, this.retiringObjectId) : null;
+        const stage = { yaw: 0, pitch: 0, putAway: true };
+        this.retiring.update({ now, dt, vw, vh, box, explodeTarget: 0, highlighted: new Set(), stage });
+        if (this.retiring.stageDone()) this.endRetire();
+      } else {
+        this.retiring.update({ now, dt, vw, vh, box: null, explodeTarget: 0, highlighted: new Set(), hold: true });
+        if (this.retiring.explodeLevel() < 0.01) this.endRetire();
+      }
     }
 
     // "Put it back" by collapsing (explode amount 0): once the parts are home, unfreeze.
@@ -347,9 +407,10 @@ class OverlayEngine {
  * Object labels: shown while the overlay is on and nothing is exploded (a collapsed teardown counts
  * as nothing once the frame is live again); while an explode is loading, only its target.
  */
-function tickObjectLabels(layer: ObjectLabelLayer, now: number, dt: number): void {
+function tickObjectLabels(layer: ObjectLabelLayer, now: number, dt: number, puttingAway: boolean): void {
   const s = useStore.getState();
-  const exploding = s.teardown !== null && (s.explodeAmount > 0 || s.frozen);
+  // Hidden while anything is exploded or on stage (and while a model goes back into its object).
+  const exploding = puttingAway || (s.teardown !== null && (s.explodeAmount > 0 || s.frozen || s.trackingMode === 'stage'));
   const names = new Map<string, string | undefined>();
   for (const o of s.objects) names.set(o.id, o.name);
   const loading = s.teardownStatus === 'loading';
@@ -389,7 +450,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
         const ol = objLabelsRef.current;
         if (ol) {
           try {
-            tickObjectLabels(ol, now, dt);
+            tickObjectLabels(ol, now, dt, engineRef.current?.isPuttingAway() ?? false);
             setStatus('labels', null);
           } catch (e) {
             setStatus('labels', 'error', `Label error: ${errorText(e)}`);

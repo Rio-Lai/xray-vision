@@ -2,13 +2,17 @@
  * Camera: getUserMedia feed (not mirrored, object-fit: cover), freeze snapshot, and the
  * captureCrop() API registered in the store. The device picker only exists inside the hidden
  * debug panel (key D), at its top-left.
+ * While a model floats on stage the live video keeps playing behind it, slightly dimmed and
+ * blurred (CSS filter on the <video>: detection and captureCrop read raw frames, unaffected).
+ * `?blur=0` keeps only the dim (if the blur ever costs frames); `?blur=6` blurs more.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChangeEvent, CSSProperties } from 'react';
 import { useStore } from '../state/store';
 import type { Box, CameraApi } from '../state/store';
-import { errorText, frame, MOCK_MODE } from './frame';
+import { errorText, frame, MOCK_MODE, urlNumber } from './frame';
 import { setStatus, useHud } from '../hud/hudStore';
+import { modelOnStage } from '../overlay/stageState';
 
 const LS_KEY = 'xray.cameraDeviceId';
 
@@ -129,6 +133,9 @@ export function captureCrop(box: Box): string | null {
 /** Frozen frame behind an exploded object: dimmed and softly blurred so the parts read clearly. */
 const BACKDROP_ON = 'brightness(0.6) saturate(0.85) blur(5px)';
 const BACKDROP_OFF = 'brightness(1) saturate(1) blur(0px)';
+/** Live video behind the floating model (stage mode): a light dim and blur, tuned for 30 fps. */
+const LIVE_BLUR_PX = Math.min(12, Math.max(0, urlNumber('blur', 4)));
+const LIVE_BACKDROP_ON = `brightness(0.62) saturate(0.85) blur(${LIVE_BLUR_PX}px)`;
 
 const fill: CSSProperties = {
   position: 'absolute',
@@ -149,6 +156,7 @@ export function Camera() {
   const showSnapshot = frozen || held;
   const debug = useHud((s) => s.debug);
   const backdrop = useStore((s) => s.frozen && s.explodeAmount > 0 && s.teardown !== null && s.teardown.anchor !== 'hand');
+  const liveBackdrop = useStore((s) => !s.frozen && modelOnStage(s));
 
   // Publish element refs to the frame runtime.
   useEffect(() => {
@@ -299,7 +307,13 @@ export function Camera() {
         playsInline
         muted
         onLoadedMetadata={onMeta}
-        style={{ ...fill, visibility: showSnapshot ? 'hidden' : 'visible' }}
+        style={{
+          ...fill,
+          visibility: showSnapshot ? 'hidden' : 'visible',
+          // No zoom against the blur's soft edge: the live hand overlay must stay aligned with the video.
+          filter: liveBackdrop ? LIVE_BACKDROP_ON : BACKDROP_OFF,
+          transition: 'filter 500ms ease',
+        }}
       />
       <canvas
         ref={canvasRef}

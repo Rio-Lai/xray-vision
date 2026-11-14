@@ -154,7 +154,7 @@ export const useStore = create<AppState>((set) => ({
   activeStep: null,
 
   frozen: false,
-  trackingMode: 'freeze',
+  trackingMode: 'stage',
   modelYaw: 0,
   modelPitch: 0,
 
