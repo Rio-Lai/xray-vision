@@ -1,14 +1,20 @@
 /**
  * Claude calls for /api/identify and /api/teardown.
- * Model from ANTHROPIC_MODEL. Replies must be one JSON object; we validate with zod
- * and retry once with the validation errors if the first answer is invalid.
+ * Model from ANTHROPIC_MODEL, effort from ANTHROPIC_EFFORT (default "low": a live parts list must come
+ * back in about 20 seconds for a judge's object). Replies must be one JSON object; we validate with zod,
+ * clamp sizes and offsets into range, and retry once with the validation errors if the answer is invalid.
+ *
+ * No lenses: a request's `lens` is only a hint. Claude decides whether the thing is a machine
+ * ("engineering") or a living thing ("biology") and sets the parts list's `lens` itself.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import {
   IdentifyResponseSchema,
   TeardownSchema,
+  LensSchema,
   type IdentifyRequest,
   type IdentifyResponse,
+  type Lens,
   type Teardown,
   type TeardownRequest,
 } from '../../shared/teardown';
@@ -17,15 +23,51 @@ import { listCheckedObjects, safeId } from './cache';
 
 let client: Anthropic | null = null;
 const getClient = () => {
-  // Teardowns with thinking can take over a minute; one retry keeps the worst case bounded.
-  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 150_000, maxRetries: 1 });
+  // At low effort a parts list takes ~10-20 s; the timeout only stops a stuck call. One SDK retry for
+  // 429/5xx/network; invalid JSON is retried separately in teardownLive.
+  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 60_000, maxRetries: 1 });
   return client;
 };
+
+type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** ANTHROPIC_EFFORT=low|medium|high|xhigh|max (default low), or "none" to send no effort (older models). */
+function effortConfig(): { output_config?: { effort: Effort } } {
+  const raw = (process.env.ANTHROPIC_EFFORT ?? '').trim().toLowerCase();
+  if (raw === 'none') return {};
+  const effort = (EFFORTS as readonly string[]).includes(raw) ? (raw as Effort) : 'low';
+  return { output_config: { effort } };
+}
+
+/** Short sentences the voice tutor can say when a live call fails. */
+export const TEARDOWN_FAIL_MESSAGE = (name: string) => `I could not work out the parts for the ${name}. Try again in a moment.`;
+
+const clamp = (n: unknown, lo: number, hi: number, fallback: number) => {
+  const v = typeof n === 'number' ? n : Number(n);
+  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback;
+};
+
+/** Pull sizes into 0..1, offsets into -0.5..0.5 and layers to integers >= 0 before validation. */
+function normalisePart(p: Record<string, unknown>): Record<string, unknown> {
+  const size = Array.isArray(p.size) ? p.size : [];
+  const offset = Array.isArray(p.offset) ? p.offset : [];
+  return {
+    ...p,
+    layer: Math.round(clamp(p.layer, 0, 99, 0)),
+    size: [clamp(size[0], 0.01, 1, 0.3), clamp(size[1], 0.01, 1, 0.3), clamp(size[2], 0.01, 1, 0.05)],
+    offset: [clamp(offset[0], -0.5, 0.5, 0), clamp(offset[1], -0.5, 0.5, 0)],
+    color: typeof p.color === 'string' && /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#9aa4ae',
+    safety: typeof p.safety === 'string' && p.safety.trim() ? p.safety : null,
+    mesh_url: null,
+  };
+}
 
 function textOf(msg: Anthropic.Message): string {
   let text = '';
   for (const block of msg.content) if (block.type === 'text') text += block.text;
   // Current models think by default and thinking counts towards max_tokens; say so instead of "no JSON".
+  if (msg.stop_reason === 'refusal') throw new Error('Claude declined this request');
   if (!text.trim() && msg.stop_reason === 'max_tokens') {
     throw new Error('reply hit max_tokens before any text (thinking used the budget); raise max_tokens');
   }
@@ -73,23 +115,19 @@ function extractJson(text: string): unknown {
 
 /* ---------------- identify ---------------- */
 
-const IDENTIFY_SYSTEM = `You identify what is in a camera crop for an AR "x-ray vision" app.
+const IDENTIFY_SYSTEM = `You identify what is in a camera crop for Blowfish, an AR "x-ray vision" app. The thing can be a machine
+or object (a laptop, a phone, a mouse) or a living thing or body part (a hand, a leaf).
 Reply with exactly one JSON object and nothing else:
 {"object_id": "kebab-case-id", "name": "Human readable name", "confidence": 0.0-1.0, "summary": "One plain sentence."}
 object_id: lowercase kebab-case, specific (brand, model, generation, size) when you can tell, generic otherwise (e.g. "wireless-mouse").
+For a body part, name the system the app should show (e.g. "Hand and finger muscles"), not jewellery or clothes.
 Be honest about confidence. If you cannot tell the exact model, say so in the name (e.g. "MacBook Air 13-inch (M2 or M3)").`;
 
 export async function identifyLive(req: IdentifyRequest): Promise<IdentifyResponse> {
   const known = listCheckedObjects()
-    .map((o) => `- ${o.object_id}: ${o.name} [${o.lens}]`)
+    .map((o) => `- ${o.object_id}: ${o.name}`)
     .join('\n');
-  const lensLine =
-    req.lens === 'biology'
-      ? 'Lens: biology. Name the body part in view and the system the app should show (e.g. "Hand and finger muscles"), not objects.'
-      : 'Lens: engineering. Name the device or object in view.';
-
   const prompt = [
-    lensLine,
     req.hint ? `The on-device detector thinks this is: "${req.hint}".` : '',
     known
       ? `Objects we already have checked teardowns for. If the object plausibly matches one, use its object_id exactly (the M2 and M3 13-inch MacBook Air look the same from outside):\n${known}`
@@ -101,8 +139,9 @@ export async function identifyLive(req: IdentifyRequest): Promise<IdentifyRespon
 
   const msg = await getClient().messages.create({
     model: anthropicModel(),
-    // Room for adaptive thinking (on by default on current models) plus the short JSON reply.
+    // Room for (low-effort) adaptive thinking plus the short JSON reply.
     max_tokens: 4000,
+    ...effortConfig(),
     system: IDENTIFY_SYSTEM,
     messages: [
       {
@@ -135,7 +174,7 @@ Schema:
 {
   "object_id": string,                 // given to you; copy it
   "name": string,                      // human readable
-  "lens": "engineering" | "biology",   // given to you; copy it
+  "lens": "engineering" | "biology",   // YOU decide: "biology" for a living thing or body part, "engineering" for anything else
   "anchor": "box" | "hand" | "face" | "pose",  // box = detector box (objects); hand/face/pose for body parts
   "explode_axis": "z",                 // use "z" (towards the camera) unless the object is long and thin
   "source": "live",
@@ -156,6 +195,7 @@ Schema:
 }
 
 Rules:
+- The request may include a lens hint from the on-device detector; it is only a hint. Decide from the name what the thing is.
 - 8 to 12 parts. Real parts only, named the way a repair technician or an anatomy teacher would.
 - Lay parts out so the placeholder shapes look like the real internal arrangement seen from the camera.
 - Engineering: steps = a short, safe repair or disassembly walkthrough (5-8 steps). Safety notes must be real:
@@ -166,7 +206,7 @@ Rules:
 
 export async function teardownLive(req: TeardownRequest): Promise<Teardown> {
   const objectId = safeId(req.object_id);
-  const user = `object_id: ${objectId}\nname: ${req.name}\nlens: ${req.lens}\n\nWrite the teardown JSON.`;
+  const user = `object_id: ${objectId}\nname: ${req.name}\nlens hint (may be wrong): ${req.lens}\n\nWrite the teardown JSON.`;
 
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: user }];
   let lastError = '';
@@ -176,6 +216,7 @@ export async function teardownLive(req: TeardownRequest): Promise<Teardown> {
       model: anthropicModel(),
       // Thinking counts towards max_tokens; the JSON itself is ~3-4k tokens.
       max_tokens: 16000,
+      ...effortConfig(),
       system: TEARDOWN_SYSTEM,
       messages,
     });
@@ -183,12 +224,16 @@ export async function teardownLive(req: TeardownRequest): Promise<Teardown> {
     try {
       const raw = extractJson(text) as Record<string, unknown>;
       const parts = Array.isArray(raw.parts)
-        ? (raw.parts as Record<string, unknown>[]).map((p) => ({ ...p, mesh_url: null }))
+        ? (raw.parts as unknown[]).map((p) => (p && typeof p === 'object' ? normalisePart(p as Record<string, unknown>) : p))
         : raw.parts;
+      // Claude's own choice of lens wins; the request's lens is only the fallback.
+      const lensParsed = LensSchema.safeParse(raw.lens);
+      const lens: Lens = lensParsed.success ? lensParsed.data : req.lens;
       const parsed = TeardownSchema.safeParse({
         ...raw,
         object_id: objectId,
-        lens: req.lens,
+        lens,
+        explode_axis: raw.explode_axis ?? 'z',
         source: 'live',
         parts,
         steps: Array.isArray(raw.steps) ? raw.steps : [],
