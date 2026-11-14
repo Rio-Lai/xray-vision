@@ -36,6 +36,8 @@ export interface ArmLabel {
   layer: number;
   /** screen px (top-left origin) of the point on the part, and where the label sits */
   at: [number, number];
+  /** the same point in world space (the view re-projects it with its real camera) */
+  world: [number, number, number];
   label: [number, number];
   visible: boolean;
   glow: number;
@@ -436,17 +438,17 @@ export class ArmXray {
     this.placeSkin(g);
     for (const s of this.slips) this.placeSlip(s, g);
 
-    // ---- explode: outer layers move towards the viewer (and a little up-left so they separate on screen),
-    // staggered (outer first) and eased. Bones (layer 6) stay on the real arm.
-    const spread = 0.62 * g.upperLen;
-    const screenDir = new THREE.Vector3(-0.42, 0.9, 0).normalize();
+    // ---- explode: outer layers move towards the viewer and fan out on screen (into the space below the arm,
+    // where they can be told apart), staggered (outer first) and eased. Bones (layer 6) stay on the real arm.
+    const spread = 1.5 * g.upperLen;
+    const screenDir = new THREE.Vector3(0.28, -1, 0).normalize();
     for (const l of LAYERS) {
       const start = (l - 1) * 0.07;
       const target = ease(THREE.MathUtils.clamp((input.explode - start) / (1 - 0.35), 0, 1));
       const cur = this.layerEase.get(l)! + (target - this.layerEase.get(l)!) * 0.14;
       this.layerEase.set(l, cur);
       const k = ((6 - l) / 5) * cur;
-      this.layerGroups.get(l)!.position.copy(screenDir.clone().multiplyScalar(spread * k)).add(new THREE.Vector3(0, 0, spread * 1.2 * k));
+      this.layerGroups.get(l)!.position.copy(screenDir.clone().multiplyScalar(spread * k)).add(new THREE.Vector3(0, 0, spread * 0.35 * k));
     }
 
     // ---- focus: that layer full, outer layers ~10%, deeper layers dimmed
@@ -507,9 +509,14 @@ export class ArmXray {
     const sx = halfW + p.x * persp;
     const sy = halfH - p.y * persp;
     const glow = input.highlight.get(id) ?? 0;
-    const visible = (input.layerFocus == null ? input.explode > 0.6 : layer === input.layerFocus) || glow > 0.3;
+    const visible = input.layerFocus == null ? input.explode > 0.6 && glow > 0.3 : layer === input.layerFocus;
     const out = id === 'skin' ? 1 : 1;
-    return { id, name, layer, at: [sx, sy], label: [sx + 70 * out, sy - 34], visible, glow };
+    return { id, name, layer, at: [sx, sy], world: [p.x, p.y, p.z], label: [sx + 70 * out, sy - 34], visible, glow };
+  }
+
+  /** Current arm geometry (for the view's camera framing), or null before the first frame. */
+  get geometry(): ArmGeometry | null {
+    return this.geom;
   }
 
   /** Set by the view so labels match its camera. */

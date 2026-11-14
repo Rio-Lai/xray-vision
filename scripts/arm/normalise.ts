@@ -21,9 +21,24 @@ import { SPECS, type MeshSpec } from './specs';
  * Parts with no reliable wide-end rule, checked by eye on the parts sheet.
  * true = after the automatic orientation (wide end proximal), flip end-to-end.
  */
-export const FLIP: Record<string, boolean> = {};
+export const FLIP: Record<string, boolean> = {
+  // belly is the wide end but the measured spread was a near tie; checked by eye: tendon must be distal
+  interosseous: true,
+};
 
 const MAX_BYTES = 1.9e6;
+
+/**
+ * Triangle budget per mesh. Meshes bent along a path every frame (tendons, nerves, arteries) and meshes
+ * repeated per finger are kept light so the overlay stays at 60 fps.
+ */
+function triangleBudget(spec: MeshSpec): number {
+  if (spec.tissue === 'tendon') return 3000;
+  if (spec.tissue === 'nerve') return 6000;
+  if (spec.tissue === 'vessel') return 9000;
+  if (['metacarpal', 'phalanx-proximal', 'phalanx-middle', 'phalanx-distal', 'interosseous'].includes(spec.id)) return 6000;
+  return 30000;
+}
 
 type V3 = [number, number, number];
 
@@ -111,7 +126,7 @@ export interface NormalisedInfo {
 export async function normaliseOne(spec: MeshSpec, inFile: string, outFile: string): Promise<NormalisedInfo> {
   const io = new NodeIO().registerExtensions(KHRONOS_EXTENSIONS);
   await MeshoptSimplifier.ready;
-  let targetTris = 40000;
+  let targetTris = triangleBudget(spec);
   for (let attempt = 0; attempt < 4; attempt++) {
     const doc = await io.read(inFile);
     // Bake node transforms into the vertices so everything shares one space.

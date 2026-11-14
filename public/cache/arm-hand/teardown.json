@@ -45,7 +45,8 @@
       "active_when": [],
       "nerve": "",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": null,
+      "mesh_source": "procedural"
     },
     {
       "id": "deltoid",
@@ -60,7 +61,7 @@
       "active_when": ["shoulder_abduction"],
       "nerve": "axillary nerve (C5-C6)",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/deltoid.glb"
     },
     {
       "id": "biceps",
@@ -75,7 +76,7 @@
       "active_when": ["elbow_flexion", "supination"],
       "nerve": "musculocutaneous nerve (C5-C6)",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/biceps.glb"
     },
     {
       "id": "triceps",
@@ -91,7 +92,7 @@
       "active_when": ["elbow_extension"],
       "nerve": "radial nerve (C6-C8)",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/triceps.glb"
     },
     {
       "id": "brachioradialis",
@@ -107,7 +108,7 @@
       "active_when": ["elbow_flexion"],
       "nerve": "radial nerve (C5-C6)",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/brachioradialis.glb"
     },
     {
       "id": "forearm-flexors",
@@ -123,7 +124,7 @@
       "active_when": ["wrist_flexion", "finger_flexion", "grip", "typing"],
       "nerve": "mostly median nerve; flexor carpi ulnaris and medial half of FDP by ulnar nerve",
       "safety": "Overuse at the common flexor origin is 'golfer's elbow' (medial epicondylitis).",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/forearm-flexors.glb"
     },
     {
       "id": "forearm-extensors",
@@ -139,7 +140,7 @@
       "active_when": ["wrist_extension", "finger_extension", "typing"],
       "nerve": "radial nerve (posterior interosseous branch)",
       "safety": "Overuse at the common extensor origin is 'tennis elbow' (lateral epicondylitis).",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/forearm-extensors.glb"
     },
     {
       "id": "thenar",
@@ -154,7 +155,7 @@
       "active_when": ["thumb_opposition", "pinch", "typing"],
       "nerve": "median nerve (recurrent branch)",
       "safety": "Wasting here can be a sign of carpal tunnel syndrome.",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/thenar.glb"
     },
     {
       "id": "hypothenar",
@@ -169,7 +170,7 @@
       "active_when": ["little_finger_abduction", "grip"],
       "nerve": "ulnar nerve (deep branch)",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/hypothenar.glb"
     },
     {
       "id": "brachialis",
@@ -184,7 +185,7 @@
       "active_when": ["elbow_flexion"],
       "nerve": "musculocutaneous nerve (small lateral part by radial nerve)",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/brachialis.glb"
     },
     {
       "id": "pronators",
@@ -200,7 +201,8 @@
       "active_when": ["pronation", "typing"],
       "nerve": "median nerve (quadratus via the anterior interosseous branch)",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/pronator-teres.glb",
+      "mesh_urls": ["/cache/arm-hand/pronator-teres.glb", "/cache/arm-hand/pronator-quadratus.glb"]
     },
     {
       "id": "interossei-lumbricals",
@@ -215,7 +217,8 @@
       "active_when": ["finger_spread", "finger_close", "typing"],
       "nerve": "ulnar nerve; lumbricals 1-2 by median nerve",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/interosseous.glb",
+      "mesh_urls": ["/cache/arm-hand/interosseous.glb"]
     },
     {
       "id": "flexor-tendons",
@@ -230,7 +233,8 @@
       "active_when": ["finger_flexion", "grip", "typing"],
       "nerve": "",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/flexor-tendon.glb",
+      "mesh_urls": ["/cache/arm-hand/flexor-tendon.glb"]
     },
     {
       "id": "extensor-tendons",
@@ -246,7 +250,8 @@
       "active_when": ["finger_extension", "typing"],
       "nerve": "",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/extensor-tendon.glb",
+      "mesh_urls": ["/cache/arm-hand/extensor-tendon.glb"]
     },
     {
       "id": "median-nerve",
@@ -261,7 +266,7 @@
       "active_when": [],
       "nerve": "",
       "safety": "Compression at the wrist is carpal tunnel syndrome.",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/median-nerve.glb"
     },
     {
       "id": "ulnar-nerve",
@@ -277,7 +282,7 @@
       "active_when": [],
       "nerve": "",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/ulnar-nerve.glb"
     },
     {
       "id": "radial-nerve",
@@ -293,7 +298,7 @@
       "active_when": [],
       "nerve": "",
       "safety": "A mid-shaft humerus fracture can injure it, causing wrist drop.",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/radial-nerve.glb"
     },
     {
       "id": "arteries",
@@ -308,7 +313,7 @@
       "active_when": [],
       "nerve": "",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/arteries.glb"
     },
     {
       "id": "humerus",
@@ -323,7 +328,7 @@
       "active_when": [],
       "nerve": "",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/humerus.glb"
     },
     {
       "id": "radius-ulna",
@@ -338,7 +343,8 @@
       "active_when": ["pronation", "supination"],
       "nerve": "",
       "safety": "",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/radius.glb",
+      "mesh_urls": ["/cache/arm-hand/radius.glb", "/cache/arm-hand/ulna.glb"]
     },
     {
       "id": "hand-bones",
@@ -353,7 +359,10 @@
       "active_when": [],
       "nerve": "",
       "safety": "Pain in the anatomical snuffbox after a fall can mean a scaphoid fracture.",
-      "mesh_url": null
+      "mesh_url": "/cache/arm-hand/carpals.glb",
+      "procedural_fallback": ["phalanx-distal"],
+      "procedural_fallback_note": "fal drew the distal phalanx wrong twice; it is a simple shape built in code (scripts/arm/procedural.ts).",
+      "mesh_urls": ["/cache/arm-hand/carpals.glb", "/cache/arm-hand/metacarpal.glb", "/cache/arm-hand/phalanx-proximal.glb", "/cache/arm-hand/phalanx-middle.glb", "/cache/arm-hand/phalanx-distal.glb"]
     }
   ],
   "steps": [

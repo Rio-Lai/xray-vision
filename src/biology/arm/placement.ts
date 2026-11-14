@@ -54,7 +54,9 @@ function fingerJoints(f: FingerId) {
 export function placements(): Placement[] {
   const out: Placement[] = [
     // ---- layer 2: superficial muscles
-    { mesh: 'deltoid', part: 'deltoid', key: '', girth: 0.3, xAlong: 'anterior', path: [{ p: 'pose.shoulder', f: 'upper', l: 0.55, a: 0.05 }, { p: 'pose.shoulder>elbow@0.45', f: 'upper', l: 0.8 }] },
+    // deltoid caps the head of the humerus: starts just above the shoulder point
+    // deltoid: a cupped shell over the shoulder, origin around the acromion, insertion at the deltoid tuberosity
+    { mesh: 'deltoid', part: 'deltoid', key: '', girth: 0.3, xAlong: 'anterior', path: [{ p: 'pose.elbow>shoulder@1.04', f: 'upper', l: 0.3 }, { p: 'pose.shoulder>elbow@0.45', f: 'upper', l: 0.7 }] },
     { mesh: 'biceps', part: 'biceps', key: '', girth: 0.17, path: [{ p: 'pose.shoulder>elbow@0.06', f: 'upper', a: 0.45 }, { p: 'pose.elbow>wrist@0.1', f: 'fore', a: 0.5 }] },
     { mesh: 'triceps', part: 'triceps', key: '', girth: 0.2, path: [{ p: 'pose.shoulder>elbow@0.1', f: 'upper', a: -0.5 }, { p: 'pose.elbow', f: 'upper', a: -0.65 }] },
     { mesh: 'brachioradialis', part: 'brachioradialis', key: '', girth: 0.08, xAlong: 'anterior', path: [{ p: 'pose.shoulder>elbow@0.75', f: 'upper', l: 0.75 }, { p: 'pose.wrist', f: 'hand', l: 0.75, a: 0.1 }] },
@@ -118,10 +120,12 @@ export function placements(): Placement[] {
       ],
     },
     // ---- layer 6: bones (uniform scale: they keep fal's proportions)
-    { mesh: 'humerus', part: 'humerus', key: '', path: [{ p: 'pose.shoulder', f: 'upper' }, { p: 'pose.elbow', f: 'upper' }] },
+    // humerus head sits in the glenoid just below and behind the shoulder point, under the deltoid
+    { mesh: 'humerus', part: 'humerus', key: '', path: [{ p: 'pose.shoulder>elbow@0.05', f: 'upper', a: -0.1 }, { p: 'pose.elbow', f: 'upper' }] },
     // radius: lateral epicondyle side at the elbow -> THUMB side at the wrist; ulna: medial (olecranon) -> little-finger side
-    { mesh: 'radius', part: 'radius-ulna', key: 'radius', path: [{ p: 'pose.elbow', f: 'fore', l: 0.35 }, { p: 'pose.wrist', f: 'hand', l: 0.4 }] },
-    { mesh: 'ulna', part: 'radius-ulna', key: 'ulna', path: [{ p: 'pose.elbow', f: 'fore', l: -0.35, a: -0.25 }, { p: 'pose.wrist', f: 'hand', l: -0.45 }] },
+    // slimmer than fal's proportions (its wide ends made each bone ~6 cm across and hid the gap between them)
+    { mesh: 'radius', part: 'radius-ulna', key: 'radius', girth: 0.075, path: [{ p: 'pose.elbow', f: 'fore', l: 0.55 }, { p: 'pose.wrist', f: 'hand', l: 0.62 }] },
+    { mesh: 'ulna', part: 'radius-ulna', key: 'ulna', girth: 0.075, path: [{ p: 'pose.elbow', f: 'fore', l: -0.55, a: -0.2 }, { p: 'pose.wrist', f: 'hand', l: -0.62 }] },
     // carpal cluster lies ACROSS the wrist
     { mesh: 'carpals', part: 'hand-bones', key: 'carpals', xAlong: 'axis', girth: 0.06, path: [{ p: 'hand.wrist>middle_mcp@0.2', f: 'hand', l: -0.6 }, { p: 'hand.wrist>middle_mcp@0.2', f: 'hand', l: 0.6 }] },
   ];

@@ -6,6 +6,15 @@
 import { useStore, type FingerName, type HandState } from '../state/store';
 import { LensSchema, type ClientToolName } from '../../shared/teardown';
 import { explodeObject, resetAll } from '../lib/flow';
+import { useArmStore } from '../biology/arm/armStore';
+import { armExplode, armHighlight, armOff, armPose, armReset, armShowStep } from '../biology/arm/tour';
+import { startArmLive } from '../biology/arm/armLive';
+
+// The X-ray arm (public/cache/arm-hand) is driven by the same tools: explode with object_id "arm-hand", then
+// show_step / highlight_part / reset_view go to the arm while it is active. Live hands feed its typing detector.
+startArmLive();
+const ARM_ID = 'arm-hand';
+const armActive = () => useArmStore.getState().active;
 
 type Params = Record<string, unknown> | undefined | null;
 type Tool = (params?: Params) => Promise<string>;
@@ -107,6 +116,8 @@ const tools: Record<ClientToolName, Tool> = {
   async explode(p) {
     const amount = num(p, 'amount');
     const objectId = str(p, 'object_id');
+    if (objectId === ARM_ID || (!objectId && armActive())) return json(await armExplode(amount ?? 1));
+    if (objectId && armActive()) armOff();
     const s = useStore.getState();
     if (amount !== undefined && amount <= 0) {
       s.setExplode(0);
@@ -127,6 +138,7 @@ const tools: Record<ClientToolName, Tool> = {
   async highlight_part(p) {
     const q = str(p, 'part_id');
     if (!q) return 'part_id is required.';
+    if (armActive()) return json(await armHighlight(q));
     if (!useStore.getState().teardown) return 'Nothing is exploded yet. Call explode first.';
     const part = findPart(q);
     if (!part) {
@@ -142,6 +154,7 @@ const tools: Record<ClientToolName, Tool> = {
 
   async show_step(p) {
     const n = num(p, 'n');
+    if (armActive()) return n === undefined ? 'n is required.' : json(await armShowStep(n));
     const td = useStore.getState().teardown;
     if (!td) return 'Nothing is exploded yet. Call explode first.';
     if (n === undefined) return 'n is required.';
@@ -152,6 +165,7 @@ const tools: Record<ClientToolName, Tool> = {
   },
 
   async reset_view() {
+    if (armActive()) return armReset();
     resetAll();
     return 'View reset.';
   },
@@ -175,10 +189,16 @@ const tools: Record<ClientToolName, Tool> = {
 
   async get_pose() {
     const hands = useStore.getState().hands.map(describeHand);
-    if (hands.length === 0) return json({ hands: [], note: 'No hands in view.' });
+    // arm: { activity: "typing" | "none", confidence, active_parts: [{ part_id, intensity, role }], ... }
+    const arm = await armPose();
+    if (hands.length === 0 && arm.activity !== 'typing') return json({ hands: [], arm, note: 'No hands in view.' });
     return json({
       hands,
-      note: 'muscles lists the part ids working right now; call highlight_part with the first one.',
+      arm,
+      note:
+        arm.activity === 'typing'
+          ? 'The arm is typing: answer from arm.active_parts, then call explode with object_id "arm-hand" and show_step 1 to 6.'
+          : 'muscles lists the part ids working right now; call highlight_part with the first one.',
     });
   },
 };

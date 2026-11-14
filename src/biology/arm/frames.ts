@@ -85,12 +85,13 @@ export function armGeometry(f: ArmFrame, W: number, H: number, side: 'right' | '
   // upper arm. If the elbow is nearly straight, fall back to the palm direction.
   let upperAnterior = perp(foreAxis.clone(), upperAxis);
   if (Math.abs(foreAxis.dot(upperAxis)) > 0.97) upperAnterior = perp(handAnterior.clone(), upperAxis);
-  // Lateral (away from the body). For a right arm: anterior x axis(down the arm) points laterally.
-  const upperLateral = new THREE.Vector3().crossVectors(upperAnterior, upperAxis).normalize().multiplyScalar(sign);
+  // Lateral (away from the body). For a right arm, axis (down the arm) x anterior points laterally.
+  // (Checked against the synthetic trace: the other order pointed to the body midline, i.e. medially.)
+  const upperLateral = new THREE.Vector3().crossVectors(upperAxis, upperAnterior).normalize().multiplyScalar(sign);
 
   // At the elbow the epicondyles follow the humerus: same lateral, re-orthogonalised to the forearm.
   const elbowLateral = perp(upperLateral.clone(), foreAxis);
-  const elbowAnterior = new THREE.Vector3().crossVectors(foreAxis, elbowLateral).normalize().multiplyScalar(sign);
+  const elbowAnterior = new THREE.Vector3().crossVectors(elbowLateral, foreAxis).normalize().multiplyScalar(sign);
 
   // Pronation for the overlay: with the head camera looking down at a keyboard, "palm down" = the palm normal
   // points away from the camera (-z). 1 = palm fully down, -1 = palm facing the camera.
@@ -119,7 +120,10 @@ export function blendFrames(a: Frame, b: Frame, t: number, axis: THREE.Vector3):
 
 /** Point named like the teardown JSON: "pose.shoulder", "pose.elbow>wrist@0.1", "hand.index_tip", "hand.wrist"... */
 export function namedPoint(g: ArmGeometry, ref: string): THREE.Vector3 {
-  const [space, rest] = ref.split('.');
+  // split on the FIRST dot only: "pose.shoulder>elbow@0.75" has another dot in the fraction
+  const dot = ref.indexOf('.');
+  const space = ref.slice(0, dot);
+  const rest = ref.slice(dot + 1);
   if (space === 'pose') {
     const m = rest.match(/^(\w+)(?:>(\w+)@([\d.]+))?$/);
     if (!m) throw new Error(`bad landmark ref ${ref}`);

@@ -1,8 +1,8 @@
 {
   "deltoid": {
     "model": "fal-ai/flux-pro/v1.1",
-    "prompt": "Studio product photograph of one single object on a plain white background: a thick triangular slab of red muscle, broad and rounded along one long edge and tapering to a short white tendon at the opposite point. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
-    "request_id": "01a1dbb4-b192-7622-b3c5-1c6756be19f0",
+    "prompt": "Studio product photograph of one single object on a plain white background: a thick curved shell of red muscle shaped like a rounded triangle or a shield, about as wide as it is long, convex on one side and hollow on the other like a cupped hand, its fibres converging from a wide curved top edge down to one short white tendon at the lower point. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbef-c917-7703-9a2e-6a8d9d3b7ed1",
     "files": [
       "deltoid-a.png",
       "deltoid-b.png"
@@ -28,8 +28,8 @@
   },
   "triceps": {
     "model": "fal-ai/flux-pro/v1.1",
-    "prompt": "Studio product photograph of one single object on a plain white background: a large red muscle made of three fleshy bellies side by side that merge into one broad flat white tendon at one end. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
-    "request_id": "01a1dbb4-b193-7e33-bb95-f336b0383a33",
+    "prompt": "Studio product photograph of one single object on a plain white background: a large long red muscle made of three fleshy heads lying SIDE BY SIDE along their length and merging into one broad flat white tendon at one end, overall shaped like a long thick spindle, not stacked balls. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbef-c915-7b63-bc44-4844abbbb4b2",
     "files": [
       "triceps-a.png",
       "triceps-b.png"

@@ -173,6 +173,43 @@ function pick(args: string[]) {
   console.log(`[arm] choices: ${Object.entries(choices).map(([i, k]) => `${i}=${k}`).join(' ')}`);
 }
 
+/** Crop a white-background product image to the object's bounding box plus a small margin. */
+async function cropToSubject(file: string): Promise<Buffer> {
+  const { data, info } = await sharp(file).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width: w, height: h } = info;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 3;
+      // "not background": clearly darker or more saturated than the near-white backdrop (ignores soft shadows)
+      const mx = Math.max(data[i], data[i + 1], data[i + 2]);
+      const mn = Math.min(data[i], data[i + 1], data[i + 2]);
+      if (mx < 200 || mx - mn > 40) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  if (x1 < 0) return fs.readFileSync(file);
+  const pad = Math.round(0.04 * Math.max(x1 - x0, y1 - y0)) + 4;
+  // fal accepts 128..5000 px per side: grow a very thin crop symmetrically to at least MIN px.
+  const MIN = 160;
+  const grow = (a: number, b: number, size: number): [number, number] => {
+    const need = Math.max(0, MIN - (b - a));
+    let lo = a - Math.ceil(need / 2);
+    let hi = b + Math.floor(need / 2);
+    if (lo < 0) [lo, hi] = [0, hi - lo];
+    if (hi > size) [lo, hi] = [Math.max(0, lo - (hi - size)), size];
+    return [lo, hi];
+  };
+  const [left, right] = grow(Math.max(0, x0 - pad), Math.min(w, x1 + pad + 1), w);
+  const [top, bottom] = grow(Math.max(0, y0 - pad), Math.min(h, y1 + pad + 1), h);
+  const width = right - left;
+  const height = bottom - top;
+  return sharp(file).extract({ left, top, width, height }).png().toBuffer();
+}
+
 async function meshes(args: string[]) {
   const model = flag(args, '--model') ?? MESH_MODEL_DEFAULT;
   const tag = flag(args, '--tag') ?? '';
@@ -191,7 +228,9 @@ async function meshes(args: string[]) {
   const stopped = await pool(todo, 4, async (s) => {
     const t0 = Date.now();
     const img = path.join(IMG_DIR, `${s.id}-${choices[s.id]}.png`);
-    const imageUrl = await fal.storage.upload(new Blob([fs.readFileSync(img)], { type: 'image/png' }));
+    // Hunyuan 3D v3.1 rejects images where the object fills < 50% of the frame (thin nerves and tendons on a
+    // big white square). Crop tightly around the object first; harmless for the others.
+    const imageUrl = await fal.storage.upload(new Blob([new Uint8Array(await cropToSubject(img))], { type: 'image/png' }));
     if (!isFalUrl(imageUrl)) throw new Error(`upload returned a non-fal url for ${s.id}`);
     const input: Record<string, unknown> = model.includes('hunyuan3d/v2')
       ? { input_image_url: imageUrl, textured_mesh: true }

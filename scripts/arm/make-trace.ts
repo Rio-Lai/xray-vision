@@ -54,7 +54,7 @@ function press(f: F, t: number): number {
 
 function frameAt(tMs: number) {
   const sway = (k: number, a: number) => a * Math.sin(tMs * 0.0011 * k + k);
-  const S: V = [-0.17, -0.2, 0.62]; // right shoulder, metres from the camera axis
+  const S: V = [-0.2, -0.17, 0.9]; // right shoulder, metres from the camera axis
   const E = add(S, mul(up, -0.27), mul(fwd, 0.06), mul(left, -0.02), [sway(1, 0.002), sway(2, 0.002), 0]);
   const W = add(E, mul(fwd, 0.25), mul(up, 0.035), mul(left, 0.03), [sway(3, 0.0015), sway(4, 0.0015), 0]);
   const hand: V[] = new Array(21);
@@ -104,7 +104,7 @@ function frameAt(tMs: number) {
   for (const [i, v] of Object.entries(posePts)) {
     const n = toN(v);
     // pose z: depth relative to the hips, on the x scale (MediaPipe convention); smaller = closer
-    pose[Number(i)] = { x: n.x + jitter(), y: n.y + jitter(), z: (v[2] - 0.62) * fx, visibility: 0.98 };
+    pose[Number(i)] = { x: n.x + jitter(), y: n.y + jitter(), z: (v[2] - 0.9) * fx, visibility: 0.98 };
   }
   const handN = hand.map((v) => {
     const n = toN(v);

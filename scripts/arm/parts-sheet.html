@@ -40,14 +40,17 @@
       const env = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
       const loader = new GLTFLoader();
       const grid = document.getElementById('grid');
-      for (const id of ids) {
+      // load everything in parallel first (much faster than one by one), then draw each cell
+      const loaded = await Promise.all(ids.map((id) => loader.loadAsync(`${dir}/${id}.glb`).then((g) => g, (e) => e)));
+      for (const [n, id] of ids.entries()) {
         const cell = document.createElement('div');
         cell.className = 'cell';
         const meta = info[id] || {};
         cell.innerHTML = `<div><b>${id}</b><small>${meta.part_id ?? ''}${meta.bytes ? ' · ' + (meta.bytes / 1e6).toFixed(2) + ' MB' : ''}</small></div>`;
         grid.appendChild(cell);
         try {
-          const gltf = await loader.loadAsync(`${dir}/${id}.glb`);
+          const gltf = loaded[n];
+          if (gltf instanceof Error) throw gltf;
           const scene = new THREE.Scene();
           scene.environment = env;
           scene.background = new THREE.Color('#ffffff');
