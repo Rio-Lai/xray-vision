@@ -4,7 +4,7 @@
 
 - `server/routes/identify.ts`, `server/routes/teardown.ts`: Claude routes. The prompts and Claude calls are in `server/lib/claude.ts`.
 - `server/routes/agent-token.ts`: fetches the ElevenLabs signed URL.
-- `src/voice/`: `useVoiceAgent.ts` (SDK wrapper), `clientTools.ts` (the eight tools), `VoiceBar.tsx` (voice pill, captions, hidden typed input; styles in `voiceStyles.ts`), `bridge.ts` (lets non-React code talk to the session), `localCommands.ts` (typed fallback when voice is off).
+- `src/voice/`: `useVoiceAgent.ts` (SDK wrapper), `clientTools.ts` (the nine tools), `VoiceBar.tsx` (voice pill, captions, hidden typed input; styles in `voiceStyles.ts`), `bridge.ts` (lets non-React code talk to the session), `localCommands.ts` (typed fallback when voice is off).
 
 ## Voice UI and hidden keys
 
@@ -23,7 +23,7 @@
 
 1. Create a new agent named **Blowfish**. Pick a clear, warm voice (for example a calm British or American conversational voice; avoid dramatic or "narrator" voices). Turn on **authentication** so the app connects with a signed URL.
 2. Paste the **system prompt** and **first message** below.
-3. Add exactly the eight **client tools** below. Names must match exactly. Tick **Wait for response** on every one. There is no `set_lens` (lenses were removed in #32).
+3. Add exactly the nine **client tools** below (the ninth, `rotate_model`, was added in #58). Names must match exactly. Tick **Wait for response** on every one. There is no `set_lens` (lenses were removed in #32).
 4. In the agent's **Advanced** settings keep **interruptions** on (the user can talk over Blowfish and it stops), and keep the turn timeout short.
 5. Put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in your local `.env` (never commit it; share with Rio privately for the demo laptop), then restart `npm run dev`. `GET /api/health` should report `keys.elevenlabs: true`.
 
@@ -34,7 +34,8 @@ This is the text pasted into the agent. If you change it in the dashboard, chang
 ```
 You are Blowfish, a calm, friendly tutor that gives people X-ray vision for the physical world.
 The user wears AR glasses with a camera. They look at a real thing (a gadget, or their own hand)
-and you show and explain what is inside it. They cannot touch anything: everything is by voice.
+and you show and explain what is inside it. They cannot touch a screen: they talk to you, and they can
+use their hands in the air to turn the model and pull it apart.
 
 Who you listen to:
 - Only act on speech addressed to you as "Blowfish" ("Hey Blowfish, ...") or a direct follow-up
@@ -55,11 +56,19 @@ What "this" means:
 Tools:
 - "Overlay on", "show me what you see", "start": call set_overlay with on true.
 - "Overlay off", "clean view", "stop": call set_overlay with on false.
-- "Explode this", "open it up", "what's inside": call explode with no object_id.
-  When it returns, give the short tour it suggests: for each part in "tour", call highlight_part, then say
-  one short sentence about it (and its safety note if it has one). Then stop and wait for questions.
+- "Analyse this", "what is inside this", "what's this made of": call explode with no object_id and
+  amount 0.12. A 3D model of it floats up in the middle of the view, assembled, parts just separated.
+  When it returns, say one short line that includes the gesture hint, only the first time in a
+  conversation: "Pinch to turn it, pull your hands apart to open it." Then give the short tour it
+  suggests: for each part in "tour", call highlight_part, then say one short sentence about it (and its
+  safety note if it has one). Then stop and wait for questions.
+- "Explode it", "explode this", "open it up", "pull it apart": call explode with no object_id and amount 1.
+  If nothing was on stage yet, this brings the model up too: give the gesture hint and tour as above.
+- "Put it back together", "close it up": call explode with no object_id and amount 0.12.
+- "Put it away", "close it", "reset", "put it back": call reset_view.
+- "Turn it left/right/up/down", "turn it around", "flip it": call rotate_model with direction left,
+  right, up, down or around. Add degrees only if the user says a number ("turn it 90 degrees").
 - Tool results may include "next" or "remember": follow them.
-- "Put it back", "close it", "reset": call reset_view.
 - Before you talk about any part, call highlight_part with its id so it lights up. Answer from the
   part's summary and details.
 - If a part has a safety note, always say it.
@@ -77,21 +86,22 @@ Other rules:
 - If a tool returns an error sentence, say that sentence briefly in your own words and move on.
 ```
 
-First message: "Hi, I'm Blowfish. Look at something and say: Hey Blowfish, explode this."
+First message: "Hi, I'm Blowfish. Look at something and say: Hey Blowfish, analyse this."
 
 ## Client tools to enter in the dashboard
 
-All type **Client**, all with **Wait for response** on. Exactly these eight.
+All type **Client**, all with **Wait for response** on. Exactly these nine.
 
 | Name | Description | Parameters |
 | --- | --- | --- |
 | `get_scene` | What the user can see now: the objects in view, which one is in the centre, and the exploded parts with their ids. | none |
 | `set_overlay` | Turn Blowfish's labels on (true) or go back to the clean camera view (false). Off also puts everything back. | `on` (boolean, required) |
 | `select_object` | Select an object in view. Leave empty for the one in the centre. | `object_id` (string, optional) |
-| `explode` | Explode the object the user is looking at into its parts. amount 0 collapses it. | `object_id` (string, optional; leave empty for "this"), `amount` (number 0 to 1, optional) |
+| `explode` | Bring a 3D model of the object the user is looking at into the middle of the view and spread its parts. amount 0.12 = assembled ("analyse this", "put it back together"), 1 = fully exploded, 0 collapses it. | `object_id` (string, optional; leave empty for "this"), `amount` (number 0 to 1, optional) |
 | `highlight_part` | Light up one part before talking about it. Returns its facts and safety note. | `part_id` (string, required) |
 | `show_step` | Show step n of the walkthrough (repair steps, or how a key press works). | `n` (integer, required) |
-| `reset_view` | Collapse everything and clear the selection. | none |
+| `reset_view` | Put the model away: collapse everything and clear the selection. | none |
+| `rotate_model` | Turn the floating model. "around" turns it half a turn. | `direction` (string, required: "left", "right", "up", "down" or "around"), `degrees` (number, optional; default 45, "around" 180) |
 | `get_pose` | Which finger is pressing right now and which muscle part ids are working. | none |
 
 ## Noisy room (judging): "Hey Blowfish" and push-to-talk
@@ -135,6 +145,7 @@ After each explode, the app sends a contextual update listing the part ids, name
 1. `npm run dev`, open http://localhost:5173 in Chrome, allow camera and microphone. `GET /api/health` shows `keys.elevenlabs: true`.
 2. Press **V** (or click the pill). The pill goes Connecting -> Listening; the console has no errors.
 3. "Hey Blowfish, overlay on" -> `set_overlay` runs and labels appear.
-4. Look at the laptop: "Hey Blowfish, explode this" -> it explodes and Blowfish speaks; the pill shows Speaking and captions appear.
-5. "Put it back" -> it collapses.
-6. Remove the keys from `.env` and restart: the app loads, the pill says "Voice off", nothing crashes.
+4. Look at the laptop: "Hey Blowfish, analyse this" -> the model floats up assembled and Blowfish gives the gesture hint once, then the tour; the pill shows Speaking and captions appear.
+5. "Turn it around" -> `rotate_model` turns it. "Explode it" -> it spreads fully. "Put it back together" -> assembled again.
+6. "Put it away" -> it clears.
+7. Remove the keys from `.env` and restart: the app loads, the pill says "Voice off", nothing crashes.
