@@ -211,3 +211,62 @@ export function explodeLayout(
   }
   return { poses, extent, columns: groups.length };
 }
+
+/* ---------- fitting a 3D model to its part ---------- */
+
+export interface ModelOrientation {
+  name: string;
+  /** Where the model's X, Y and Z axes go (columns of a proper rotation: no mirroring). */
+  cols: [[number, number, number], [number, number, number], [number, number, number]];
+  /** Small preference for the usual cases (ties go to them). */
+  bias: number;
+}
+
+/**
+ * The six axis-aligned ways to put a model's box into a part's box. glTF models are Y-up with
+ * their front towards +Z; most generated parts are either standing facing the camera ("as is")
+ * or lying flat with their top up ("lying flat": top towards the camera, front towards the
+ * bottom of the screen, which is the front edge of a laptop seen from above).
+ */
+export const MODEL_ORIENTATIONS: ModelOrientation[] = [
+  { name: 'as is', cols: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], bias: 0 },
+  { name: 'lying flat', cols: [[1, 0, 0], [0, 0, 1], [0, -1, 0]], bias: 0 },
+  { name: 'turned in plane', cols: [[0, -1, 0], [1, 0, 0], [0, 0, 1]], bias: 0.05 },
+  { name: 'long along Z', cols: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], bias: 0.05 },
+  { name: 'flat, turned', cols: [[0, 1, 0], [0, 0, 1], [1, 0, 0]], bias: 0.08 },
+  { name: 'long along Y', cols: [[0, 0, -1], [1, 0, 0], [0, -1, 0]], bias: 0.08 },
+];
+
+/** The model's box size [x, y, z] after orientation `o`. */
+export function orientedSize(size: [number, number, number], o: ModelOrientation): [number, number, number] {
+  const out: [number, number, number] = [0, 0, 0];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) out[j] += Math.abs(o.cols[i][j]) * size[i];
+  return out;
+}
+
+/** How much the depth axis counts when matching proportions: what shows on screen is width and height. */
+const DEPTH_WEIGHT = 0.25;
+
+/**
+ * Index into MODEL_ORIENTATIONS whose oriented proportions best match the part (w, h, d), i.e.
+ * the smallest weighted spread of log(target / model) over the axes, so one uniform scale fits
+ * best; depth counts less because the camera sees width and height.
+ */
+export function chooseOrientation(size: [number, number, number], target: [number, number, number]): number {
+  const wt = [1, 1, DEPTH_WEIGHT];
+  const wsum = wt[0] + wt[1] + wt[2];
+  let best = 0;
+  let bestScore = Infinity;
+  MODEL_ORIENTATIONS.forEach((o, k) => {
+    const r = orientedSize(size, o);
+    const logs = r.map((v, j) => Math.log(Math.max(1e-6, target[j]) / Math.max(1e-6, v)));
+    const mean = (wt[0] * logs[0] + wt[1] * logs[1] + wt[2] * logs[2]) / wsum;
+    const spread = logs.reduce((sum, l, j) => sum + wt[j] * (l - mean) ** 2, 0);
+    const score = spread + o.bias;
+    if (score < bestScore) {
+      bestScore = score;
+      best = k;
+    }
+  });
+  return best;
+}
