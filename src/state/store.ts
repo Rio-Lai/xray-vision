@@ -1,6 +1,6 @@
 /**
  * The single app store. Every module talks through this:
- *  - detect/   writes `objects`, `focusedObjectId`, `hand`
+ *  - detect/   writes `objects`, `focusedObjectId`, `hands`
  *  - overlay/  reads `teardown`, `explodeAmount`, `highlightedPartId`, `activeStep`, `frozen`
  *  - voice/    calls the actions (via src/voice/clientTools.ts)
  *  - lib/flow  loads teardowns and meshes
@@ -64,6 +64,13 @@ export interface CameraApi {
 }
 
 export interface AppState {
+  /**
+   * false = clean passthrough: the camera view with nothing drawn on it (the default).
+   * true  = Blowfish is "on": detected things get labels and can be exploded.
+   * Toggled by voice ("Hey Blowfish, overlay on") through the set_overlay tool.
+   */
+  overlayOn: boolean;
+  /** DEPRECATED: Blowfish has no lenses. Do not read this in new code; it will be removed. */
   lens: Lens;
   objects: SceneObject[];
   /** Object under the centre gaze reticle. This is what "this" means in "explode this". */
@@ -90,6 +97,8 @@ export interface AppState {
   camera: CameraApi | null;
 
   // ---- actions ----
+  setOverlayOn: (on: boolean) => void;
+  /** DEPRECATED with `lens`. */
   setLens: (lens: Lens) => void;
   setObjects: (objects: SceneObject[]) => void;
   setFocusedObject: (id: string | null) => void;
@@ -120,6 +129,7 @@ export interface AppState {
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
 export const useStore = create<AppState>((set) => ({
+  overlayOn: false,
   lens: 'engineering',
   objects: [],
   focusedObjectId: null,
@@ -143,6 +153,7 @@ export const useStore = create<AppState>((set) => ({
 
   camera: null,
 
+  setOverlayOn: (overlayOn) => set({ overlayOn }),
   setLens: (lens) => set({ lens }),
   setObjects: (objects) => set({ objects }),
   setFocusedObject: (focusedObjectId) => set({ focusedObjectId }),

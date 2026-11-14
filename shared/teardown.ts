@@ -106,15 +106,21 @@ export type GeneratePartResponse = z.infer<typeof GeneratePartResponseSchema>;
 export const AgentTokenResponseSchema = z.object({ signed_url: z.string() });
 export type AgentTokenResponse = z.infer<typeof AgentTokenResponseSchema>;
 
-/** The eight client tools the ElevenLabs agent can call. Names must match the ElevenLabs dashboard exactly. */
+/**
+ * The client tools the ElevenLabs agent can call. Names must match the ElevenLabs dashboard exactly.
+ * set_overlay turns the labels on or off ("Hey Blowfish, overlay on").
+ * set_lens is DEPRECATED (Blowfish has no lenses) and will be removed once nothing calls it:
+ * do not add it to the dashboard.
+ */
 export const CLIENT_TOOL_NAMES = [
   'get_scene',
+  'set_overlay',
   'select_object',
   'explode',
   'highlight_part',
   'show_step',
   'reset_view',
-  'set_lens',
   'get_pose',
+  'set_lens',
 ] as const;
 export type ClientToolName = (typeof CLIENT_TOOL_NAMES)[number];

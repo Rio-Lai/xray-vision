@@ -1,5 +1,5 @@
 /**
- * The eight ElevenLabs client tools (names from CLIENT_TOOL_NAMES in shared/teardown.ts).
+ * The ElevenLabs client tools (names from CLIENT_TOOL_NAMES in shared/teardown.ts).
  * Each takes the agent's parameters object and returns a short string for the agent.
  * In the ElevenLabs dashboard every tool must be set to "wait for response".
  */
@@ -156,6 +156,16 @@ const tools: Record<ClientToolName, Tool> = {
     return 'View reset.';
   },
 
+  async set_overlay(p) {
+    const v = p?.['on'];
+    const on =
+      typeof v === 'boolean' ? v : typeof v === 'string' ? /^(true|on|yes|1)$/i.test(v.trim()) : true;
+    useStore.getState().setOverlayOn(on);
+    if (!on) resetAll();
+    return on ? 'Overlay on. Objects in view are now labelled.' : 'Overlay off. Clean view.';
+  },
+
+  /** DEPRECATED: Blowfish has no lenses. Kept until the contract cleanup removes it. */
   async set_lens(p) {
     const parsed = LensSchema.safeParse(str(p, 'lens'));
     if (!parsed.success) return 'lens must be "engineering" or "biology".';
