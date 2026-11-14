@@ -183,7 +183,7 @@ class OverlayEngine {
   private targetBox(s: AppState): ScreenBox | null {
     const vw = this.vw;
     const vh = this.vh;
-    if (s.trackingMode === 'mat') {
+    if (s.trackingMode === 'stage') {
       const w = vw * 0.42;
       return { cx: vw / 2, cy: vh * 0.47, w, h: w * 0.68 };
     }

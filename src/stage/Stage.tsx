@@ -21,7 +21,7 @@ import type { OverlayHandle } from '../overlay/Overlay';
 import { Hud } from '../hud/Hud';
 import { devLog, setStatus, showToast, toggleDebug } from '../hud/hudStore';
 
-const MODES: TrackingMode[] = ['freeze', 'follow', 'mat'];
+const MODES: TrackingMode[] = ['freeze', 'follow', 'stage'];
 
 function isTypingTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;

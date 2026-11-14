@@ -2,13 +2,13 @@
 
 Read this before you start any work. It is the source of truth for what we are building, who owns what, and how work gets into `main`. If a ticket disagrees with this file, say so on the ticket.
 
-Last updated: Sat 14 Nov 2026, 20:00. Owner of this file: the orchestrator (Rio's Claude).
+Last updated: Sat 14 Nov 2026, 21:15 (v2: floating model, hand gestures, video round). Owner of this file: the orchestrator (Rio's Claude).
 
 ## 1. What we are building
 
 **Blowfish** is voice-controlled X-ray vision for the physical world. You wear a camera and AR glasses, look at a real thing, and say "Hey Blowfish, explode this". Blowfish freezes the view, pulls the object apart into its parts as floating 3D pieces placed over the real object, and a voice tutor explains each part and answers questions. It works on machines and on living things with the same pipeline.
 
-- **Event:** Imperial AI Hack. Submissions close **Sunday 15 Nov, 12:00**. Live demo to judges 13:00 to 16:30, no video.
+- **Event:** Imperial AI Hack. Submissions close **Sunday 15 Nov, 12:00**. Judging 13:00 to 16:30 in three rounds: **round 1** is a **2-minute pre-recorded video** shown to 2 judges, then 6 minutes of questions; **round 2** is a live demo to 6 to 8 judges; the track winner shows the product to the whole cohort.
 - **Track:** Voice, Vision & Generative Media. Bounties: ElevenLabs (main), fal. Extra prize: Figma.
 - **Team:** Rio (design engineering), Rohan (ElevenLabs voice), Kash (4th-year medic; fal 3D models and content).
 - **Repo name** stays `xray-vision` until after the event (renaming mid-build risks breaking tooling). The product name everywhere in the UI and docs is **Blowfish**.
@@ -19,19 +19,24 @@ There are no modes, tabs, lenses or menus. One flow:
 
 1. **Clean view (default).** The wearer sees exactly what the camera sees. Nothing is drawn on it except a very small "listening" dot.
 2. **"Hey Blowfish, overlay on."** Blowfish starts analysing. Each thing it recognises (laptop, phone, hand, mug...) gets a small, quiet label that fades in on the object.
-3. **"What is this?" / "Explode this."** "This" means whatever is in the centre of the wearer's view. For "explode", the frame freezes, the object's parts lift out into an exploded view placed over the object, and each part gets a label.
-4. **Questions.** "Tell me about the battery." "How would I replace it?" The tutor highlights the part it is talking about and walks through steps.
-5. **Living things.** Look at a hand typing: "Which muscles move my finger?" The tendons and forearm muscles are drawn over the real hand, follow it live (no freeze), and light up with each key press.
-6. **"Put it back." / "Overlay off."** Back to the clean view.
+3. **"Analyse this."** "This" means whatever is in the centre of the wearer's view. A 3D model of it lifts out of the real object and floats in the **middle of the view**, assembled, with its parts visible as separate pieces. The camera view **keeps playing** behind it, slightly dimmed. Nothing freezes and nothing has to stay locked onto the real object.
+4. **Hands.** The wearer's own hands control the model: **pinch and drag to turn it** like a globe; **move two hands apart to explode it** into its parts, and bring them together to close it. Voice does the same ("explode it", "put it back together", "turn it around").
+5. **Questions.** "Tell me about the battery." "How would I replace it?" The tutor highlights the part it is talking about and walks through steps.
+6. **Living things.** Look at a hand typing: "Which muscles move my finger?" The tendons and forearm muscles are drawn over the real hand, follow it live, and light up with each key press. "Analyse my hand" brings a 3D model of the hand and forearm muscles into the middle of the view, to turn and pull apart like any other object.
+7. **"Put it away." / "Overlay off."** The model drops back into its object; back to the clean view.
 
 Everything is driven by voice. Keyboard shortcuts and the typed command box exist only as a hidden developer fallback and must never appear on screen during the demo.
 
-### Live demo scope (what must work on Sunday)
+### Demo scope (what must work for the video and the live rounds)
 
-- A **MacBook Air M3 (13-inch)** on a desk with a teammate typing on it: label, explode, part tour, battery replacement steps.
+- A **MacBook Air M3 (13-inch)** on a desk with a teammate typing on it: label, analyse, turn it by hand, explode it by hand, part tour, battery replacement steps.
 - The **typing hands**: live muscle and tendon overlay with key-press activation, explained by the tutor.
 - One **judge's object** generated live (marked "AI-estimated"), if the network allows.
-- The Figma prototype shows the wider vision (world-locked tracking, eye, leaf, iPhone).
+- The Figma work shows the design and the wider vision (see section 2 and `docs/design/`).
+
+### The 2-minute video (round 1)
+
+About 1 minute on the product (the wearer's view, recorded from the screen, cut with a shot of the wearer in the rig) and about 1 minute on how it works (ElevenLabs agent and its tools, the fal 3D pipeline, Claude, MediaPipe) plus a short "designed in Figma" beat. Because round 1 is recorded, a feature that works in a few takes is good enough for the video; the live rounds need the reliable path (voice commands for everything a gesture can do).
 
 ### Demo rig
 
@@ -44,7 +49,7 @@ The first version looked like a sci-fi HUD (dark panels, cyan brackets, monospac
 - **Clean passthrough first.** No frames, grids, reticles, badges, FPS counters or confidence percentages in the normal view. Debug information lives only in the hidden debug panel (key `D`).
 - **Labels:** small frosted-glass pills (backdrop blur, white at ~14% with a hairline white border, radius 999px), white sans-serif text (`system-ui, -apple-system, "SF Pro Text", Inter, sans-serif`), sentence case ("MacBook Air", not "LAPTOP 79%"). A small dot or short hairline connects the pill to its object. Fade and scale in over ~250 ms.
 - **Focus:** the thing in the centre of view gets a slightly brighter pill and a soft glow on the object. No crosshair.
-- **Exploded view:** the frozen frame dims and blurs slightly behind the parts so they read clearly. Parts look like real components where we have fal models, and like soft translucent glass shapes where we do not (no wireframe-cyan). Label pills per part, never overlapping.
+- **The floating model:** the live camera view dims and blurs slightly behind the model so it reads clearly; the model has a soft shadow and turns slowly when idle. Parts look like real components where we have fal models, and like soft translucent glass shapes where we do not (no wireframe-cyan). Label pills per part, never overlapping.
 - **Cards:** one frosted card for the selected part: name (17-20px semibold), one sentence, safety note in a warm amber. Large radius (20px), soft shadow.
 - **Voice:** a small pill at the bottom centre showing listening / thinking / speaking with a gentle waveform, and subtitle-style captions of what was heard and said that fade out. No chat box on screen.
 - **Colour:** neutral whites and greys; one accent (soft blue `#4DA3FF`) for focus and highlight; warm orange (`#FF9F45`) only for active muscles and safety.
@@ -70,7 +75,7 @@ Browser --/api--> Local server (Express, 127.0.0.1)
 - **Fast things run on the laptop** (camera, detection, drawing). **Slow things run in the background** (Claude, fal) and are cached. The explode animation is just three.js moving meshes; nothing is generated per frame.
 - **Cache first.** `public/cache/<object_id>.json` is a checked parts list; `public/cache/meshes/<object_id>/<part_id>.glb` are checked 3D models. Demo objects are pre-generated and reviewed. Anything generated live goes to `.cache-live/` (gitignored) and is shown as "AI-estimated".
 - **With no API keys the server answers from the cache**, so the app runs from a fresh clone.
-- **Tracking:** laptop-type objects freeze the frame on explode (stable). Hands are tracked live every frame. World-locked tracking on a printed mat (MindAR) is a stretch goal.
+- **Where the model sits:** in the middle of the view ("stage" mode, the default), over the live camera feed. The older modes stay as hidden fallbacks: freeze (the frame freezes and the parts sit over the frozen object) and follow. Hands are tracked live every frame, both as things to analyse and as the controller for the model. World-locked tracking on a printed mat is no longer planned.
 
 ### Tech stack
 
@@ -84,7 +89,7 @@ Run it: `npm install`, `cp .env.example .env`, `npm run dev`, open http://localh
 - `src/state/store.ts`: the one shared store. Read every field's comment before using it.
 - `docs/CONTRACTS.md`: the same in prose.
 
-Voice tools the agent can call (configure exactly these in ElevenLabs, each set to "wait for response"): `get_scene`, `set_overlay`, `select_object`, `explode`, `highlight_part`, `show_step`, `reset_view`, `get_pose`. (There is no `set_lens`.)
+Voice tools the agent can call (configure exactly these in ElevenLabs, each set to "wait for response"): `get_scene`, `set_overlay`, `select_object`, `explode`, `highlight_part`, `show_step`, `reset_view`, `rotate_model`, `get_pose`. (There is no `set_lens`.) "Analyse this" is `explode` with `amount` about 0.12 (assembled, parts just separated); "explode it" is `amount` 1.
 
 **No lenses.** The old Engineering/Biology switch is being removed. The `lens` field on a parts list and on a detected object stays only as internal metadata (it tells the server which prompt to use: `hand` -> biology, everything else -> engineering, or Claude decides). The user never sees or sets it. `store.lens` and the `set_lens` tool have been removed.
 
@@ -144,7 +149,7 @@ Rio's sub-agents (person1, person4, person5) are started by the orchestrator. Th
 
 **3D models (Kash).** For each MacBook part, save the reviewed model as `public/cache/meshes/macbook-air-m3-13/<part-id>.glb` and set that part's `mesh_url` to `/cache/meshes/macbook-air-m3-13/<part-id>.glb` in `public/cache/macbook-air-m3-13.json`. The app then replaces its placeholder shape with the model. Part ids: `display-assembly`, `keyboard-top-case`, `trackpad`, `hinges`, `antennas`, `logic-board`, `battery`, `speakers`, `magsafe-port`, `thunderbolt-ports`, `headphone-jack`, `bottom-case`. Keep each GLB small (aim for under 3 MB; decimate if needed). Transparent PNG renders of the same parts go in `docs/design/assets/` for the Figma prototype. Details: `docs/KASH.md`.
 
-**Voice (Rohan).** ElevenLabs Agents does all three jobs in one session: it listens to the microphone (speech to text), decides what to say and which tool to call, and speaks the answer. Create the agent in the ElevenLabs dashboard, add the eight client tools above, and put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in your local `.env`. The browser code in `src/voice/` already registers the tools and opens the session through `/api/agent-token`. Details and the draft system prompt: `docs/ROHAN.md`.
+**Voice (Rohan).** ElevenLabs Agents does all three jobs in one session: it listens to the microphone (speech to text), decides what to say and which tool to call, and speaks the answer. Create the agent in the ElevenLabs dashboard, add the nine client tools above, and put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in your local `.env`. The browser code in `src/voice/` already registers the tools and opens the session through `/api/agent-token`. Details and the draft system prompt: `docs/ROHAN.md`.
 
 For the demo, Rio's laptop needs all keys in its `.env`. Share them privately.
 
@@ -160,11 +165,12 @@ For the demo, Rio's laptop needs all keys in its `.env`. Share them privately.
 
 | When | Gate |
 | --- | --- |
-| Sat 21:00 | Building closes. CI green on `main`; app reaches its own server; overlay toggle and new look in review |
-| Sun 01:00 | MacBook flow works by voice on the rig with real 3D models |
+| Sat 21:00 | Building closes. Done: CI, port fix, clean view, new look, real 3D models, voice UI |
+| Sun 01:00 | Floating model with hand gestures works on the rig; MacBook flow works by voice |
 | Sun 04:00 | Hand muscles work by voice; anything not working is cut |
+| Sun 08:00 to 10:00 | Film and edit the 2-minute video |
 | Sun 10:30 | Feature freeze, bug fixes only |
 | Sun 11:30 | Devpost submitted (hard close 12:00) |
 | Sun 13:00 | Judging starts |
 
-Cut order if a gate slips: printed-mat tracking, live fal generation (use cached models), live key-press detection (show the hand's layers without it). The MacBook flow is never cut.
+Cut order if a gate slips: live fal generation (use cached models), the two-hand explode gesture (use voice), live key-press detection (show the hand's layers without it). The MacBook flow by voice is never cut.
