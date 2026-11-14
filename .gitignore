@@ -7,3 +7,6 @@ dist
 # Unreviewed AI output (live teardowns, fal meshes). Promote by hand into public/cache/.
 .cache-live
 *.log
+# MediaPipe models and wasm from npm run fetch-models (about 15 MB): local only, never committed.
+public/models/*
+!public/models/.gitkeep

@@ -17,6 +17,7 @@
     "pregenerate": "tsx scripts/pregenerate.ts",
     "fetch-models": "node scripts/fetch-models.mjs",
     "predemo": "node scripts/predemo.mjs",
+    "check": "tsx scripts/check.ts",
     "build-eye": "tsx scripts/build-eye.ts"
   },
   "dependencies": {
