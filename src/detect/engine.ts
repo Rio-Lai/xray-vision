@@ -95,19 +95,30 @@ function parseHands(res: unknown): RawHand[] {
 
 /** Max distance (fraction of frame width) from the frame centre to an object's centre to count as "this". */
 const FOCUS_MAX_DIST = 0.25;
+/** A hand over the centre wins only if its own centre is this close (fraction of frame width). */
+const HAND_FOCUS_DIST = 0.15;
 /** A new candidate must win for this long before focus moves to it (no flicker between overlapping boxes). */
 const FOCUS_SWITCH_MS = 200;
 
 /**
- * The thing of any kind at the frame centre: the smallest box that contains the centre
- * (most specific: a hand on a laptop wins), else the nearest box centre within FOCUS_MAX_DIST.
+ * The thing of any kind at the frame centre: the smallest box that contains the centre, except
+ * that a hand only counts when its own centre is within HAND_FOCUS_DIST (someone typing on the
+ * laptop in view should not steal "this" from the laptop); else the nearest box centre within
+ * FOCUS_MAX_DIST.
  */
 export function focusCandidate(objects: SceneObject[], fw: number, fh: number): string | null {
+  const centreDist = (o: SceneObject) =>
+    Math.hypot((o.box.x + o.box.w / 2 - 0.5) * fw, (o.box.y + o.box.h / 2 - 0.5) * fh);
   let best: string | null = null;
   let bestArea = Infinity;
+  let farHand: string | null = null;
   for (const o of objects) {
     const b = o.box;
     if (0.5 >= b.x && 0.5 <= b.x + b.w && 0.5 >= b.y && 0.5 <= b.y + b.h) {
+      if (o.anchor === 'hand' && centreDist(o) > HAND_FOCUS_DIST * fw) {
+        farHand = farHand ?? o.id;
+        continue;
+      }
       const a = b.w * b.h;
       if (a < bestArea) {
         bestArea = a;
@@ -116,11 +127,10 @@ export function focusCandidate(objects: SceneObject[], fw: number, fh: number): 
     }
   }
   if (best) return best;
+  if (farHand) return farHand;
   let bestD = FOCUS_MAX_DIST * fw;
   for (const o of objects) {
-    const dx = (o.box.x + o.box.w / 2 - 0.5) * fw;
-    const dy = (o.box.y + o.box.h / 2 - 0.5) * fh;
-    const d = Math.hypot(dx, dy);
+    const d = centreDist(o);
     if (d < bestD) {
       bestD = d;
       best = o.id;
