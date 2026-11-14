@@ -6,6 +6,15 @@
 import { useStore, type FingerName, type HandState } from '../state/store';
 import type { ClientToolName, Teardown, TeardownPart } from '../../shared/teardown';
 import { explodeObject, resetAll } from '../lib/flow';
+import { useArmStore } from '../biology/arm/armStore';
+import { armExplode, armHighlight, armOff, armPose, armReset, armShowStep } from '../biology/arm/tour';
+import { startArmLive } from '../biology/arm/armLive';
+
+// The X-ray arm (public/cache/arm-hand) is driven by the same tools: explode with object_id "arm-hand", then
+// show_step / highlight_part / reset_view go to the arm while it is active. Live hands feed its typing detector.
+startArmLive();
+const ARM_ID = 'arm-hand';
+const armActive = () => useArmStore.getState().active;
 
 type Params = Record<string, unknown> | undefined | null;
 type Tool = (params?: Params) => Promise<string>;
@@ -122,6 +131,8 @@ const tools: Record<ClientToolName, Tool> = {
   async explode(p) {
     const amount = num(p, 'amount');
     const objectId = str(p, 'object_id');
+    if (objectId === ARM_ID || (!objectId && armActive())) return json(await armExplode(amount ?? 1));
+    if (objectId && armActive()) armOff();
     const s = useStore.getState();
     if (amount !== undefined && amount <= 0) {
       s.setExplode(0);
@@ -152,6 +163,7 @@ const tools: Record<ClientToolName, Tool> = {
   async highlight_part(p) {
     const q = str(p, 'part_id');
     if (!q) return 'part_id is required.';
+    if (armActive()) return json(await armHighlight(q));
     if (!useStore.getState().teardown) return 'Nothing is exploded yet. Call explode first.';
     const part = findPart(q);
     if (!part) {
@@ -168,6 +180,7 @@ const tools: Record<ClientToolName, Tool> = {
 
   async show_step(p) {
     const n = num(p, 'n');
+    if (armActive()) return n === undefined ? 'n is required.' : json(await armShowStep(n));
     const td = useStore.getState().teardown;
     if (!td) return 'Nothing is exploded yet. Call explode first.';
     if (n === undefined) return 'n is required.';
@@ -189,6 +202,7 @@ const tools: Record<ClientToolName, Tool> = {
   },
 
   async reset_view() {
+    if (armActive()) return armReset();
     resetAll();
     return 'View reset.';
   },
@@ -218,18 +232,26 @@ const tools: Record<ClientToolName, Tool> = {
   async get_pose() {
     const s = useStore.getState();
     const hands = s.hands.map(describeHand);
-    if (hands.length === 0) return json({ hands: [], note: 'No hands in view. Ask the user to hold a hand in front of the camera.' });
+    // arm: { activity: "typing" | "none", confidence, active_parts: [{ part_id, intensity, role }], ... }
+    const arm = await armPose();
+    if (hands.length === 0 && arm.activity !== 'typing') {
+      return json({ hands: [], arm, note: 'No hands in view. Ask the user to hold a hand in front of the camera.' });
+    }
     const handLoaded = s.teardown?.anchor === 'hand';
     const active = hands.find((h) => h.muscles.length > 0);
     const muscles = active?.muscles ?? FLEXORS;
     return json({
       hands: hands.map((h) => ({ ...h, muscle_names: handLoaded ? partNames(h.muscles) : [] })),
       working_now: active ? partNames(active.muscles) : [],
-      note: !handLoaded
-        ? 'The hand layers are not shown yet. Call explode with no object_id while the user looks at their hand, then call highlight_part with the first muscle id.'
-        : active
-          ? `Call highlight_part with "${active.muscles[0]}", then name the muscles in working_now.`
-          : `No finger is moving right now. Typing mainly uses ${partNames(muscles).join(', ') || 'the forearm flexors'}; highlight "${muscles[0]}" and ask the user to type.`,
+      arm,
+      note:
+        arm.activity === 'typing'
+          ? 'The arm is typing: answer from arm.active_parts, then call explode with object_id "arm-hand" and show_step 1 to 6.'
+          : !handLoaded
+            ? 'The hand layers are not shown yet. Call explode with no object_id while the user looks at their hand, then call highlight_part with the first muscle id.'
+            : active
+              ? `Call highlight_part with "${active.muscles[0]}", then name the muscles in working_now.`
+              : `No finger is moving right now. Typing mainly uses ${partNames(muscles).join(', ') || 'the forearm flexors'}; highlight "${muscles[0]}" and ask the user to type.`,
     });
   },
 };

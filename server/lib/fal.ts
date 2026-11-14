@@ -153,6 +153,27 @@ export async function generateMesh(prompt: string, textured = texturedByDefault(
   }
 }
 
+/**
+ * Call any fal endpoint (scripts only), with the same balance / error handling as the pipeline.
+ * Returns the raw output plus the request id; callers pick the fields they need.
+ */
+export async function falRun(model: string, input: Record<string, unknown>): Promise<{ data: Record<string, unknown>; requestId?: string }> {
+  const r = await call(model, input);
+  return { data: rec(r.data), requestId: r.requestId };
+}
+
+/** Several candidate images for one prompt (e.g. to pick the more anatomically correct one). */
+export async function generateImages(prompt: string, model: string, count: number): Promise<{ urls: string[]; requestId?: string }> {
+  const input: Record<string, unknown> = { prompt, image_size: 'square_hd', num_images: count, output_format: 'png', enable_safety_checker: true };
+  if (model === 'fal-ai/flux/schnell') input.num_inference_steps = 4;
+  else if (model === 'fal-ai/flux/dev') input.num_inference_steps = 28;
+  const r = await call(model, input);
+  const images = rec(r.data).images;
+  const urls = (Array.isArray(images) ? images.map(urlOf) : []).filter((u): u is string => !!u && isFalUrl(u));
+  if (urls.length === 0) throw new FalCallError(`${model} returned no images`, r.requestId);
+  return { urls, requestId: r.requestId };
+}
+
 /** Download a fal file (GLB, PNG) after checking it really is on fal. */
 export async function downloadFalFile(url: string): Promise<Buffer> {
   if (!isFalUrl(url)) throw new Error(`refusing to download from a non-fal url: ${url}`);
