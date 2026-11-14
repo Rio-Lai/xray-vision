@@ -37,7 +37,7 @@ Mock mode: a route with its key missing (or `MOCK=1`) answers from the cache.
 ## Flow (`src/lib/flow.ts`)
 
 - `explodeObject(objectId?)`: target = objectId (if it names a scene object), else focused, else selected, else the most confident object of any kind. Turns the overlay on (`setOverlayOn(true)`) if it was off. Selects it, freezes the frame for box anchors in freeze mode (unfreezes again if loading fails), identifies, loads the teardown, sets explode to 1, tells the voice agent, then fetches meshes in the background (two at a time; never for `anchor: 'hand'`). A second call for the same object while one is loading joins it. Returns `{ ok, message }`. On failure `message` is one sentence the tutor can say: "I do not have parts for the <name> yet." (no checked parts list and no Anthropic key), "Blowfish server is not running. Check the terminal where npm run dev was started.", or "I could not load the parts for the <name>. Try again in a moment."
-- `pickPart(partId)`: highlight, and ask the tutor about it if voice is connected.
+- `pickPart(partId)`: a silent pick (hidden arrow keys, mouse click, gaze dwell): highlights the part and sends the agent a contextual update naming it, never a user message, so no caption appears of words the wearer did not say; a spoken question goes through the `highlight_part` tool instead.
 - `resetAll()`: `store.resetView()` and drops any in-flight explode.
 - `describeTeardown(td)`: the text sent to the agent as a contextual update.
 
