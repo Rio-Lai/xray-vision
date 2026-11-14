@@ -4,7 +4,7 @@
  * In the ElevenLabs dashboard every tool must be set to "wait for response".
  */
 import { useStore, type FingerName, type HandState } from '../state/store';
-import type { ClientToolName } from '../../shared/teardown';
+import type { ClientToolName, Teardown, TeardownPart } from '../../shared/teardown';
 import { explodeObject, resetAll } from '../lib/flow';
 
 type Params = Record<string, unknown> | undefined | null;
@@ -58,6 +58,21 @@ function describeHand(h: HandState) {
     ]),
   );
   return { handedness: h.handedness, activeFinger: active, action, muscles, fingers };
+}
+
+/** Up to three parts for the short tour after an explode: the two outermost, then one with a safety note (e.g. the battery). */
+function tourParts(td: Teardown): TeardownPart[] {
+  const byLayer = [...td.parts].sort((a, b) => a.layer - b.layer);
+  const withSafety = byLayer.filter((p) => p.safety);
+  const rest = byLayer.filter((p) => !p.safety);
+  return [...rest.slice(0, 2), ...withSafety.slice(0, 1), ...rest.slice(2)].slice(0, 3);
+}
+
+/** Part names for ids, from the loaded parts list (ids not in it are left out). */
+function partNames(ids: string[]): string[] {
+  const td = useStore.getState().teardown;
+  if (!td) return [];
+  return ids.map((id) => td.parts.find((p) => p.id === id)?.name).filter((n): n is string => Boolean(n));
 }
 
 const tools: Record<ClientToolName, Tool> = {
@@ -121,7 +136,17 @@ const tools: Record<ClientToolName, Tool> = {
     if (result.ok && amount !== undefined) useStore.getState().setExplode(amount);
     const td = useStore.getState().teardown;
     if (!result.ok || !td) return result.message;
-    return `${result.message} Part ids for highlight_part: ${td.parts.map((x) => x.id).join(', ')}.`;
+    const tour = tourParts(td);
+    return json({
+      ok: true,
+      message: result.message,
+      source: td.source,
+      part_ids: td.parts.map((x) => x.id),
+      tour: tour.map((x) => ({ id: x.id, name: x.name, summary: x.summary, safety: x.safety ?? null })),
+      next: `Give a short tour of these ${tour.length} parts in order: call highlight_part before you mention each one, one short sentence each, and say any safety note.${
+        td.source === 'live' ? ' Say once that the parts are AI-estimated.' : ''
+      }`,
+    });
   },
 
   async highlight_part(p) {
@@ -137,6 +162,7 @@ const tools: Record<ClientToolName, Tool> = {
     return json({
       ok: true,
       part: { id: part.id, name: part.name, summary: part.summary, details: part.details, safety: part.safety ?? null },
+      ...(part.safety ? { remember: 'Say the safety note.' } : {}),
     });
   },
 
@@ -148,7 +174,18 @@ const tools: Record<ClientToolName, Tool> = {
     const step = td.steps.find((x) => x.n === Math.round(n));
     if (!step) return `No step ${n}. There are ${td.steps.length} steps.`;
     useStore.getState().showStep(step.n);
-    return json({ ok: true, step: step.n, of: td.steps.length, text: step.text, part_ids: step.part_ids });
+    // Light up the part the step is about, so the wearer sees where to look.
+    const first = step.part_ids.find((id) => td.parts.some((x) => x.id === id));
+    if (first) useStore.getState().highlightPart(first);
+    return json({
+      ok: true,
+      step: step.n,
+      of: td.steps.length,
+      text: step.text,
+      part_ids: step.part_ids,
+      part_names: partNames(step.part_ids),
+      next: step.n < td.steps.length ? `Say this step in one sentence, then call show_step with n ${step.n + 1}.` : 'That was the last step.',
+    });
   },
 
   async reset_view() {
@@ -166,11 +203,20 @@ const tools: Record<ClientToolName, Tool> = {
   },
 
   async get_pose() {
-    const hands = useStore.getState().hands.map(describeHand);
-    if (hands.length === 0) return json({ hands: [], note: 'No hands in view.' });
+    const s = useStore.getState();
+    const hands = s.hands.map(describeHand);
+    if (hands.length === 0) return json({ hands: [], note: 'No hands in view. Ask the user to hold a hand in front of the camera.' });
+    const handLoaded = s.teardown?.anchor === 'hand';
+    const active = hands.find((h) => h.muscles.length > 0);
+    const muscles = active?.muscles ?? FLEXORS;
     return json({
-      hands,
-      note: 'muscles lists the part ids working right now; call highlight_part with the first one.',
+      hands: hands.map((h) => ({ ...h, muscle_names: handLoaded ? partNames(h.muscles) : [] })),
+      working_now: active ? partNames(active.muscles) : [],
+      note: !handLoaded
+        ? 'The hand layers are not shown yet. Call explode with no object_id while the user looks at their hand, then call highlight_part with the first muscle id.'
+        : active
+          ? `Call highlight_part with "${active.muscles[0]}", then name the muscles in working_now.`
+          : `No finger is moving right now. Typing mainly uses ${partNames(muscles).join(', ') || 'the forearm flexors'}; highlight "${muscles[0]}" and ask the user to type.`,
     });
   },
 };
