@@ -19,6 +19,14 @@
  * the model accent blue and draws the part's box edge in accent blue around it. A missing or
  * broken model keeps its placeholder (and says why in the debug panel).
  *
+ * Stage mode (trackingMode 'stage', the default): the same parts form a real 3D model that lifts
+ * out of the object's box (seen from above, exactly over the real object), tilts to a three-quarter
+ * view and glides to the middle of the view in ~0.6 s, where it turns with store.modelYaw /
+ * modelPitch (critically damped springs; a very slow idle drift is added by the caller). Explode
+ * lifts the layers apart along the object's own up axis (see stageLayout.ts): at ~0.12 the parts
+ * are just apart, at 1 they are spread out with labels. One soft ground shadow sits under it.
+ * "Put it away" glides it back into the object and fades it.
+ *
  * Scene units are viewport pixels, y up, origin at the viewport centre (orthographic camera).
  */
 import * as THREE from 'three';
@@ -35,6 +43,8 @@ import {
   projectedHalfHeight,
 } from './explodeLayout';
 import { loadGlbTemplate } from './glbCache';
+import { STAGE_ELEVATION, nearestTurn, springStep, stageFit, stageLayout, stageStack } from './stageLayout';
+import type { StageLayout } from './stageLayout';
 import type { LabelItem, StackBounds } from './labels';
 
 /** The exploded stack may grow up to this much to fill the screen. */
@@ -61,6 +71,14 @@ const LABEL_SIDE_FRAC = 0.2;
 const TOP_MARGIN = 70;
 /** Bottom-centre space for the voice pill, captions and status pill. */
 const BOTTOM_MARGIN = 150;
+/** Stage: the assembled model's widest extent (any yaw), as a fraction of the view height. */
+const STAGE_SIZE = 0.56;
+/** Stage: model units across the object's box (its height follows the box's aspect). */
+const STAGE_UNITS = 600;
+/** Stage springs (rad/s): the glide in / out (~0.6 s) and the orientation follow. */
+const STAGE_LIFT_OMEGA = 8.5;
+const STAGE_TURN_OMEGA = 12;
+const STAGE_SHADOW_OPACITY = 0.5;
 
 export interface ScreenBox {
   cx: number;
@@ -80,6 +98,29 @@ export interface BoxFrameInput {
   highlighted: Set<string>;
   /** true while collapsing a rig whose teardown is gone: keep the last box, do not fade out. */
   hold?: boolean;
+  /** Stage mode: draw the model in the middle of the view (box = the object it lifts out of). */
+  stage?: StageFrame | null;
+}
+
+export interface StageFrame {
+  /** target orientation (radians): store.modelYaw / modelPitch plus any idle drift */
+  yaw: number;
+  pitch: number;
+  /** "put it away": glide back into the object (or shrink in place) and fade */
+  putAway: boolean;
+}
+
+interface StageState {
+  layout: StageLayout;
+  lift: number;
+  liftV: number;
+  yaw: number;
+  yawV: number;
+  pitch: number;
+  pitchV: number;
+  presence: number;
+  /** where the model lifts out of / returns to (viewport px): the object's latest box */
+  from: ScreenBox;
 }
 
 interface PartRig {
@@ -152,6 +193,13 @@ function shadowTexture(): THREE.CanvasTexture | null {
 
 export class BoxRig {
   readonly root = new THREE.Group();
+  /** Stage only (identity otherwise): the view tilt (x) and the turn about the object's up axis (z). */
+  private readonly tiltG = new THREE.Group();
+  private readonly spinG = new THREE.Group();
+  private stage: StageState | null = null;
+  private stageActive = false;
+  private groundShadow: THREE.Mesh | null = null;
+  private groundMat: THREE.MeshBasicMaterial | null = null;
   private parts: PartRig[] = [];
   private anim = new ExplodeAnimator();
   private display: ScreenBox | null = null;
@@ -164,7 +212,17 @@ export class BoxRig {
   constructor(td: Teardown, scene: THREE.Scene) {
     this.axis = td.explode_axis;
     this.anim.setLayers(td.parts.map((p) => p.layer));
+    this.root.add(this.tiltG);
+    this.tiltG.add(this.spinG);
     td.parts.forEach((part, index) => this.parts.push(this.buildPart(part, index)));
+    const tex = shadowTexture();
+    if (tex) {
+      this.groundMat = new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
+      this.groundShadow = new THREE.Mesh(this.planeGeo, this.groundMat);
+      this.groundShadow.renderOrder = 1;
+      this.groundShadow.visible = false;
+      this.spinG.add(this.groundShadow);
+    }
     scene.add(this.root);
   }
 
@@ -221,7 +279,7 @@ export class BoxRig {
     tilt.userData.partId = part.id;
     tilt.add(shadow, body, edges, glbHolder);
     pivot.add(tilt);
-    this.root.add(pivot);
+    this.spinG.add(pivot);
     return {
       part,
       index,
@@ -302,7 +360,7 @@ export class BoxRig {
     if (![size.x, size.y, size.z, centre.x, centre.y, centre.z].every(Number.isFinite)) throw new Error('the model has no finite size');
     obj.position.sub(centre);
     // Turn it so its box best matches the part's box (e.g. a battery modelled lying flat).
-    const B = this.display ?? { cx: 0, cy: 0, w: 600, h: 400 };
+    const B = this.stageActive && this.stage ? { w: this.stage.layout.W, h: this.stage.layout.H } : this.display ?? { w: 600, h: 400 };
     const dims = partDims(rig.part, Math.max(20, B.w), Math.max(20, B.h));
     const modelSize: [number, number, number] = [size.x, size.y, size.z];
     const o = MODEL_ORIENTATIONS[chooseOrientation(modelSize, [dims.w, dims.h, dims.d])];
@@ -356,8 +414,89 @@ export class BoxRig {
   }
 
   update(input: BoxFrameInput): { labels: LabelItem[]; bounds: StackBounds } {
+    if (input.stage) return this.updateStage(input, input.stage);
+    return this.updateScreen(input);
+  }
+
+  /** Stage: true once "put it away" has finished (the caller disposes the rig). */
+  stageDone(): boolean {
+    return !!this.stage && this.stage.lift < 0.02 && this.stage.presence < 0.02;
+  }
+
+  /**
+   * Materials, highlight, model fit and draw order of one part (both modes).
+   * `partShadow`: the per-model soft shadow (screen modes); stage mode has one ground shadow instead.
+   */
+  private stylePart(
+    rig: PartRig,
+    vis: number,
+    w: number,
+    h: number,
+    d: number,
+    order: number,
+    dt: number,
+    anyHl: boolean,
+    isHl: boolean,
+    kHl: number,
+    partShadow: boolean,
+  ): void {
+    rig.hl += ((isHl ? 1 : 0) - rig.hl) * kHl;
+    rig.dim += ((anyHl && !isHl ? 1 : 0) - rig.dim) * kHl;
+    rig.vis = vis;
+    const dimF = 1 - (1 - DIM_TO) * rig.dim;
+    if (rig.glb) rig.glbFade = Math.min(1, rig.glbFade + dt / GLB_FADE_S);
+    const gf = rig.glbFade;
+
+    // Frosted glass; highlighted = (nearly) full opacity with an accent-blue edge. No pulsing.
+    // With a real model the glass fades out and the edge stays only as the highlight outline.
+    rig.bodyMat.opacity = rig.vis * (BODY_OPACITY + (0.92 - BODY_OPACITY) * rig.hl) * dimF * (1 - gf);
+    rig.bodyMat.emissive.copy(rig.baseColor).lerp(ACCENT, 0.45 * rig.hl);
+    rig.bodyMat.emissiveIntensity = 0.12 + 0.3 * rig.hl;
+    rig.edgeMat.color.copy(WHITE).lerp(ACCENT, rig.hl);
+    rig.edgeMat.opacity = rig.vis * dimF * ((1 - gf) * (EDGE_OPACITY + (1 - EDGE_OPACITY) * rig.hl) + gf * rig.hl);
+    rig.tilt.scale.setScalar(1 + 0.03 * rig.hl);
+    rig.tilt.visible = rig.vis > 0.004;
+
+    if (rig.glb) {
+      // Fill the part's box like the placeholder does: the box is the part as the camera sees it
+      // (foreshortened), so all full-width parts line up. Depth follows the smaller scale, but a
+      // model is never more than MODEL_MAX_DEPTH x as thick as its placeholder (no spill into
+      // the next layer when a generated "hinge" is really a plate).
+      const sx = w / Math.max(1e-6, rig.glbNorm.x);
+      const sy = h / Math.max(1e-6, rig.glbNorm.y);
+      const sz = Math.min(sx, sy, (MODEL_MAX_DEPTH * d) / Math.max(1e-6, rig.glbNorm.z));
+      rig.glbHolder.scale.set(sx, sy, sz);
+      for (const gm of rig.glbMats) {
+        gm.mat.opacity = gm.base * rig.vis * gf * dimF;
+        if (gm.emissive && gm.emissiveBase) gm.emissive.copy(gm.emissiveBase).lerp(ACCENT, GLB_HL_TINT * rig.hl);
+      }
+      // Soft shadow just behind the model, slightly low, so it lifts off the dimmed frame.
+      rig.shadow.visible = partShadow && rig.shadowMat.map !== null;
+      rig.shadow.position.set(0, -0.06 * h, -MODEL_MAX_DEPTH * d / 2 - 2);
+      rig.shadow.scale.set(w * 1.15, h * 1.25, 1);
+      rig.shadowMat.opacity = partShadow ? SHADOW_OPACITY * rig.vis * gf * dimF : 0;
+    }
+
+    rig.shadow.renderOrder = order - 1;
+    rig.body.renderOrder = order;
+    rig.edges.renderOrder = order + 1;
+    if (rig.glb)
+      rig.glb.traverse((o: THREE.Object3D) => {
+        o.renderOrder = order + 2;
+      });
+  }
+
+  /** Freeze / follow: the parts sit over the object on screen, then fly into the stack. */
+  private updateScreen(input: BoxFrameInput): { labels: LabelItem[]; bounds: StackBounds } {
     const { now, dt, vw, vh } = input;
     this.anim.update(now, dt, input.explodeTarget);
+    if (this.stageActive) {
+      // Switched away from stage mode (hidden M key): back to the flat screen layout.
+      this.stageActive = false;
+      this.tiltG.rotation.set(0, 0, 0);
+      this.spinG.rotation.set(0, 0, 0);
+      if (this.groundShadow) this.groundShadow.visible = false;
+    }
 
     // Target box: smooth toward it; hold the last one when lost, fade after 1 s (not while collapsing).
     if (input.box) {
@@ -425,51 +564,8 @@ export class BoxRig {
       minY = Math.min(minY, y - rig.hh);
       maxY = Math.max(maxY, y + rig.hh);
 
-      const isHl = input.highlighted.has(part.id);
-      rig.hl += ((isHl ? 1 : 0) - rig.hl) * kHl;
-      rig.dim += ((anyHl && !isHl ? 1 : 0) - rig.dim) * kHl;
-      const appear = smoothstep(0.02, 0.25, e);
-      rig.vis = p * appear;
-      const dimF = 1 - (1 - DIM_TO) * rig.dim;
-      if (rig.glb) rig.glbFade = Math.min(1, rig.glbFade + dt / GLB_FADE_S);
-      const gf = rig.glbFade;
-
-      // Frosted glass; highlighted = (nearly) full opacity with an accent-blue edge. No pulsing.
-      // With a real model the glass fades out and the edge stays only as the highlight outline.
-      rig.bodyMat.opacity = rig.vis * (BODY_OPACITY + (0.92 - BODY_OPACITY) * rig.hl) * dimF * (1 - gf);
-      rig.bodyMat.emissive.copy(rig.baseColor).lerp(ACCENT, 0.45 * rig.hl);
-      rig.bodyMat.emissiveIntensity = 0.12 + 0.3 * rig.hl;
-      rig.edgeMat.color.copy(WHITE).lerp(ACCENT, rig.hl);
-      rig.edgeMat.opacity = rig.vis * dimF * ((1 - gf) * (EDGE_OPACITY + (1 - EDGE_OPACITY) * rig.hl) + gf * rig.hl);
-      rig.tilt.scale.setScalar(1 + 0.03 * rig.hl);
-      rig.tilt.visible = rig.vis > 0.004;
-
-      if (rig.glb) {
-        // Fill the part's box like the placeholder does: the box is the part as the camera sees it
-        // (foreshortened), so all full-width parts line up. Depth follows the smaller scale, but a
-        // model is never more than MODEL_MAX_DEPTH x as thick as its placeholder (no spill into
-        // the next layer when a generated "hinge" is really a plate).
-        const sx = w / Math.max(1e-6, rig.glbNorm.x);
-        const sy = h / Math.max(1e-6, rig.glbNorm.y);
-        const sz = Math.min(sx, sy, (MODEL_MAX_DEPTH * d) / Math.max(1e-6, rig.glbNorm.z));
-        rig.glbHolder.scale.set(sx, sy, sz);
-        for (const gm of rig.glbMats) {
-          gm.mat.opacity = gm.base * rig.vis * gf * dimF;
-          if (gm.emissive && gm.emissiveBase) gm.emissive.copy(gm.emissiveBase).lerp(ACCENT, GLB_HL_TINT * rig.hl);
-        }
-        // Soft shadow just behind the model, slightly low, so it lifts off the dimmed frame.
-        rig.shadow.position.set(0, -0.06 * h, -MODEL_MAX_DEPTH * d / 2 - 2);
-        rig.shadow.scale.set(w * 1.15, h * 1.25, 1);
-        rig.shadowMat.opacity = SHADOW_OPACITY * rig.vis * gf * dimF;
-      }
-
       const order = 10 + (this.anim.layerCount - this.anim.rankOf(part.layer)) * 4;
-      rig.shadow.renderOrder = order - 1;
-      rig.body.renderOrder = order;
-      rig.edges.renderOrder = order + 1;
-      if (rig.glb) rig.glb.traverse((o: THREE.Object3D) => {
-          o.renderOrder = order + 2;
-        });
+      this.stylePart(rig, p * smoothstep(0.02, 0.25, e), w, h, d, order, dt, anyHl, input.highlighted.has(part.id), kHl, true);
     });
     if (!Number.isFinite(minX)) {
       minX = -W / 2;
@@ -518,6 +614,134 @@ export class BoxRig {
     return { labels, bounds };
   }
 
+  /** Stage: the model lifts out of the object, floats in the middle of the view and turns. */
+  private updateStage(input: BoxFrameInput, sf: StageFrame): { labels: LabelItem[]; bounds: StackBounds } {
+    const { now, dt, vw, vh } = input;
+    this.anim.update(now, dt, sf.putAway ? 0 : input.explodeTarget);
+    this.stageActive = true;
+
+    if (!this.stage) {
+      const from = input.box ?? { cx: vw / 2, cy: vh * 0.47, w: vw * 0.3, h: vw * 0.3 * 0.68 };
+      const W = STAGE_UNITS;
+      const H = STAGE_UNITS * Math.min(3, Math.max(0.2, from.h / Math.max(1, from.w)));
+      const layout = stageLayout(
+        this.parts.map((r) => r.part),
+        (layer) => this.anim.rankOf(layer),
+        this.anim.layerCount,
+        W,
+        H,
+      );
+      // Start facing the camera exactly as the real object does (a whole number of turns).
+      const yaw0 = nearestTurn(sf.yaw);
+      this.stage = { layout, lift: 0, liftV: 0, yaw: yaw0, yawV: 0, pitch: 0, pitchV: 0, presence: 0, from: { ...from } };
+    }
+    const st = this.stage;
+    if (input.box) {
+      // Follow the real object while the model is still close to it (lifting out / going back).
+      const k = 1 - Math.exp(-dt * 12);
+      st.from.cx += (input.box.cx - st.from.cx) * k;
+      st.from.cy += (input.box.cy - st.from.cy) * k;
+      st.from.w += (input.box.w - st.from.w) * k;
+      st.from.h += (input.box.h - st.from.h) * k;
+    }
+    [st.lift, st.liftV] = springStep(st.lift, st.liftV, sf.putAway ? 0 : 1, STAGE_LIFT_OMEGA, dt);
+    const L = Math.min(1, Math.max(0, st.lift));
+    [st.yaw, st.yawV] = springStep(st.yaw, st.yawV, sf.putAway ? nearestTurn(st.yaw) : sf.yaw, STAGE_TURN_OMEGA, dt);
+    [st.pitch, st.pitchV] = springStep(st.pitch, st.pitchV, sf.putAway ? 0 : sf.pitch, STAGE_TURN_OMEGA, dt);
+    const presTarget = sf.putAway ? smoothstep(0.03, 0.35, L) : 1;
+    st.presence += (presTarget - st.presence) * (1 - Math.exp(-dt * (sf.putAway ? 14 : 9)));
+    const p = st.presence;
+
+    const lay = st.layout;
+    const n = lay.ranks;
+    const eByRank: number[] = new Array(n).fill(0);
+    for (const rig of this.parts) eByRank[this.anim.rankOf(rig.part.layer)] = this.anim.get(rig.part.layer);
+    const stack = stageStack(lay, (r) => eByRank[r] ?? 0);
+
+    // Orientation: top-down (as the camera sees the object) on the object, three-quarter view on stage.
+    const elevation = STAGE_ELEVATION + st.pitch;
+    this.tiltG.rotation.set(-(Math.PI / 2 - elevation) * L, 0, 0);
+    this.spinG.rotation.set(0, 0, st.yaw);
+    // Seen from below (pitched far up), the deepest layer is the nearest: draw it last.
+    const fromAbove = Math.sin(elevation * L + (Math.PI / 2) * (1 - L)) >= 0;
+
+    const anyHl = input.highlighted.size > 0;
+    const kHl = 1 - Math.exp(-dt * 10);
+    this.parts.forEach((rig, i) => {
+      const sp = lay.parts[i];
+      const e = Math.min(1, this.anim.get(rig.part.layer));
+      rig.body.scale.set(sp.w, sp.h, sp.d);
+      rig.edges.scale.copy(rig.body.scale);
+      rig.pivot.position.set(sp.ax + (sp.px - sp.ax) * e, sp.ay + (sp.py - sp.ay) * e, stack.z[i]);
+      rig.tilt.rotation.set(0, 0, 0);
+      rig.hw = sp.w / 2;
+      rig.hh = sp.h / 2;
+      const rank = sp.rank;
+      const order = 10 + (fromAbove ? n - rank : rank + 1) * 4;
+      this.stylePart(rig, p, sp.w, sp.h, sp.d, order, dt, anyHl, input.highlighted.has(rig.part.id), kHl, false);
+    });
+
+    // One soft shadow on the "ground" under the model (not while it still sits on the real object).
+    if (this.groundShadow && this.groundMat) {
+      this.groundShadow.visible = p * L > 0.01;
+      this.groundShadow.position.set(0, -0.04 * lay.H, stack.bottom - 6);
+      this.groundShadow.scale.set(lay.W * 1.25, lay.H * 1.35, 1);
+      this.groundMat.opacity = STAGE_SHADOW_OPACITY * p * smoothstep(0.3, 1, L);
+    }
+
+    // Size and place: on the object's box at L = 0; on stage, fitted (whatever the yaw) between
+    // the label columns, the title and the voice area, about half the view height when assembled.
+    const side = Math.min(LABEL_SIDE_MAX_PX, vw * LABEL_SIDE_FRAC);
+    const availW = Math.max(100, vw - 2 * side);
+    const availH = Math.max(100, vh - TOP_MARGIN - BOTTOM_MARGIN);
+    const R = lay.radius;
+    const sizeCap = Math.min(STAGE_SIZE * vh, availW) / (2 * R);
+    const sStage = Math.min(sizeCap, stageFit(R, stack.top - stack.bottom, STAGE_ELEVATION, availW, availH));
+    const s0 = Math.max(0.05, st.from.w / lay.W);
+    const s = s0 + (sStage - s0) * L;
+    const cx = st.from.cx + (vw / 2 - st.from.cx) * L;
+    const cy = st.from.cy + (TOP_MARGIN + availH / 2 - st.from.cy) * L;
+    this.root.position.set(cx - vw / 2, vh / 2 - cy, 0);
+    this.root.scale.setScalar(s);
+    this.root.updateMatrixWorld(true);
+
+    // Labels (fade in above ~0.5) and the model's on-screen bounds (for the label columns).
+    const labels: LabelItem[] = [];
+    const v = new THREE.Vector3();
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const rig of this.parts) {
+      const e = this.anim.get(rig.part.layer);
+      rig.pivot.updateMatrixWorld(true);
+      const m = rig.pivot.matrixWorld;
+      const sc = rig.body.scale;
+      for (let c = 0; c < 8; c++) {
+        v.set(((c & 1) - 0.5) * sc.x, (((c >> 1) & 1) - 0.5) * sc.y, (((c >> 2) & 1) - 0.5) * sc.z).applyMatrix4(m);
+        minX = Math.min(minX, v.x);
+        maxX = Math.max(maxX, v.x);
+        minY = Math.min(minY, v.y);
+        maxY = Math.max(maxY, v.y);
+      }
+      rig.pivot.getWorldPosition(v);
+      labels.push({
+        id: rig.part.id,
+        text: rig.part.name,
+        ax: v.x + vw / 2,
+        ay: vh / 2 - v.y,
+        opacity: p * L * smoothstep(0.5, 0.85, e) * (rig.dim > 0.5 ? 0.55 : 1),
+        highlighted: rig.hl > 0.5,
+      });
+    }
+    if (!Number.isFinite(minX)) {
+      minX = maxX = this.root.position.x;
+      minY = maxY = this.root.position.y;
+    }
+    const bounds: StackBounds = { left: minX + vw / 2, right: maxX + vw / 2, top: vh / 2 - maxY, bottom: vh / 2 - minY };
+    return { labels, bounds };
+  }
+
   dispose(): void {
     this.disposed = true;
     this.root.removeFromParent();
@@ -529,6 +753,7 @@ export class BoxRig {
       rig.shadowMat.dispose();
       this.clearGlb(rig);
     }
+    this.groundMat?.dispose();
     this.planeGeo.dispose();
     this.parts = [];
   }
