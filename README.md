@@ -88,8 +88,11 @@ The MacBook and hand demos run from the laptop, so they survive bad venue Wi-Fi.
 
 ```bash
 npm install            # needs the network
+npm run check          # do the keys and the voice agent really work? (online, no credit spent)
 npm run predemo        # downloads the vision models if they are missing, then checks everything offline needs
 ```
+
+`npm run check` asks each provider with a free call whether its key works (Claude and `ANTHROPIC_MODEL`, the ElevenLabs key, agent and signed URL, fal), compares the agent's client tools with the nine the app answers (missing, extra, or not set to "Wait for response"), and checks `PORT`, ports 8791 and 5173, the local vision models and the cached objects. It never prints key values, and exits 0 only when the MacBook-and-hand demo with voice would work.
 
 `npm run predemo` prints one ok / WARN / FAIL line per item and ends with PASS or FAIL. It checks the installed packages, the MediaPipe models and wasm in `public/models/`, every checked parts list in `public/cache/` and each of its 3D models (present, valid, no external files), that the app has no other remote URLs (no web fonts), and which keys `.env` sets (yes or no, never the values). Fix every FAIL line before the Wi-Fi goes. `node scripts/predemo.mjs --no-fetch` checks without downloading anything.
 
@@ -152,6 +155,7 @@ URL options:
 - `npm run dev:server`, `npm run dev:web`: one at a time
 - `npm run typecheck`, `npm run build`: what CI runs on every pull request
 - `npm run fetch-models`: download the MediaPipe models and wasm into `public/models/` (run once)
+- `npm run check`: check every key against its provider, the voice agent's tools, ports, models and cache (see "Demo day")
 - `npm run predemo`: fetch the models if missing, then check that everything the cached demos need is on the laptop (see "Demo day")
 - `npm run pregenerate -- <object_id>`: make the part models for a cached parts list with fal, for review (needs `FAL_KEY`; see `docs/KASH.md`)
 - `npm run build-eye`: build the procedural eye models
