@@ -4,7 +4,14 @@
 
 - `server/routes/identify.ts`, `server/routes/teardown.ts`: Claude routes. The prompts and Claude calls are in `server/lib/claude.ts`.
 - `server/routes/agent-token.ts`: fetches the ElevenLabs signed URL.
-- `src/voice/`: `useVoiceAgent.ts` (SDK wrapper), `clientTools.ts` (the eight tools), `VoiceBar.tsx` (mic button, transcript, typed input), `bridge.ts` (lets non-React code talk to the session), `localCommands.ts` (typed fallback when voice is off).
+- `src/voice/`: `useVoiceAgent.ts` (SDK wrapper), `clientTools.ts` (the eight tools), `VoiceBar.tsx` (voice pill, captions, hidden typed input; styles in `voiceStyles.ts`), `bridge.ts` (lets non-React code talk to the session), `localCommands.ts` (typed fallback when voice is off).
+
+## Voice UI and hidden keys
+
+- A small frosted pill at the bottom centre shows **Voice off**, **Connecting**, **Listening**, **Thinking** (after you speak, until Blowfish answers) or **Speaking** (gentle waveform). Click it, or press **V**, to start or stop the session.
+- What was heard and what Blowfish says appear above the pill as captions and fade out after a few seconds (longer sentences stay longer).
+- Press **/** to open the typed command box (developer fallback, never shown during the demo). Enter sends it (to the agent when connected, otherwise to `localCommands.ts`); Esc or clicking away closes it.
+- Missing ElevenLabs keys or a voice error never show on screen: the pill says "Voice off" and the reason is in the browser console.
 
 ## Setup
 
