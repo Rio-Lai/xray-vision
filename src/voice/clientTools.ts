@@ -4,7 +4,7 @@
  * In the ElevenLabs dashboard every tool must be set to "wait for response".
  */
 import { useStore, type FingerName, type HandState } from '../state/store';
-import { LensSchema, type ClientToolName } from '../../shared/teardown';
+import type { ClientToolName } from '../../shared/teardown';
 import { explodeObject, resetAll } from '../lib/flow';
 
 type Params = Record<string, unknown> | undefined | null;
@@ -64,7 +64,7 @@ const tools: Record<ClientToolName, Tool> = {
   async get_scene() {
     const s = useStore.getState();
     return json({
-      lens: s.lens,
+      overlay_on: s.overlayOn,
       focused_object_id: s.focusedObjectId,
       selected_object_id: s.selectedObjectId,
       objects: s.objects.map((o) => ({
@@ -163,14 +163,6 @@ const tools: Record<ClientToolName, Tool> = {
     useStore.getState().setOverlayOn(on);
     if (!on) resetAll();
     return on ? 'Overlay on. Objects in view are now labelled.' : 'Overlay off. Clean view.';
-  },
-
-  /** DEPRECATED: Blowfish has no lenses. Kept until the contract cleanup removes it. */
-  async set_lens(p) {
-    const parsed = LensSchema.safeParse(str(p, 'lens'));
-    if (!parsed.success) return 'lens must be "engineering" or "biology".';
-    useStore.getState().setLens(parsed.data);
-    return `Lens set to ${parsed.data}.`;
   },
 
   async get_pose() {

@@ -28,11 +28,8 @@ export async function runLocalCommand(input: string): Promise<string | null> {
     resetAll();
     return 'View reset.';
   }
-  const lens = t.match(/\b(biology|engineering)\b/);
-  if (lens && (/\b(lens|mode|switch)\b/.test(t) || t.split(/\s+/).length <= 2)) {
-    s.setLens(lens[1] as 'biology' | 'engineering');
-    return `Lens set to ${lens[1]}.`;
-  }
+  const overlay = t.match(/\boverlay\s+(on|off)\b/);
+  if (overlay) return clientTools.set_overlay({ on: overlay[1] === 'on' });
   if (/muscle/.test(t) && /\b(which|what)\b/.test(t)) {
     const pose = JSON.parse(await clientTools.get_pose()) as { hands: { muscles: string[] }[] };
     const id = pose.hands.find((h) => h.muscles.length > 0)?.muscles[0];

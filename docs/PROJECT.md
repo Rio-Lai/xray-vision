@@ -84,9 +84,9 @@ Run it: `npm install`, `cp .env.example .env`, `npm run dev`, open http://localh
 - `src/state/store.ts`: the one shared store. Read every field's comment before using it.
 - `docs/CONTRACTS.md`: the same in prose.
 
-Voice tools the agent can call (configure exactly these in ElevenLabs, each set to "wait for response"): `get_scene`, `set_overlay`, `select_object`, `explode`, `highlight_part`, `show_step`, `reset_view`, `get_pose`. (`set_lens` still exists in code but is deprecated and must not be added to the dashboard.)
+Voice tools the agent can call (configure exactly these in ElevenLabs, each set to "wait for response"): `get_scene`, `set_overlay`, `select_object`, `explode`, `highlight_part`, `show_step`, `reset_view`, `get_pose`. (There is no `set_lens`.)
 
-**No lenses.** The old Engineering/Biology switch is being removed. The `lens` field on a parts list and on a detected object stays only as internal metadata (it tells the server which prompt to use: `hand` -> biology, everything else -> engineering, or Claude decides). The user never sees or sets it. `store.lens` and `set_lens` are deprecated; do not use them in new code.
+**No lenses.** The old Engineering/Biology switch is being removed. The `lens` field on a parts list and on a detected object stays only as internal metadata (it tells the server which prompt to use: `hand` -> biology, everything else -> engineering, or Claude decides). The user never sees or sets it. `store.lens` and the `set_lens` tool have been removed.
 
 ## 4. Roles and ownership
 
