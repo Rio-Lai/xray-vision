@@ -3,8 +3,23 @@
  * draw), the camera (dim and blur the live video behind it) and the HUD.
  */
 import type { AppState } from '../state/store';
+import type { Teardown } from '../../shared/teardown';
 
-/** Stage mode with a box-anchored teardown loaded: its 3D model is on stage over the live video. */
+/** true when at least one part has a real 3D model (Kash's GLBs). */
+export function hasPartMeshes(td: Teardown): boolean {
+  return td.parts.some((p) => typeof p.mesh_url === 'string' && p.mesh_url.length > 0);
+}
+
+/**
+ * Whether this teardown goes on stage as a 3D model: every box-anchored object does (its parts
+ * have placeholders until the models load); a hand only once its parts have models. Without
+ * them a hand keeps the landmark-drawn overlay on the real hand only.
+ */
+export function stagesAsModel(td: Teardown): boolean {
+  return td.anchor !== 'hand' || hasPartMeshes(td);
+}
+
+/** Stage mode with a teardown whose 3D model is on stage over the live video. */
 export function modelOnStage(s: Pick<AppState, 'trackingMode' | 'teardown'>): boolean {
-  return s.trackingMode === 'stage' && s.teardown !== null && s.teardown.anchor !== 'hand';
+  return s.trackingMode === 'stage' && s.teardown !== null && stagesAsModel(s.teardown);
 }

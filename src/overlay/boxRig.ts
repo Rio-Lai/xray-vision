@@ -26,6 +26,8 @@
  * lifts the layers apart along the object's own up axis (see stageLayout.ts): at ~0.12 the parts
  * are just apart, at 1 they are spread out with labels. One soft ground shadow sits under it.
  * "Put it away" glides it back into the object and fades it.
+ * meshOnly (a hand on stage): only parts with a real model are drawn and labelled; the others have
+ * no good placeholder shape (a tendon is not a box) and stay visible on the live hand overlay.
  *
  * Scene units are viewport pixels, y up, origin at the viewport centre (orthographic camera).
  */
@@ -85,6 +87,11 @@ export interface ScreenBox {
   cy: number;
   w: number;
   h: number;
+}
+
+export interface BoxRigOptions {
+  /** draw (and label) only the parts that have a real model; no glass placeholders */
+  meshOnly?: boolean;
 }
 
 export interface BoxFrameInput {
@@ -207,10 +214,12 @@ export class BoxRig {
   private presence = 1;
   private disposed = false;
   private axis: Teardown['explode_axis'];
+  private readonly meshOnly: boolean;
   private readonly planeGeo = new THREE.PlaneGeometry(1, 1);
 
-  constructor(td: Teardown, scene: THREE.Scene) {
+  constructor(td: Teardown, scene: THREE.Scene, opts: BoxRigOptions = {}) {
     this.axis = td.explode_axis;
+    this.meshOnly = opts.meshOnly === true;
     this.anim.setLayers(td.parts.map((p) => p.layer));
     this.root.add(this.tiltG);
     this.tiltG.add(this.spinG);
@@ -442,18 +451,19 @@ export class BoxRig {
   ): void {
     rig.hl += ((isHl ? 1 : 0) - rig.hl) * kHl;
     rig.dim += ((anyHl && !isHl ? 1 : 0) - rig.dim) * kHl;
-    rig.vis = vis;
+    rig.vis = this.meshOnly && !rig.glb ? 0 : vis;
     const dimF = 1 - (1 - DIM_TO) * rig.dim;
     if (rig.glb) rig.glbFade = Math.min(1, rig.glbFade + dt / GLB_FADE_S);
     const gf = rig.glbFade;
+    const glass = this.meshOnly ? 0 : 1 - gf;
 
     // Frosted glass; highlighted = (nearly) full opacity with an accent-blue edge. No pulsing.
     // With a real model the glass fades out and the edge stays only as the highlight outline.
-    rig.bodyMat.opacity = rig.vis * (BODY_OPACITY + (0.92 - BODY_OPACITY) * rig.hl) * dimF * (1 - gf);
+    rig.bodyMat.opacity = rig.vis * (BODY_OPACITY + (0.92 - BODY_OPACITY) * rig.hl) * dimF * glass;
     rig.bodyMat.emissive.copy(rig.baseColor).lerp(ACCENT, 0.45 * rig.hl);
     rig.bodyMat.emissiveIntensity = 0.12 + 0.3 * rig.hl;
     rig.edgeMat.color.copy(WHITE).lerp(ACCENT, rig.hl);
-    rig.edgeMat.opacity = rig.vis * dimF * ((1 - gf) * (EDGE_OPACITY + (1 - EDGE_OPACITY) * rig.hl) + gf * rig.hl);
+    rig.edgeMat.opacity = rig.vis * dimF * (glass * (EDGE_OPACITY + (1 - EDGE_OPACITY) * rig.hl) + gf * rig.hl);
     rig.tilt.scale.setScalar(1 + 0.03 * rig.hl);
     rig.tilt.visible = rig.vis > 0.004;
 
@@ -714,7 +724,8 @@ export class BoxRig {
     let maxY = -Infinity;
     for (const rig of this.parts) {
       const e = this.anim.get(rig.part.layer);
-      rig.pivot.updateMatrixWorld(true);
+      const hidden = this.meshOnly && !rig.glb;
+      if (hidden) continue; // not drawn on stage: no label, not in the bounds
       const m = rig.pivot.matrixWorld;
       const sc = rig.body.scale;
       for (let c = 0; c < 8; c++) {
