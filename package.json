@@ -16,6 +16,7 @@
     "preview": "vite preview",
     "pregenerate": "tsx scripts/pregenerate.ts",
     "fetch-models": "node scripts/fetch-models.mjs",
+    "predemo": "node scripts/predemo.mjs",
     "build-eye": "tsx scripts/build-eye.ts"
   },
   "dependencies": {
