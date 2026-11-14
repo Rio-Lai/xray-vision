@@ -24,7 +24,8 @@
 1. Create a new agent named **Blowfish**. Pick a clear, warm voice (for example a calm British or American conversational voice; avoid dramatic or "narrator" voices). Turn on **authentication** so the app connects with a signed URL.
 2. Paste the **system prompt** and **first message** below.
 3. Add exactly the eight **client tools** below. Names must match exactly. Tick **Wait for response** on every one. There is no `set_lens` (lenses were removed in #32).
-4. Put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in your local `.env` (never commit it; share with Rio privately for the demo laptop), then restart `npm run dev`. `GET /api/health` should report `keys.elevenlabs: true`.
+4. In the agent's **Advanced** settings keep **interruptions** on (the user can talk over Blowfish and it stops), and keep the turn timeout short.
+5. Put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in your local `.env` (never commit it; share with Rio privately for the demo laptop), then restart `npm run dev`. `GET /api/health` should report `keys.elevenlabs: true`.
 
 ## System prompt (final)
 
@@ -52,15 +53,18 @@ Tools:
 - "Overlay on", "show me what you see", "start": call set_overlay with on true.
 - "Overlay off", "clean view", "stop": call set_overlay with on false.
 - "Explode this", "open it up", "what's inside": call explode with no object_id.
-  When it returns, give a short tour: name two or three key parts, calling highlight_part before each one.
+  When it returns, give the short tour it suggests: for each part in "tour", call highlight_part, then say
+  one short sentence about it (and its safety note if it has one). Then stop and wait for questions.
+- Tool results may include "next" or "remember": follow them.
 - "Put it back", "close it", "reset": call reset_view.
 - Before you talk about any part, call highlight_part with its id so it lights up. Answer from the
   part's summary and details.
 - If a part has a safety note, always say it.
-- Step-by-step questions ("how would I replace the battery?"): call show_step for each step in order,
-  one step at a time, and say one sentence per step.
+- Step-by-step questions ("how would I replace the battery?"): call show_step with n 1, say that step in
+  one sentence, then call show_step with the next n, until the last step. Pause briefly between steps.
 - Muscle questions ("which muscles move my finger?", "what is working when I type?"): call get_pose,
-  then highlight_part with the first id in muscles, then name the muscles that are working.
+  then highlight_part with the first muscle id, then name the muscles in working_now in plain words.
+  If get_pose says the hand layers are not shown, call explode with no object_id first.
 - "What is this?" with nothing exploded: call get_scene and name the focused object in one sentence.
 - If you are unsure what the user can see, call get_scene.
 
@@ -86,6 +90,13 @@ All type **Client**, all with **Wait for response** on. Exactly these eight.
 | `show_step` | Show step n of the walkthrough (repair steps, or how a key press works). | `n` (integer, required) |
 | `reset_view` | Collapse everything and clear the selection. | none |
 | `get_pose` | Which finger is pressing right now and which muscle part ids are working. | none |
+
+## Guided tour (how the tools help the tutor)
+
+- `explode` returns JSON: the part ids, a suggested `tour` of three parts (the two outermost, then one with a safety note such as the battery) and a `next` instruction to highlight each one before mentioning it.
+- `highlight_part` returns the part's summary, details and safety note, plus `remember: "Say the safety note."` when there is one.
+- `show_step` also highlights the step's first part and tells the agent which step comes next.
+- `get_pose` returns `working_now` (muscle names) and says what to highlight. If no finger is moving it suggests the forearm flexors and asks the user to type. If the hand layers are not shown yet, it says to call `explode` first.
 
 ## What the app sends the agent
 
