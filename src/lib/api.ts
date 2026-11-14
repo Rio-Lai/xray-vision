@@ -48,15 +48,16 @@ function isOurHealth(body: unknown): body is Health {
   );
 }
 
-/** One health probe at a time, reused for 3 s so a burst of failing calls checks once. */
-let probe: { at: number; result: Promise<boolean> } | null = null;
+/** Is /api answered by our server? Runs only after a failed call; calls failing together share one probe. */
+let probe: Promise<boolean> | null = null;
 function ourServerAnswers(): Promise<boolean> {
-  if (probe && Date.now() - probe.at < 3000) return probe.result;
-  const result = fetch('/api/health', { cache: 'no-store' })
+  probe ??= fetch('/api/health', { cache: 'no-store' })
     .then(async (res) => res.ok && isOurHealth(await res.json().catch(() => null)))
-    .catch(() => false);
-  probe = { at: Date.now(), result };
-  return result;
+    .catch(() => false)
+    .finally(() => {
+      probe = null;
+    });
+  return probe;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
