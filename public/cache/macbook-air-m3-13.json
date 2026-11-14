@@ -30,7 +30,7 @@
       "summary": "The aluminium deck you type on, with the Magic Keyboard and the Touch ID power key built in.",
       "details": "The top case is the main structural shell. The keyboard is fixed into it, so a keyboard repair normally means a new top case. Most other parts mount to its underside.",
       "safety": null,
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/keyboard-top-case.glb"
     },
     {
       "id": "trackpad",
@@ -56,7 +56,7 @@
       "summary": "The hinges join the lid to the base and hold the screen at any angle.",
       "details": "They sit at the back edge of the base, under a cover that runs along the hinge. The display cables pass close to them, so a hard knock to the lid can damage the screen connection.",
       "safety": null,
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/hinges.glb"
     },
     {
       "id": "antennas",
@@ -82,7 +82,7 @@
       "summary": "The main circuit board, carrying the M3 chip with its memory in the same package, plus the soldered SSD storage.",
       "details": "The MacBook Air has no fan. A thin heat spreader moves heat from the M3 into the aluminium case, which acts as a radiator. Under long heavy loads the chip slows itself down to stay cool. Memory and storage are soldered, so they cannot be upgraded later.",
       "safety": "Disconnect the battery before touching the logic board. The board stays powered while the battery is connected.",
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/logic-board.glb"
     },
     {
       "id": "battery",
@@ -95,7 +95,7 @@
       "summary": "A multi-cell lithium-polymer battery, about 52.6 Wh, spread under the palm rest.",
       "details": "The flat cells are glued to the top case with stretch-release adhesive strips. You remove them by pulling the tabs slowly, which lets the adhesive let go without prying. Apple rates it for up to 18 hours of video playback.",
       "safety": "Lithium battery: never puncture, bend or pry against the cells. A damaged cell can overheat and catch fire. Disconnect it before working on anything else.",
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/battery.glb"
     },
     {
       "id": "speakers",
@@ -160,7 +160,7 @@
       "summary": "The aluminium base plate, held on by P5 pentalobe screws.",
       "details": "Pentalobe screws need a special five-point driver, which discourages casual opening. The case also carries the rubber feet.",
       "safety": "Shut down and unplug the charger before opening the case.",
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/bottom-case.glb"
     }
   ],
   "steps": [

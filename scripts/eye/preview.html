@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>eye preview</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0d1117; overflow: hidden; }
+      canvas { display: block; }
+      #label { position: fixed; left: 28px; bottom: 22px; color: #c9d1d9; font: 600 22px/1.3 -apple-system, Helvetica, sans-serif; letter-spacing: 0.02em; }
+      #label small { display: block; font-weight: 400; font-size: 15px; color: #8b949e; }
+      #ui { position: fixed; right: 20px; top: 20px; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 12px;
+            background: rgba(22, 27, 34, 0.85); color: #c9d1d9; font: 14px/1.3 -apple-system, Helvetica, sans-serif; }
+      #ui label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+      #ui input[type=range] { width: 160px; }
+      #ui .hint { color: #8b949e; font-size: 12px; }
+      body.clean #ui { display: none; }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }
+    </script>
+  </head>
+  <body>
+    <div id="label"></div>
+    <div id="ui">
+      <label>Explode <input id="explode" type="range" min="0" max="1" step="0.01" value="0" /></label>
+      <label><input id="cut" type="checkbox" /> Cut open (remove top half)</label>
+      <div class="hint">E explode · C cut · drag to rotate · scroll to zoom</div>
+    </div>
+    <script type="module">
+      // Preview of the procedural eye GLBs. Serve the repo root (any static server) and open
+      //   /scripts/eye/preview.html?view=assembled | cutaway | exploded   (&clean=1 hides the controls)
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+      const params = new URLSearchParams(location.search);
+      const view = params.get('view') || 'assembled';
+      if (params.get('clean')) document.body.classList.add('clean');
+      const ALL = ['cornea', 'aqueous', 'iris', 'lens', 'ciliary-body', 'vitreous', 'retina', 'choroid', 'sclera', 'optic-nerve'];
+      const only = new URLSearchParams(location.search).get('parts');
+      const PARTS = only ? only.split(',') : ALL;
+      const LAYER = { cornea: 1, aqueous: 2, iris: 3, lens: 4, 'ciliary-body': 4, vitreous: 5, retina: 6, choroid: 7, sclera: 8, 'optic-nerve': 9 };
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
+      renderer.localClippingEnabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      // Soft studio backdrop
+      const bg = document.createElement('canvas');
+      bg.width = 2; bg.height = 512;
+      const g = bg.getContext('2d');
+      const grad = g.createLinearGradient(0, 0, 0, 512);
+      grad.addColorStop(0, '#1d2633'); grad.addColorStop(1, '#07090d');
+      g.fillStyle = grad; g.fillRect(0, 0, 2, 512);
+      scene.background = new THREE.CanvasTexture(bg);
+      scene.background.colorSpace = THREE.SRGBColorSpace;
+
+      const key = new THREE.DirectionalLight(0xffffff, 2.2);
+      // High and to the side, not behind the camera: light through the pupil then lands where the camera can't see,
+      // so the pupil looks black (a light beside the camera would give a "red reflex", like red-eye in photos).
+      key.position.set(-2.2, 4.2, 1.6);
+      key.castShadow = true;
+      key.shadow.mapSize.set(2048, 2048);
+      Object.assign(key.shadow.camera, { left: -1, right: 1, top: 1, bottom: -1, near: 0.1, far: 12 });
+      key.shadow.bias = -0.0004;
+      key.shadow.normalBias = 0.004;
+      scene.add(key);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      const rim = new THREE.DirectionalLight(0x9fc4ff, 1.2);
+      rim.position.set(-3, 1, -2);
+      scene.add(rim);
+
+      const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.01, 50);
+      const controls = new OrbitControls(camera, renderer.domElement);
+
+      // Cut away the upper half (y > 0) for the inside views.
+      const CUT = [new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)];
+      let cutOn = view !== 'assembled';
+      let explodeTarget = view === 'exploded' ? 1 : 0;
+      let explode = explodeTarget;
+      const allMats = []; // [material, partId]
+      const objs = {};
+
+      const label = document.getElementById('label');
+
+      const loader = new GLTFLoader();
+      const loaded = await Promise.all(PARTS.map((id) => loader.loadAsync(`/public/cache/meshes/eye/${id}.glb`).then((g) => [id, g.scene])));
+      for (const [id, obj] of loaded) {
+        obj.traverse((o) => {
+          if (!o.isMesh) return;
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats) {
+            if (o.geometry.attributes.color) m.vertexColors = true;
+            allMats.push([m, id]);
+          }
+          const clear = mats.some((m) => (m.transmission ?? 0) > 0);
+          o.castShadow = !clear;
+          o.receiveShadow = true;
+        });
+        objs[id] = obj;
+        scene.add(obj);
+      }
+
+      // Cut on: show the shells' insides and light the inside of the eye. Cut off (closed eye): the inside is dark,
+      // because ambient light can't get in, so the pupil looks black.
+      function applyCut() {
+        const insideLit = cutOn || explodeTarget > 0;
+        for (const [m, id] of allMats) {
+          m.clippingPlanes = cutOn ? CUT : [];
+          m.side = cutOn ? THREE.DoubleSide : THREE.FrontSide;
+          if (['retina', 'choroid', 'ciliary-body'].includes(id)) {
+            // Real-time lighting can't fully shut light out of a closed shell, so darken the lining directly.
+            m.userData.baseColor ??= m.color.clone();
+            m.color.copy(m.userData.baseColor).multiplyScalar(insideLit ? 1 : 0.015);
+            m.envMapIntensity = insideLit ? 1 : 0.02;
+          }
+          m.needsUpdate = true;
+        }
+        document.getElementById('cut').checked = cutOn;
+        document.getElementById('explode').value = explodeTarget;
+        label.innerHTML = `Human eye (right) <small>${explodeTarget > 0 ? 'exploded along the visual axis' : 'assembled'}${cutOn ? ' · cutaway, upper half removed' : ''} · procedural meshes, fal textures</small>`;
+      }
+      applyCut();
+      document.getElementById('cut').addEventListener('change', (e) => { cutOn = e.target.checked; applyCut(); });
+      document.getElementById('explode').addEventListener('input', (e) => { explodeTarget = Number(e.target.value); applyCut(); });
+      addEventListener('keydown', (e) => {
+        if (e.key === 'e' || e.key === 'E') { explodeTarget = explodeTarget > 0.5 ? 0 : 1; applyCut(); }
+        if (e.key === 'c' || e.key === 'C') { cutOn = !cutOn; applyCut(); }
+      });
+
+      if (view === 'assembled') {
+        camera.position.set(0.95, 0.55, 2.1);
+        controls.target.set(0.02, 0.0, 0.1);
+      } else if (view === 'cutaway') {
+        camera.position.set(1.15, 1.75, 1.25);
+        controls.target.set(0.0, -0.08, 0.0);
+      } else {
+        camera.position.set(2.6, 2.6, 2.2);
+        controls.target.set(0.0, -0.1, 0.0);
+        camera.fov = 34;
+        camera.updateProjectionMatrix();
+      }
+      controls.update();
+
+      renderer.setAnimationLoop(() => {
+        // Keep the canvas matched to the window (the window can still be 0x0 when the page first runs).
+        const w = innerWidth, h = innerHeight;
+        if (w > 0 && h > 0 && (renderer.domElement.width !== w || renderer.domElement.height !== h)) {
+          renderer.setSize(w, h);
+          camera.aspect = w / h;
+          // Framed for a wide window; pull back in narrow ones so the whole eye still fits.
+          camera.zoom = Math.min(1, camera.aspect / 1.45);
+          camera.updateProjectionMatrix();
+        }
+        explode += (explodeTarget - explode) * 0.12;
+        for (const id in objs) objs[id].position.z = (5 - LAYER[id]) * 0.3 * explode;
+        controls.update();
+        renderer.render(scene, camera);
+      });
+      // Let transmission and textures settle, then flag ready for headless capture.
+      setTimeout(() => (document.title = 'ready'), 1500);
+    </script>
+  </body>
+</html>

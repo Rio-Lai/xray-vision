@@ -63,6 +63,18 @@ export function listCheckedObjects(): { object_id: string; name: string; lens: s
     .map((t) => ({ object_id: t.object_id, name: t.name, lens: t.lens }));
 }
 
+/**
+ * True when a checked teardown says its meshes are built from code (e.g. the eye: scripts/build-eye.ts),
+ * so nothing may ask fal for them. Reads the raw file because the schema drops unknown keys.
+ */
+export function isProceduralObject(objectId: string): boolean {
+  const raw = rec(readJson(path.join(CHECKED_DIR, `${safeId(objectId)}.json`)));
+  return raw.mesh_source === 'procedural';
+}
+
+const rec = (v: unknown): Record<string, unknown> =>
+  v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+
 /** URL of a committed GLB for this part, if there is one. */
 export function checkedMeshUrl(objectId: string, partId: string): string | null {
   const o = safeId(objectId);

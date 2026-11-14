@@ -1,0 +1,264 @@
+{
+  "object_id": "eye",
+  "name": "Human eye",
+  "mesh_source": "procedural",
+  "lens": "biology",
+  "anchor": "face",
+  "explode_axis": "z",
+  "source": "cached",
+  "notice": "Educational, not medical advice.",
+  "parts": [
+    {
+      "id": "cornea",
+      "name": "cornea",
+      "layer": 1,
+      "size": [
+        0.55,
+        0.55,
+        0.08
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "shape": "sphere",
+      "color": "#cfe8f5",
+      "summary": "The clear front window of the eye; does most of the focusing",
+      "details": "Transparent, avascular dome providing about two-thirds of the eye's refractive power (about 43 dioptres). Its focusing power is fixed.",
+      "safety": "Very sensitive; scratches (corneal abrasions) are common and painful.",
+      "mesh_url": "/cache/meshes/eye/cornea.glb"
+    },
+    {
+      "id": "aqueous",
+      "name": "aqueous humour",
+      "layer": 2,
+      "size": [
+        0.5,
+        0.5,
+        0.06
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "shape": "cylinder",
+      "color": "#e8f6fb",
+      "summary": "Clear fluid that fills the front of the eye",
+      "details": "Made by the ciliary body, it flows through the pupil and drains at the angle via the trabecular meshwork; it nourishes the lens and cornea and sets intraocular pressure.",
+      "safety": "If drainage is blocked, pressure rises: that's glaucoma, which can damage the optic nerve.",
+      "mesh_url": "/cache/meshes/eye/aqueous.glb"
+    },
+    {
+      "id": "iris",
+      "name": "iris and pupil",
+      "layer": 3,
+      "size": [
+        0.5,
+        0.5,
+        0.02
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "shape": "cylinder",
+      "color": "#6b4a2b",
+      "summary": "The coloured ring; changes the pupil size to control light",
+      "details": "The sphincter pupillae (parasympathetic) constricts the pupil; the dilator pupillae (sympathetic) widens it.",
+      "safety": "Unequal or unreactive pupils can be a sign of a serious problem.",
+      "mesh_url": "/cache/meshes/eye/iris.glb"
+    },
+    {
+      "id": "lens",
+      "name": "crystalline lens",
+      "layer": 4,
+      "size": [
+        0.36,
+        0.36,
+        0.16
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "shape": "sphere",
+      "color": "#f2e9c9",
+      "summary": "Fine-tunes focus by changing shape",
+      "details": "Accommodation: for near vision the ciliary muscle contracts, the zonular fibres slacken and the elastic lens becomes rounder and more powerful.",
+      "safety": "Clouding of the lens with age is a cataract; stiffening with age is presbyopia.",
+      "mesh_url": "/cache/meshes/eye/lens.glb"
+    },
+    {
+      "id": "ciliary-body",
+      "name": "ciliary body and zonules",
+      "layer": 4,
+      "size": [
+        0.6,
+        0.6,
+        0.05
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "shape": "cylinder",
+      "color": "#8e4f4f",
+      "summary": "A ring of muscle that pulls on the lens to focus",
+      "details": "The ciliary muscle (parasympathetic, CN III) controls zonular tension; the ciliary processes secrete aqueous humour.",
+      "safety": "None in particular.",
+      "mesh_url": "/cache/meshes/eye/ciliary-body.glb"
+    },
+    {
+      "id": "vitreous",
+      "name": "vitreous humour",
+      "layer": 5,
+      "size": [
+        0.9,
+        0.9,
+        0.8
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "shape": "sphere",
+      "color": "#eef6f0",
+      "summary": "Clear jelly that fills most of the eyeball",
+      "details": "Gel of water, collagen and hyaluronic acid that keeps the eye's shape and transmits light to the retina.",
+      "safety": "New floaters with flashes need urgent review: possible retinal tear.",
+      "mesh_url": "/cache/meshes/eye/vitreous.glb"
+    },
+    {
+      "id": "retina",
+      "name": "retina and macula",
+      "layer": 6,
+      "size": [
+        0.95,
+        0.95,
+        0.04
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "shape": "sphere",
+      "color": "#d9785a",
+      "summary": "The light-sensing layer at the back, like a camera sensor",
+      "details": "Rods (dim light) and cones (colour, detail) turn light into signals. The fovea at the centre of the macula is packed with cones for sharp central vision.",
+      "safety": "A curtain or shadow over vision can be retinal detachment: an emergency.",
+      "mesh_url": "/cache/meshes/eye/retina.glb"
+    },
+    {
+      "id": "choroid",
+      "name": "choroid",
+      "layer": 7,
+      "size": [
+        0.98,
+        0.98,
+        0.03
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "shape": "sphere",
+      "color": "#7a2a2a",
+      "summary": "A layer of blood vessels that feeds the retina",
+      "details": "Highly vascular layer supplying the outer retina, including the photoreceptors.",
+      "safety": "None in particular.",
+      "mesh_url": "/cache/meshes/eye/choroid.glb"
+    },
+    {
+      "id": "sclera",
+      "name": "sclera",
+      "layer": 8,
+      "size": [
+        1,
+        1,
+        0.05
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "shape": "sphere",
+      "color": "#f5f2ea",
+      "summary": "The tough white outer coat",
+      "details": "Dense collagen that protects the eye and anchors the six extraocular muscles; continuous with the cornea at the limbus.",
+      "safety": "None in particular.",
+      "mesh_url": "/cache/meshes/eye/sclera.glb"
+    },
+    {
+      "id": "optic-nerve",
+      "name": "optic nerve",
+      "layer": 9,
+      "size": [
+        0.18,
+        0.18,
+        0.5
+      ],
+      "offset": [
+        0.08,
+        0
+      ],
+      "shape": "tube",
+      "color": "#e8d9a8",
+      "summary": "The cable that carries the picture to the brain",
+      "details": "Cranial nerve II, made of retinal ganglion cell axons. Where it leaves the eye (the optic disc) there are no photoreceptors: the blind spot.",
+      "safety": "None in particular.",
+      "mesh_url": "/cache/meshes/eye/optic-nerve.glb"
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "text": "Light passes through the cornea, which does most of the bending",
+      "part_ids": [
+        "cornea"
+      ]
+    },
+    {
+      "n": 2,
+      "text": "It crosses the aqueous humour and the pupil, which the iris sizes to the brightness",
+      "part_ids": [
+        "aqueous",
+        "iris"
+      ]
+    },
+    {
+      "n": 3,
+      "text": "The lens fine-tunes focus: for near objects the ciliary muscle contracts and the lens rounds up",
+      "part_ids": [
+        "lens",
+        "ciliary-body"
+      ]
+    },
+    {
+      "n": 4,
+      "text": "Light crosses the vitreous and lands on the retina, sharpest at the fovea",
+      "part_ids": [
+        "vitreous",
+        "retina"
+      ]
+    },
+    {
+      "n": 5,
+      "text": "Rods and cones turn it into signals that travel along the optic nerve to the brain",
+      "part_ids": [
+        "retina",
+        "optic-nerve"
+      ]
+    }
+  ],
+  "textures": {
+    "note": "fal 2D textures; meshes are procedural (scripts/build-eye.ts)",
+    "iris": {
+      "model": "fal-ai/flux/dev",
+      "request_id": "01a1db87-0b08-7ed2-90ea-37456e60daf1"
+    },
+    "retina": {
+      "model": "fal-ai/flux-pro/v1.1",
+      "request_id": "01a1db90-20f8-73c2-a7ca-a36b8ee18cd0"
+    }
+  }
+}

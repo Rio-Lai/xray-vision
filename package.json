@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "pregenerate": "tsx scripts/pregenerate.ts",
-    "fetch-models": "node scripts/fetch-models.mjs"
+    "fetch-models": "node scripts/fetch-models.mjs",
+    "build-eye": "tsx scripts/build-eye.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
@@ -31,6 +32,9 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^22.7.0",
@@ -39,6 +43,7 @@
     "@types/three": "^0.169.0",
     "@vitejs/plugin-react": "^4.3.2",
     "concurrently": "^9.0.1",
+    "sharp": "^0.34.5",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2",
     "vite": "^5.4.8"
