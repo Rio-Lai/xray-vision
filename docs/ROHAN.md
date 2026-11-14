@@ -91,9 +91,20 @@ All type **Client**, all with **Wait for response** on. Exactly these eight.
 
 After each explode, the app sends a contextual update listing the part ids, names, one-line summaries, safety notes and steps (`describeTeardown` in `src/lib/flow.ts`). It also sends it again when a session connects while something is already exploded. Clicking a part in the overlay sends a user message "Tell me about the <part name>."
 
-## SDK notes (checked against the docs and the published 1.x types, not yet run)
+## SDK notes (checked against the published @elevenlabs/react 1.22.1 / @elevenlabs/client 1.36.1 types)
 
 - `@elevenlabs/react` 1.x needs a `ConversationProvider` ancestor; `src/voice/VoiceProvider.tsx` is that provider and takes the client tools and callbacks. `useVoiceAgent` calls `useConversation()` inside it.
-- `onMessage` payload: `{ message, role: 'user' | 'agent', source (deprecated) }`; `onModeChange`: `{ mode: 'speaking' | 'listening' }`; `onError(message: string)`.
+- `onMessage` payload: `{ message, role: 'user' | 'agent', source (deprecated), event_id }`; `onModeChange`: `{ mode: 'speaking' | 'listening' }`; `onStatusChange`: `{ status }`; `onError(message: string, context?)`.
+- **Mismatch fixed in #14:** `startSession()` and `endSession()` return `void`, not a Promise, and `status` can be `'error'`. The old code awaited `startSession` to catch failures, which never happens, so a failed connect left the pill on "Connecting" forever. Now `onError`, `onStatusChange` and a 15 s connect timeout put the store back to `disconnected`.
 - `startSession({ signedUrl, connectionType: 'websocket' })`: signed URLs are the WebSocket path for authenticated agents.
 - Each client tool returns a string and never throws (errors come back as `Error in <tool>: ...`).
+- `/api/agent-token` returns 503 `voice_not_configured` without keys, and 502 if ElevenLabs is unreachable or refuses; the app shows "Voice off" in both cases.
+
+## End-to-end check (run once with the real agent)
+
+1. `npm run dev`, open http://localhost:5173 in Chrome, allow camera and microphone. `GET /api/health` shows `keys.elevenlabs: true`.
+2. Press **V** (or click the pill). The pill goes Connecting -> Listening; the console has no errors.
+3. "Hey Blowfish, overlay on" -> `set_overlay` runs and labels appear.
+4. Look at the laptop: "Hey Blowfish, explode this" -> it explodes and Blowfish speaks; the pill shows Speaking and captions appear.
+5. "Put it back" -> it collapses.
+6. Remove the keys from `.env` and restart: the app loads, the pill says "Voice off", nothing crashes.
