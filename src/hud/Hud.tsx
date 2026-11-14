@@ -80,7 +80,7 @@ function StatusPill() {
 
 /** Name of the exploded object, plus "AI-estimated" when the parts list was generated live. */
 function ExplodedTitle() {
-  const tdName = useStore((s) => s.teardown?.name ?? null);
+  const tdName = useStore((s) => (s.explodeAmount > 0 ? s.teardown?.name ?? null : null));
   const isLive = useStore((s) => s.teardown?.source === 'live');
   if (!tdName) return null;
   return (
@@ -93,7 +93,9 @@ function ExplodedTitle() {
 
 /** The selected part: name, one sentence, safety in warm amber. Bottom-left. */
 function PartCard() {
-  const part = useStore((s) => (s.highlightedPartId && s.teardown ? s.teardown.parts.find((p) => p.id === s.highlightedPartId) ?? null : null));
+  const part = useStore((s) =>
+    s.highlightedPartId && s.teardown && s.explodeAmount > 0 ? s.teardown.parts.find((p) => p.id === s.highlightedPartId) ?? null : null,
+  );
   if (!part) return null;
   return (
     <div className="bf-card bf-card-part" data-bf-avoid key={part.id}>
@@ -106,7 +108,7 @@ function PartCard() {
 
 /** The current repair / explanation step. Bottom-right. */
 function StepCard() {
-  const activeStep = useStore((s) => s.activeStep);
+  const activeStep = useStore((s) => (s.explodeAmount > 0 ? s.activeStep : null));
   const steps = useStore((s) => s.teardown?.steps ?? null);
   if (activeStep === null || !steps) return null;
   const step = steps.find((st) => st.n === activeStep);

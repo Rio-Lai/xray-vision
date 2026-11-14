@@ -1,8 +1,15 @@
 /**
  * Box anchor (every non-hand teardown, including unknown anchors such as 'face' or 'pose'): one
  * placeholder mesh per teardown part, sized and placed from part.size / part.offset (fractions of
- * the object's on-screen box; offset +y is DOWN, flipped here), exploded along the teardown axis in
- * layer order, tilted so depth reads, cross-faded to a GLB when part.mesh_url arrives.
+ * the object's on-screen box; offset +y is DOWN, flipped here), cross-faded to a GLB when
+ * part.mesh_url arrives.
+ *
+ * Explode (axis 'z', e.g. the MacBook seen from above): every part starts exactly on its region of
+ * the frozen frame. Layer by layer (outermost first, ~1 s in all) the parts tilt back like plates
+ * on a table seen from the front and slide into a stack: layer 0 on top, deeper layers below, each
+ * layer keeping its own arrangement, spread a little so neighbours (display and keyboard deck)
+ * separate. The whole stack moves to the screen centre and scales to fit between the label
+ * columns. Axis 'y' stacks without the tilt; axis 'x' stacks left to right.
  * Placeholders are soft frosted glass: low-opacity white with a hint of the part colour and a soft
  * white edge. Highlight = accent blue edge and full opacity; the other parts drop to ~30%.
  *
@@ -12,10 +19,13 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { Teardown, TeardownPart } from '../../shared/teardown';
 import { ExplodeAnimator, smoothstep } from './explodeAnimator';
+import { PITCH, explodeLayout, projectedHalfHeight } from './explodeLayout';
 import type { LabelItem, StackBounds } from './labels';
 
-const PITCH = THREE.MathUtils.degToRad(25);
-const YAW = THREE.MathUtils.degToRad(-14);
+/** The exploded stack may grow up to this much to fill the screen. */
+const MAX_GROW = 1.4;
+/** Depth between layers once exploded (px): keeps sorting sane for real models. */
+const LAYER_Z = 30;
 const WHITE = new THREE.Color('#ffffff');
 const ACCENT = new THREE.Color('#4DA3FF');
 const NEUTRAL = '#9aa4ae';
@@ -25,10 +35,12 @@ const BODY_OPACITY = 0.36;
 const EDGE_OPACITY = 0.5;
 /** Opacity factor for parts that are not highlighted while something is. */
 const DIM_TO = 0.3;
-const SPREAD_X_W = 1.2; // total spread = 1.2 x object width
-const LABEL_SIDE_PX = 230; // room kept for labels left and right
+/** Room kept for the label columns left and right of the stack. */
+const LABEL_SIDE_MAX_PX = 290;
+const LABEL_SIDE_FRAC = 0.2;
 const TOP_MARGIN = 70;
-const BOTTOM_MARGIN = 140;
+/** Bottom-centre space for the voice pill, captions and status pill. */
+const BOTTOM_MARGIN = 150;
 
 export interface ScreenBox {
   cx: number;
@@ -46,6 +58,8 @@ export interface BoxFrameInput {
   box: ScreenBox | null;
   explodeTarget: number;
   highlighted: Set<string>;
+  /** true while collapsing a rig whose teardown is gone: keep the last box, do not fade out. */
+  hold?: boolean;
 }
 
 interface PartRig {
@@ -109,7 +123,6 @@ export class BoxRig {
   private presence = 1;
   private disposed = false;
   private axis: Teardown['explode_axis'];
-  private sharedGeos: THREE.BufferGeometry[] = [];
 
   constructor(td: Teardown, scene: THREE.Scene) {
     this.axis = td.explode_axis;
@@ -131,16 +144,15 @@ export class BoxRig {
         break;
       }
       case 'sphere': {
-        geo = new THREE.SphereGeometry(0.5, 20, 14);
-        edgeSrc = new THREE.IcosahedronGeometry(0.5, 1);
-        this.sharedGeos.push(edgeSrc);
+        geo = new THREE.SphereGeometry(0.5, 24, 16);
+        edgeSrc = geo; // smooth: no edge lines (a wire icosahedron reads as sci-fi)
         break;
       }
       default:
         geo = new THREE.BoxGeometry(1, 1, 1);
         edgeSrc = geo;
     }
-    const edgeGeo = new THREE.EdgesGeometry(edgeSrc, part.shape === 'sphere' ? 1 : 25);
+    const edgeGeo = new THREE.EdgesGeometry(edgeSrc, 25);
     const baseColor = WHITE.clone().lerp(safeColor(part.color), TINT);
     const bodyMat = new THREE.MeshStandardMaterial({
       color: baseColor.clone(),
@@ -282,7 +294,7 @@ export class BoxRig {
     const { now, dt, vw, vh } = input;
     this.anim.update(now, dt, input.explodeTarget);
 
-    // Target box: smooth toward it; hold the last one when lost, fade after 1 s.
+    // Target box: smooth toward it; hold the last one when lost, fade after 1 s (not while collapsing).
     if (input.box) {
       this.lostFor = 0;
       if (!this.display) this.display = { ...input.box };
@@ -294,7 +306,7 @@ export class BoxRig {
         this.display.h += (input.box.h - this.display.h) * k;
       }
     } else {
-      this.lostFor += dt;
+      if (!input.hold) this.lostFor += dt;
       if (!this.display) this.display = { cx: vw / 2, cy: vh * 0.47, w: vw * 0.4, h: vw * 0.27 };
     }
     const presTarget = this.lostFor < 1 ? 1 : Math.max(0, 1 - (this.lostFor - 1) / 0.4);
@@ -304,53 +316,54 @@ export class BoxRig {
     const B = this.display;
     const W = Math.max(20, B.w);
     const H = Math.max(20, B.h);
-    let dir = new THREE.Vector2(0.3, 1);
-    if (this.axis === 'y') dir = new THREE.Vector2(0, 1);
-    if (this.axis === 'x') dir = new THREE.Vector2(1, 0.15);
-    dir.normalize();
-    const spread = SPREAD_X_W * W;
+    const tiltFull = this.axis === 'z' ? PITCH : 0;
+    const side = Math.min(LABEL_SIDE_MAX_PX, vw * LABEL_SIDE_FRAC);
+    const availW = Math.max(100, vw - 2 * side);
+    const availH = Math.max(100, vh - TOP_MARGIN - BOTTOM_MARGIN);
+    const { poses, extent } = explodeLayout(
+      this.parts.map((r) => r.part),
+      (layer) => this.anim.rankOf(layer),
+      this.anim.layerCount,
+      this.axis,
+      W,
+      H,
+      availW / availH,
+    );
     const anyHl = input.highlighted.size > 0;
     const kHl = 1 - Math.exp(-dt * 10);
-    const maxE = this.anim.max();
+    const maxE = Math.min(1, this.anim.max());
 
     let minX = Infinity;
     let maxX = -Infinity;
     let minY = Infinity;
     let maxY = -Infinity;
 
-    for (const rig of this.parts) {
+    this.parts.forEach((rig, i) => {
       const part = rig.part;
+      const pose = poses[i];
       const e = this.anim.get(part.layer);
-      const t = this.anim.outerness(part.layer);
-      const w = Math.max(2, part.size[0] * W);
-      const h = Math.max(2, part.size[1] * H);
-      let d: number;
-      if (part.shape === 'board') d = Math.max(2, Math.min(part.size[2] * W, 0.035 * W));
-      else if (part.shape === 'box') d = Math.max(4, part.size[2] * W);
-      else d = Math.min(w, h);
-      // Cylinder/tube: the circular cross-section uses the short side.
-      if ((part.shape === 'cylinder' || part.shape === 'tube') && rig.horizontalAxis) rig.body.scale.set(w, h, Math.min(h, d));
-      else if (part.shape === 'cylinder' || part.shape === 'tube') rig.body.scale.set(w, h, Math.min(w, d));
-      else rig.body.scale.set(w, h, d);
+      const t = Math.min(1, e);
+      const { w, h, d } = pose;
+      rig.body.scale.set(w, h, d);
       rig.edges.scale.copy(rig.body.scale);
 
-      const along = (t - 0.4) * spread * e;
-      const x = part.offset[0] * W + dir.x * along;
-      const y = -part.offset[1] * H + dir.y * along; // offset +y is down in image convention
-      const z = e * t * 300 + rig.index * 0.5;
+      const x = pose.ax + (pose.ex - pose.ax) * e;
+      const y = pose.ay + (pose.ey - pose.ay) * e;
+      const z = -this.anim.rankOf(part.layer) * LAYER_Z * t + rig.index * 0.5;
       rig.pivot.position.set(x, y, z);
-      rig.tilt.rotation.set(PITCH * e, YAW * e, 0);
+      const tilt = tiltFull * t;
+      rig.tilt.rotation.set(-tilt, 0, 0); // negative: the top edge goes away, the front edge shows
       rig.hw = w / 2;
-      rig.hh = h / 2;
-      minX = Math.min(minX, x - w / 2);
-      maxX = Math.max(maxX, x + w / 2);
-      minY = Math.min(minY, y - h / 2);
-      maxY = Math.max(maxY, y + h / 2);
+      rig.hh = projectedHalfHeight(h, d, tilt, pose.round);
+      minX = Math.min(minX, x - rig.hw);
+      maxX = Math.max(maxX, x + rig.hw);
+      minY = Math.min(minY, y - rig.hh);
+      maxY = Math.max(maxY, y + rig.hh);
 
       const isHl = input.highlighted.has(part.id);
       rig.hl += ((isHl ? 1 : 0) - rig.hl) * kHl;
       rig.dim += ((anyHl && !isHl ? 1 : 0) - rig.dim) * kHl;
-      const appear = smoothstep(0.03, 0.3, e);
+      const appear = smoothstep(0.02, 0.25, e);
       rig.vis = p * appear;
       const dimF = 1 - (1 - DIM_TO) * rig.dim;
       if (rig.glb) rig.glbFade = Math.min(1, rig.glbFade + dt / 0.6);
@@ -376,7 +389,7 @@ export class BoxRig {
       if (rig.glb) rig.glb.traverse((o: THREE.Object3D) => {
           o.renderOrder = order + 2;
         });
-    }
+    });
     if (!Number.isFinite(minX)) {
       minX = -W / 2;
       maxX = W / 2;
@@ -384,33 +397,17 @@ export class BoxRig {
       maxY = H / 2;
     }
 
-    // Place the root on the object; when exploded, shrink and shift so the stack fits the view.
+    // Root: on the object when assembled; exploded, centred between the label columns and scaled
+    // so the whole stack fits between the title (top) and the voice area (bottom).
     const rx = B.cx - vw / 2;
     const ry = vh / 2 - B.cy;
-    const availW = Math.max(100, vw - 2 * LABEL_SIDE_PX);
-    const availH = Math.max(100, vh - TOP_MARGIN - BOTTOM_MARGIN);
-    const fitScale = Math.min(1, availW / Math.max(1, maxX - minX), availH / Math.max(1, maxY - minY));
-    const s = 1 + (fitScale - 1) * Math.min(1, maxE);
-    let sx = 0;
-    let sy = 0;
-    const left = rx + s * minX;
-    const right = rx + s * maxX;
-    const bottom = ry + s * minY;
-    const top = ry + s * maxY;
-    const limL = -vw / 2 + LABEL_SIDE_PX;
-    const limR = vw / 2 - LABEL_SIDE_PX;
-    const limT = vh / 2 - TOP_MARGIN;
-    const limB = -vh / 2 + BOTTOM_MARGIN;
-    if (right - left <= limR - limL) {
-      if (left < limL) sx = limL - left;
-      else if (right > limR) sx = limR - right;
-    } else sx = (limL + limR) / 2 - (left + right) / 2;
-    if (top - bottom <= limT - limB) {
-      if (top > limT) sy = limT - top;
-      else if (bottom < limB) sy = limB - bottom;
-    } else sy = (limT + limB) / 2 - (top + bottom) / 2;
-    const em = Math.min(1, maxE);
-    this.root.position.set(rx + sx * em, ry + sy * em, 0);
+    const bw = Math.max(1, extent.maxX - extent.minX);
+    const bh = Math.max(1, extent.maxY - extent.minY);
+    const fit = Math.max(0.25, Math.min(MAX_GROW, availW / bw, availH / bh));
+    const goalX = 0 - fit * ((extent.minX + extent.maxX) / 2);
+    const goalY = vh / 2 - TOP_MARGIN - availH / 2 - fit * ((extent.minY + extent.maxY) / 2);
+    const s = 1 + (fit - 1) * maxE;
+    this.root.position.set(rx + (goalX - rx) * maxE, ry + (goalY - ry) * maxE, 0);
     this.root.scale.setScalar(s);
     this.root.updateMatrixWorld(true);
 
@@ -450,7 +447,6 @@ export class BoxRig {
       rig.edgeMat.dispose();
       if (rig.glb) disposeObject(rig.glb);
     }
-    for (const g of this.sharedGeos) g.dispose();
     this.parts = [];
   }
 }

@@ -1,9 +1,10 @@
 /**
  * Per-layer critically damped springs toward store.explodeAmount, with a per-layer stagger:
- * exploding, the outermost layer (layer 0) leaves first; collapsing, the deepest returns first.
+ * exploding, the outermost layer (layer 0) leaves first; collapsing, the deepest returns first
+ * (the exact reverse). With 5 layers: 4 x 110 ms stagger + ~0.6 s settle = about 1 s in all.
  */
-const STAGGER_MS = 60;
-const OMEGA = 11; // rad/s; critically damped => no overshoot
+const STAGGER_MS = 110;
+const OMEGA = 9; // rad/s; critically damped => no overshoot, ~97% of the way after 0.6 s
 
 interface LayerState {
   x: number;

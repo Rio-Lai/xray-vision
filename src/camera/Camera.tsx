@@ -145,6 +145,8 @@ export function Camera() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [requestedId, setRequestedId] = useState<string | null>(() => readRemembered());
   const frozen = useStore((s) => s.frozen);
+  const held = useHud((s) => s.holdFrozen);
+  const showSnapshot = frozen || held;
   const debug = useHud((s) => s.debug);
   const backdrop = useStore((s) => s.frozen && s.explodeAmount > 0 && s.teardown !== null && s.teardown.anchor !== 'hand');
 
@@ -297,13 +299,13 @@ export function Camera() {
         playsInline
         muted
         onLoadedMetadata={onMeta}
-        style={{ ...fill, visibility: frozen ? 'hidden' : 'visible' }}
+        style={{ ...fill, visibility: showSnapshot ? 'hidden' : 'visible' }}
       />
       <canvas
         ref={canvasRef}
         style={{
           ...fill,
-          display: frozen ? 'block' : 'none',
+          display: showSnapshot ? 'block' : 'none',
           filter: backdrop ? BACKDROP_ON : BACKDROP_OFF,
           // A 1.2% zoom hides the dark fringe the blur makes at the screen edges.
           transform: backdrop ? 'scale(1.012)' : 'scale(1)',

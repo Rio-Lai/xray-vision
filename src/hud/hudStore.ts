@@ -28,6 +28,11 @@ interface HudUiState {
   debug: boolean;
   /** Last few developer messages (key presses, explode results), shown only in the debug panel. */
   log: LogLine[];
+  /**
+   * The overlay keeps showing the last frozen frame while it collapses an exploded object after a
+   * reset (store.frozen is already false by then), so "put it back" animates over the same image.
+   */
+  holdFrozen: boolean;
 }
 
 export const useHud = create<HudUiState>(() => ({
@@ -35,7 +40,12 @@ export const useHud = create<HudUiState>(() => ({
   toast: null,
   debug: false,
   log: [],
+  holdFrozen: false,
 }));
+
+export function setHoldFrozen(on: boolean): void {
+  if (useHud.getState().holdFrozen !== on) useHud.setState({ holdFrozen: on });
+}
 
 /** Set (or clear, with level null) one status line. No-op when unchanged, so it is safe to call every frame. */
 export function setStatus(key: string, level: StatusLevel | null, text?: string | null): void {
