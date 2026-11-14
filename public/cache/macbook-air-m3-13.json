@@ -17,7 +17,7 @@
       "summary": "The 13.6-inch Liquid Retina screen in its aluminium lid, with the 1080p FaceTime camera in the notch.",
       "details": "The lid holds the LCD panel, its backlight and the camera. Thin cables run down through the hinge area to the logic board. On this design the whole lid is usually replaced as one assembly rather than just the glass.",
       "safety": "The panel and its cables are fragile. Do not flex the lid or pull the display cables while the laptop is open on the bench.",
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/display-assembly.glb"
     },
     {
       "id": "keyboard-top-case",
@@ -43,7 +43,7 @@
       "summary": "A glass trackpad that senses pressure; the click you feel is a vibration from a haptic motor, not a moving switch.",
       "details": "Force sensors measure how hard you press and a Taptic Engine pulses to fake the click. That is why it clicks anywhere on its surface. It connects to the logic board with a ribbon cable.",
       "safety": null,
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/trackpad.glb"
     },
     {
       "id": "hinges",
@@ -69,7 +69,7 @@
       "summary": "The antennas for Wi-Fi 6E and Bluetooth 5.3, placed near the hinge where the metal case does not block the signal.",
       "details": "An all-aluminium body would shield radio waves, so the antennas sit behind a gap or plastic window near the hinge. Thin coaxial cables link them to the wireless chips on the logic board.",
       "safety": null,
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/antennas.glb"
     },
     {
       "id": "logic-board",
@@ -121,7 +121,7 @@
       "summary": "The magnetic charging port on the left edge; the cable pops off safely if someone trips over it.",
       "details": "MagSafe 3 holds the plug with magnets, so a tug pulls the cable away instead of dragging the laptop off the table. You can still charge from either USB-C port instead.",
       "safety": null,
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/magsafe-port.glb"
     },
     {
       "id": "thunderbolt-ports",
@@ -147,7 +147,7 @@
       "summary": "A 3.5 mm headphone jack on the right edge that also works with high-impedance headphones.",
       "details": "It is the port on the right edge, away from the charging and data ports on the left. It supports high-impedance headphones as well as ordinary earbuds.",
       "safety": null,
-      "mesh_url": null
+      "mesh_url": "/cache/meshes/macbook-air-m3-13/headphone-jack.glb"
     },
     {
       "id": "bottom-case",

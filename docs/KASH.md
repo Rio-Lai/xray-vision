@@ -25,9 +25,10 @@ npm run pregenerate -- macbook-air-m3-13 --promote  # after review: compress + c
   nothing new and never retries (each retry is another billable job). The `/api/generate-part` route does the same.
 - Rejected meshes: `.cache-live/review/rejected/<id>/` (moved out so `--promote` skips them and a re-run regenerates them).
 
-MacBook Air status: 5 of 12 meshes are good and committed (keyboard-top-case, hinges, logic-board, battery, bottom-case).
-The other 7 came back as consumer products (router, hi-fi speaker, charger...) and were rejected; `partPrompt` now asks for
-the bare internal component. Re-running costs ~$0.45 a part.
+MacBook Air status: 10 of 12 meshes are good and committed. The first run (prompt "isolated X from a MacBook Air")
+drew consumer products for 7 parts (router, hi-fi speaker, charger...); with the new "bare internal component" prompt
+5 of those came back right. `speakers` and `thunderbolt-ports` are still weak (a generic housing and an empty frame), so
+they show the placeholder shape. Re-running `npm run pregenerate -- macbook-air-m3-13` redoes only those two (~$0.90).
 
 ### The eye (procedural, not fal 3D)
 
