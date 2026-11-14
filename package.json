@@ -1,5 +1,6 @@
 {
-  "name": "xray-vision",
+  "name": "blowfish",
+  "description": "Blowfish: voice-controlled X-ray vision for the physical world. Look at a thing, say \"explode this\", and a voice tutor explains its parts.",
   "private": true,
   "version": "0.1.0",
   "type": "module",
