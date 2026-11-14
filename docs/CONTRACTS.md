@@ -61,6 +61,15 @@ There is no `set_lens` tool: Blowfish has no lenses.
 
 `get_pose` muscle mapping: index, middle, ring or pinky pressing -> `fdp`, `fds`, `flexor-tendons`; thumb pressing -> `fpl`, `thenar`; active finger not pressing (lifting) -> `extensor-digitorum`.
 
+### A hand on stage is the arm (#74)
+
+- In stage mode (the default), a hand's parts list is replaced after loading by Kash's arm, `object_id` `arm-hand` (`public/cache/arm-hand/teardown.json`, mapped to a valid `Teardown` in `src/stage/armTeardown.ts`; the schema is unchanged). 21 parts, layers 0 (skin) to 5, six steps. `isArmTeardown(td)` tells the two apart. In freeze or follow mode a hand keeps `hand-finger-muscles`, drawn on the real hand.
+- The arm is drawn by its own renderer (`src/overlay/ArmStage.tsx`, Kash's `ArmXrayView`), driven by the same store fields as any model: `explodeAmount`, `modelYaw`, `modelPitch`, `highlightedPartId`, `activeStep`; `resetAll()` puts it away. No Pose model: the arm stands in a fixed typing pose.
+- `explode`: `object_id` `"arm-hand"`, `"arm"` or `"hand"` means the hand in view. For the arm the reply adds `layers` and `steps`, and its `next` asks for `show_step` 1 to 6 instead of a part-by-part tour.
+- `highlight_part` adds `nerve`, `typing_role`, `layer` for arm parts. `show_step` opens the arm if it is closed and adds `layer`, `parts`, `typing_roles`, and `clinical_note` on the last step.
+- `get_pose`: while the arm is on stage the muscle ids are the arm's: pressing finger -> `forearm-flexors`, `flexor-tendons`; thumb -> `thenar`, `forearm-flexors`; lifting -> `forearm-extensors`, `extensor-tendons`. The `arm` field (Kash's typing detector) is always present.
+- fal is never called for a hand or the arm.
+
 ## Store rules
 
 - `src/state/store.ts` is the only shared state. Read with `useStore(selector)` in React, `useStore.getState()` elsewhere.
