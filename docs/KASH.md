@@ -4,8 +4,8 @@
 
 - Route: `server/routes/generate-part.ts` (cache checks, dedupe of repeat requests).
 - fal calls: `server/lib/fal.ts`. Text to image with `FAL_IMAGE_MODEL` (default `fal-ai/flux/schnell`), then image to 3D with `FAL_3D_MODEL` (default `fal-ai/hunyuan3d/v2/turbo`). `FAL_TEXTURED=1` asks Hunyuan for a textured mesh (about 3x the price and slower).
-- Prompts per part are built in `src/lib/flow.ts` (`partPrompt`). Tune them there.
-- The client asks for two parts at a time and skips quietly on failure.
+- Prompts per part are built in `shared/prompts.ts` (`partPrompt`, also used by `npm run pregenerate`). Tune them there.
+- The client asks for two parts at a time and skips quietly on failure. It never asks for hand parts: the hand overlay draws from landmarks and ignores `mesh_url`.
 
 ### Pre-generation
 

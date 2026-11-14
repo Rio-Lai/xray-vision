@@ -15,15 +15,16 @@ Needs Node 20 or newer and Chrome.
 git clone https://github.com/Rio-Lai/xray-vision.git
 cd xray-vision
 npm install
+npm run fetch-models   # once: downloads the vision models into public/models/ so the demo works offline
 cp .env.example .env   # add keys; any missing key means that route runs in mock mode
 npm run dev
 ```
 
-Open http://localhost:5173 in Chrome and allow the camera and microphone.
+Open http://localhost:5173 in Chrome and allow the camera and microphone. Both servers listen on this machine only (localhost); that is deliberate, so nobody on the venue Wi-Fi can spend the API credits.
 
 With no keys at all the app still runs: identify and teardown answer from `public/cache/`, meshes stay as placeholder shapes, and the voice bar says "Voice not configured yet". You can type commands into the voice bar instead ("explode this", "step 2", "what is the battery", "reset").
 
-Check which keys the server sees: http://localhost:8787/api/health
+Check which keys the server sees: http://localhost:5173/api/health (booleans only)
 
 ## How it works
 
@@ -51,11 +52,30 @@ Contracts and rules: `docs/CONTRACTS.md`.
 - `npm run dev`: server (port 8787) and Vite (port 5173) together
 - `npm run dev:server`, `npm run dev:web`: one at a time
 - `npm run typecheck`
+- `npm run fetch-models`: download the MediaPipe models into `public/models/` (run once)
 - `npm run pregenerate -- <object_id>`: make every part mesh for a cached teardown (needs `FAL_KEY`)
 
 ## Keyboard shortcuts
 
-(Vision agent fills this in.)
+| Key | Does |
+| --- | --- |
+| `E` | Explode the object under the reticle |
+| `R` | Reset |
+| `F` | Freeze / unfreeze the frame |
+| `L` | Switch lens (also resets) |
+| `Left` / `Right` or `[` / `]` | Previous / next part |
+| `S` | Next step |
+| `M` | Tracking mode (freeze -> follow -> mat) |
+| `H` | Legend |
+| `D` | Debug panel |
+
+Click a part, or hold the reticle on it for 1.2 s, to pick it.
+
+URL options:
+
+- `?mock=1`: no camera or models needed
+- `?hands=raw`: use if left and right hands look swapped
+- `?press=0.6&release=0.15&extend=1.2`: finger-press tuning
 
 ## APIs and models used (for Devpost)
 

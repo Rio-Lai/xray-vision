@@ -60,7 +60,7 @@ function describeHand(h: HandState) {
   return { handedness: h.handedness, activeFinger: active, action, muscles, fingers };
 }
 
-export const clientTools: Record<ClientToolName, Tool> = {
+const tools: Record<ClientToolName, Tool> = {
   async get_scene() {
     const s = useStore.getState();
     return json({
@@ -119,7 +119,9 @@ export const clientTools: Record<ClientToolName, Tool> = {
     }
     const result = await explodeObject(objectId);
     if (result.ok && amount !== undefined) useStore.getState().setExplode(amount);
-    return result.message;
+    const td = useStore.getState().teardown;
+    if (!result.ok || !td) return result.message;
+    return `${result.message} Part ids for highlight_part: ${td.parts.map((x) => x.id).join(', ')}.`;
   },
 
   async highlight_part(p) {
@@ -170,3 +172,18 @@ export const clientTools: Record<ClientToolName, Tool> = {
     });
   },
 };
+
+/** Never throw into the SDK: the agent gets the error as text and can tell the user. */
+export const clientTools = Object.fromEntries(
+  (Object.keys(tools) as ClientToolName[]).map((name) => [
+    name,
+    async (params?: Params) => {
+      try {
+        return await tools[name](params);
+      } catch (err) {
+        console.error(`[voice] tool ${name} failed`, err);
+        return `Error in ${name}: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    },
+  ]),
+) as Record<ClientToolName, Tool>;

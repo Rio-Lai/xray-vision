@@ -67,7 +67,7 @@
       "shape": "tube",
       "color": "#e07b67",
       "summary": "Four thin muscles inside the palm that bend the knuckles while keeping the fingers straight.",
-      "details": "Unusually, they start on the tendons of flexor digitorum profundus rather than on bone, and end on the extensor hood on the back of each finger. That lets them fine-tune finger position, such as hovering over the home row.",
+      "details": "Unusually, they start on the tendons of flexor digitorum profundus rather than on bone, and end on the extensor hood on the back of each finger. That makes them useful for fine finger positioning.",
       "safety": null,
       "mesh_url": null
     },
@@ -119,7 +119,7 @@
       "shape": "cylinder",
       "color": "#c0392b",
       "summary": "A forearm muscle that bends the middle joint of each finger.",
-      "details": "Its belly sits in the forearm, nearer the palm-side surface than FDP. Each of its four tendons splits in two near the middle bone of the finger, letting the FDP tendon pass through to the fingertip. It is supplied by the median nerve.",
+      "details": "Its belly sits in the forearm, nearer the palm-side surface than FDP. Each of its four tendons splits in two over the first finger bone and attaches to the sides of the middle bone, letting the FDP tendon pass through to the fingertip. It is supplied by the median nerve.",
       "safety": null,
       "mesh_url": null
     },

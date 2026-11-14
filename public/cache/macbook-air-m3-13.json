@@ -53,8 +53,8 @@
       "offset": [0, -0.08],
       "shape": "cylinder",
       "color": "#6b7480",
-      "summary": "Two hinges join the lid to the base and hold the screen at any angle.",
-      "details": "They are screwed to the top case. The display cables pass close to them, which is why a worn hinge or a hard knock to the lid can damage the screen connection.",
+      "summary": "The hinges join the lid to the base and hold the screen at any angle.",
+      "details": "They sit at the back edge of the base, under a cover that runs along the hinge. The display cables pass close to them, so a hard knock to the lid can damage the screen connection.",
       "safety": null,
       "mesh_url": null
     },
@@ -80,7 +80,7 @@
       "shape": "board",
       "color": "#1f7a4d",
       "summary": "The main circuit board, carrying the M3 chip with its memory in the same package, plus the soldered SSD storage.",
-      "details": "The MacBook Air has no fan. A thin heat spreader and thermal pads move heat from the M3 into the aluminium case, which acts as a radiator. Under long heavy loads the chip slows itself down to stay cool. Memory and storage are soldered, so they cannot be upgraded later.",
+      "details": "The MacBook Air has no fan. A thin heat spreader moves heat from the M3 into the aluminium case, which acts as a radiator. Under long heavy loads the chip slows itself down to stay cool. Memory and storage are soldered, so they cannot be upgraded later.",
       "safety": "Disconnect the battery before touching the logic board. The board stays powered while the battery is connected.",
       "mesh_url": null
     },
@@ -106,7 +106,7 @@
       "shape": "box",
       "color": "#4a5568",
       "summary": "A four-speaker system that sends sound out through the gap near the hinge.",
-      "details": "There are no speaker grilles on the keyboard deck. The drivers sit at the back of the base and fire towards the hinge and screen, which reflects the sound towards you.",
+      "details": "There are no speaker grilles on the keyboard deck. The sound comes out through the slot between the keyboard and the display.",
       "safety": null,
       "mesh_url": null
     },
@@ -145,7 +145,7 @@
       "shape": "cylinder",
       "color": "#b794f4",
       "summary": "A 3.5 mm headphone jack on the right edge that also works with high-impedance headphones.",
-      "details": "It sits on its own small board on the right side of the base, linked to the logic board by a cable. That keeps wear from plugging in headphones away from the main board.",
+      "details": "It is the port on the right edge, away from the charging and data ports on the left. It supports high-impedance headphones as well as ordinary earbuds.",
       "safety": null,
       "mesh_url": null
     },
@@ -157,8 +157,8 @@
       "offset": [0, 0.21],
       "shape": "board",
       "color": "#8b949e",
-      "summary": "The aluminium base plate, held on by four P5 pentalobe screws.",
-      "details": "Pentalobe screws need a special five-point driver, which discourages casual opening. The case also has rubber feet and helps spread heat away from the chip.",
+      "summary": "The aluminium base plate, held on by P5 pentalobe screws.",
+      "details": "Pentalobe screws need a special five-point driver, which discourages casual opening. The case also carries the rubber feet.",
       "safety": "Shut down and unplug the charger before opening the case.",
       "mesh_url": null
     }
@@ -171,7 +171,7 @@
     },
     {
       "n": 2,
-      "text": "Close the lid, turn it over on a soft mat and remove the four P5 pentalobe screws from the bottom case.",
+      "text": "Close the lid, turn it over on a soft mat and remove the P5 pentalobe screws from the bottom case. Keep them in order.",
       "part_ids": ["bottom-case"]
     },
     {

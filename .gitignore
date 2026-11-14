@@ -1,7 +1,8 @@
 node_modules
 dist
 .env
-.env.local
+.env.*
+!.env.example
 .DS_Store
 # Unreviewed AI output (live teardowns, fal meshes). Promote by hand into public/cache/.
 .cache-live

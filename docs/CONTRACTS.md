@@ -36,7 +36,7 @@ Mock mode: a route with its key missing (or `MOCK=1`) answers from the cache.
 
 ## Flow (`src/lib/flow.ts`)
 
-- `explodeObject(objectId?)`: target = objectId, else focused, else selected, else the most confident object of the current lens. Selects it, freezes the frame for box anchors in freeze mode, identifies, loads the teardown, sets explode to 1, tells the voice agent, then fetches meshes in the background (two at a time). Returns `{ ok, message }`.
+- `explodeObject(objectId?)`: target = objectId (if it names a scene object), else focused, else selected, else the most confident object of the current lens. Selects it, freezes the frame for box anchors in freeze mode (unfreezes again if loading fails), identifies, loads the teardown, sets explode to 1, tells the voice agent, then fetches meshes in the background (two at a time; never for `anchor: 'hand'`). A second call for the same object while one is loading joins it. Returns `{ ok, message }`.
 - `pickPart(partId)`: highlight, and ask the tutor about it if voice is connected.
 - `resetAll()`: `store.resetView()` and drops any in-flight explode.
 - `describeTeardown(td)`: the text sent to the agent as a contextual update.

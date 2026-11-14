@@ -17,23 +17,58 @@ import { listCheckedObjects, safeId } from './cache';
 
 let client: Anthropic | null = null;
 const getClient = () => {
-  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 90_000 });
+  // Teardowns with thinking can take over a minute; one retry keeps the worst case bounded.
+  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 150_000, maxRetries: 1 });
   return client;
 };
 
 function textOf(msg: Anthropic.Message): string {
   let text = '';
   for (const block of msg.content) if (block.type === 'text') text += block.text;
+  // Current models think by default and thinking counts towards max_tokens; say so instead of "no JSON".
+  if (!text.trim() && msg.stop_reason === 'max_tokens') {
+    throw new Error('reply hit max_tokens before any text (thinking used the budget); raise max_tokens');
+  }
   return text;
 }
 
-/** Pull the first {...} out of a reply, tolerating code fences or stray prose. */
+/** Pull the JSON object out of a reply, tolerating code fences or stray prose (even prose with braces). */
 function extractJson(text: string): unknown {
   const cleaned = text.replace(/```(?:json)?/gi, '');
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
   if (start < 0 || end <= start) throw new Error('reply had no JSON object');
-  return JSON.parse(cleaned.slice(start, end + 1));
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1));
+  } catch (err) {
+    // Fall back to each balanced {...} in turn (string-aware), largest first.
+    const candidates: string[] = [];
+    for (let i = cleaned.indexOf('{'); i >= 0; i = cleaned.indexOf('{', i + 1)) {
+      let depth = 0;
+      let inStr = false;
+      for (let j = i; j < cleaned.length; j++) {
+        const c = cleaned[j];
+        if (inStr) {
+          if (c === '\\') j++;
+          else if (c === '"') inStr = false;
+        } else if (c === '"') inStr = true;
+        else if (c === '{') depth++;
+        else if (c === '}' && --depth === 0) {
+          candidates.push(cleaned.slice(i, j + 1));
+          break;
+        }
+      }
+    }
+    candidates.sort((a, b) => b.length - a.length);
+    for (const c of candidates) {
+      try {
+        return JSON.parse(c);
+      } catch {
+        /* try the next one */
+      }
+    }
+    throw err;
+  }
 }
 
 /* ---------------- identify ---------------- */
@@ -66,7 +101,8 @@ export async function identifyLive(req: IdentifyRequest): Promise<IdentifyRespon
 
   const msg = await getClient().messages.create({
     model: anthropicModel(),
-    max_tokens: 400,
+    // Room for adaptive thinking (on by default on current models) plus the short JSON reply.
+    max_tokens: 4000,
     system: IDENTIFY_SYSTEM,
     messages: [
       {
@@ -138,7 +174,8 @@ export async function teardownLive(req: TeardownRequest): Promise<Teardown> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const msg = await getClient().messages.create({
       model: anthropicModel(),
-      max_tokens: 6000,
+      // Thinking counts towards max_tokens; the JSON itself is ~3-4k tokens.
+      max_tokens: 16000,
       system: TEARDOWN_SYSTEM,
       messages,
     });

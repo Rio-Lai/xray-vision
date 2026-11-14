@@ -14,10 +14,22 @@ let runId = 0;
 /** Which scene object the current teardown belongs to. */
 let explodedSceneId: string | null = null;
 
+export interface ExplodeResult {
+  ok: boolean;
+  message: string;
+}
+/** The explode in progress, so a second "explode this" for the same object joins it instead of cancelling it. */
+let inFlight: { sceneId: string; promise: Promise<ExplodeResult> } | null = null;
+
 function pickTarget(objectId?: string): SceneObject | null {
   const s = useStore.getState();
   const byId = (id: string | null | undefined) => (id ? s.objects.find((o) => o.id === id) ?? null : null);
-  if (objectId) return byId(objectId);
+  if (objectId) {
+    const hit = byId(objectId);
+    if (hit) return hit;
+    // The agent sometimes passes a teardown id ("macbook-air-m3-13") or a made-up one; fall back to "this".
+    console.warn(`[flow] no scene object "${objectId}", using the focused object`);
+  }
   const direct = byId(s.focusedObjectId) ?? byId(s.selectedObjectId);
   if (direct) return direct;
   const inLens = s.objects.filter((o) => o.lens === s.lens);
@@ -42,18 +54,27 @@ export function describeTeardown(td: Teardown): string {
     .join('\n\n');
 }
 
-export async function explodeObject(objectId?: string): Promise<{ ok: boolean; message: string }> {
+export function explodeObject(objectId?: string): Promise<ExplodeResult> {
   const target = pickTarget(objectId);
   if (!target) {
-    return {
-      ok: false,
-      message: objectId ? `No object with id ${objectId} in view.` : 'Nothing in view to explode. Look at an object first.',
-    };
+    return Promise.resolve({ ok: false, message: 'Nothing in view to explode. Look at an object first.' });
   }
+  if (inFlight && inFlight.sceneId === target.id) return inFlight.promise;
+  const promise = runExplode(target);
+  const entry = { sceneId: target.id, promise };
+  inFlight = entry;
+  const clear = () => {
+    if (inFlight === entry) inFlight = null;
+  };
+  promise.then(clear, clear);
+  return promise;
+}
 
+async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   const store = useStore.getState();
   store.selectObject(target.id);
-  if (target.anchor === 'box' && store.trackingMode === 'freeze') store.setFrozen(true);
+  const froze = target.anchor === 'box' && store.trackingMode === 'freeze';
+  if (froze) store.setFrozen(true);
 
   // Already exploded this object: just open it again.
   if (store.teardown && explodedSceneId === target.id) {
@@ -85,6 +106,7 @@ export async function explodeObject(objectId?: string): Promise<{ ok: boolean; m
     if (stale()) return { ok: false, message: 'Cancelled.' };
     const message = err instanceof Error ? err.message : String(err);
     useStore.getState().setTeardownStatus('error', message);
+    if (froze) useStore.getState().setFrozen(false);
     return { ok: false, message: `Could not load parts for ${ident.name}: ${message}` };
   }
   if (stale()) return { ok: false, message: 'Cancelled.' };
@@ -96,8 +118,8 @@ export async function explodeObject(objectId?: string): Promise<{ ok: boolean; m
   s.setExplode(1);
   voiceBridge.sendContextualUpdate(describeTeardown(td));
 
-  // 4. Real meshes in the background.
-  void generateMeshes(td, myRun);
+  // 4. Real meshes in the background. Not for hands: the hand overlay draws from landmarks and ignores mesh_url.
+  if (td.anchor !== 'hand') void generateMeshes(td, myRun);
 
   return { ok: true, message: `Exploded ${td.name}: ${td.parts.length} parts.` };
 }
@@ -143,6 +165,7 @@ export function pickPart(partId: string): void {
 export function resetAll(): void {
   runId++;
   explodedSceneId = null;
+  inFlight = null;
   useStore.getState().resetView();
   voiceBridge.sendContextualUpdate('The view was reset. Nothing is exploded now.');
 }

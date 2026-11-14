@@ -55,8 +55,9 @@ All type Client, all with **Wait for response** on.
 
 After each explode, the app sends a contextual update listing the part ids, names, one-line summaries, safety notes and steps (`describeTeardown` in `src/lib/flow.ts`). It also sends it again when a session connects while something is already exploded. Clicking a part in the overlay sends a user message "Tell me about the <part name>."
 
-## Things to verify on the real SDK
+## SDK notes (checked against the docs and the published 1.x types, not yet run)
 
-- `src/voice/useVoiceAgent.ts`: the shape of the `onMessage` payload (we read `message`, then `role` or `source`).
-- `startSession({ signedUrl, connectionType: 'websocket' })`.
-- Whether the installed `@elevenlabs/react` has `ConversationProvider`; `src/voice/VoiceProvider.tsx` handles both.
+- `@elevenlabs/react` 1.x needs a `ConversationProvider` ancestor; `src/voice/VoiceProvider.tsx` is that provider and takes the client tools and callbacks. `useVoiceAgent` calls `useConversation()` inside it.
+- `onMessage` payload: `{ message, role: 'user' | 'agent', source (deprecated) }`; `onModeChange`: `{ mode: 'speaking' | 'listening' }`; `onError(message: string)`.
+- `startSession({ signedUrl, connectionType: 'websocket' })`: signed URLs are the WebSocket path for authenticated agents.
+- Each client tool returns a string and never throws (errors come back as `Error in <tool>: ...`).

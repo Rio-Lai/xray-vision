@@ -9,7 +9,8 @@ import { generatePart } from './routes/generate-part';
 import { agentToken } from './routes/agent-token';
 
 const app = express();
-app.use(cors());
+// The browser reaches us through the Vite proxy (same origin); only allow local pages to call directly.
+app.use(cors({ origin: [/^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/] }));
 app.use(express.json({ limit: '15mb' }));
 
 app.get('/api/health', (_req, res) => {
@@ -33,8 +34,10 @@ app.get('/api/agent-token', wrap(agentToken));
 app.use(errorHandler);
 
 const port = Number(process.env.PORT) || 8787;
-app.listen(port, () => {
-  console.log(`[server] http://localhost:${port}`);
+// Loopback only, so nobody on the hackathon Wi-Fi can spend our API credits. vite.config.ts proxies to 127.0.0.1.
+const host = process.env.HOST || '127.0.0.1';
+app.listen(port, host, () => {
+  console.log(`[server] http://${host}:${port}`);
   console.log(
     `[server] anthropic=${hasAnthropic()} fal=${hasFal()} elevenlabs=${hasEleven()} mock=${isMock()}`,
   );

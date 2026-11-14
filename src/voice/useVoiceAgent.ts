@@ -1,34 +1,15 @@
 /**
- * Wraps the ElevenLabs React SDK (@elevenlabs/react).
- *
- * Newer SDK versions need a <ConversationProvider> ancestor and take options on it;
- * older ones take options on useConversation(). VoiceProvider.tsx detects which one
- * is installed and this hook passes the options to the right place.
+ * Wraps the ElevenLabs React SDK (@elevenlabs/react 1.x, provider style per the current docs):
+ * <VoiceProvider> (ConversationProvider) takes the client tools and callbacks below, and this hook
+ * calls useConversation() inside it for status, startSession and the send methods.
  */
-import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
-import * as EL from '@elevenlabs/react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useConversation } from '@elevenlabs/react';
 import { useStore, type VoiceStatus } from '../state/store';
 import { api, ApiError } from '../lib/api';
 import { describeTeardown } from '../lib/flow';
 import { clientTools } from './clientTools';
 import { registerVoiceBridge, voiceBridge } from './bridge';
-
-const ELAny = EL as unknown as Record<string, unknown>;
-/** Present in the provider-based SDK (current docs); absent in older 0.x releases. */
-export const ConversationProviderComp = ELAny.ConversationProvider as
-  | ComponentType<Record<string, unknown> & { children?: ReactNode }>
-  | undefined;
-export const HAS_PROVIDER = Boolean(ConversationProviderComp);
-
-/** Minimal shape we rely on from useConversation(). */
-interface ConversationLike {
-  status: string;
-  isSpeaking: boolean;
-  startSession: (opts: Record<string, unknown>) => Promise<unknown>;
-  endSession: () => Promise<void> | void;
-  sendUserMessage: (text: string) => void;
-  sendContextualUpdate: (text: string) => void;
-}
 
 const errorListeners = new Set<(msg: string) => void>();
 const emitError = (msg: string) => errorListeners.forEach((fn) => fn(msg));
@@ -36,7 +17,7 @@ const emitError = (msg: string) => errorListeners.forEach((fn) => fn(msg));
 const asRecord = (v: unknown): Record<string, unknown> =>
   v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 
-/** Options shared by both SDK styles. Module-level so the provider and the hook see the same functions. */
+/** ConversationProvider props. Module-level so the functions are stable. */
 export const voiceOptions = {
   clientTools,
   onConnect: () => {
@@ -47,12 +28,10 @@ export const voiceOptions = {
     useStore.getState().setVoiceStatus('disconnected');
     useStore.getState().setAgentSpeaking(false);
   },
+  // SDK 1.x payload: { message, role: 'user' | 'agent', source: 'user' | 'ai' (deprecated), event_id, ... }
   onMessage: (m: unknown) => {
     const o = asRecord(m);
-    // Skip tentative (non-final) transcripts if the SDK marks them.
-    if (o.isFinal === false || o.final === false || o.tentative === true) return;
-    if (typeof o.type === 'string' && o.type.includes('tentative')) return;
-    const text = typeof o.message === 'string' ? o.message : typeof o.text === 'string' ? o.text : '';
+    const text = typeof o.message === 'string' ? o.message : '';
     if (!text.trim()) return;
     const who = o.role ?? o.source;
     useStore.getState().addTranscript({ role: who === 'user' ? 'user' : 'agent', text });
@@ -72,8 +51,7 @@ const toVoiceStatus = (s: string): VoiceStatus =>
   s === 'connected' ? 'connected' : s === 'connecting' ? 'connecting' : 'disconnected';
 
 export function useVoiceAgent() {
-  const useConversation = ELAny.useConversation as (opts?: unknown) => unknown;
-  const conversation = useConversation(HAS_PROVIDER ? undefined : voiceOptions) as ConversationLike;
+  const conversation = useConversation();
   const ref = useRef(conversation);
   ref.current = conversation;
 
@@ -84,6 +62,22 @@ export function useVoiceAgent() {
     errorListeners.add(setError);
     return () => {
       errorListeners.delete(setError);
+    };
+  }, []);
+
+  // Show "Voice not configured yet" before anyone clicks the mic.
+  useEffect(() => {
+    let alive = true;
+    api
+      .health()
+      .then((h) => {
+        if (alive && !h.keys.elevenlabs) setNotConfigured(true);
+      })
+      .catch(() => {
+        /* server not up yet; start() reports it */
+      });
+    return () => {
+      alive = false;
     };
   }, []);
 
