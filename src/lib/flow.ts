@@ -170,12 +170,21 @@ async function generateMeshes(td: Teardown, myRun: number) {
   await Promise.all([worker(), worker()]);
 }
 
+/**
+ * A silent pick: a hidden arrow key, a mouse click or gaze dwell. Highlights the part (the card
+ * shows) and tells the agent as a contextual update only. Never a user message: that would
+ * caption words the wearer did not say. A spoken "tell me about the battery" is the agent
+ * calling highlight_part, which does not come through here.
+ */
 export function pickPart(partId: string): void {
   const s = useStore.getState();
   s.highlightPart(partId);
   const part = s.teardown?.parts.find((p) => p.id === partId);
-  if (part && voiceBridge.isConnected()) {
-    voiceBridge.sendUserMessage(`Tell me about the ${part.name}.`);
+  if (part) {
+    voiceBridge.sendContextualUpdate(
+      `The wearer selected the ${part.name} (part id ${part.id}) without speaking; it is highlighted now. ` +
+        `Do not reply to this. If they ask about "this part", they mean the ${part.name}.`,
+    );
   }
 }
 
