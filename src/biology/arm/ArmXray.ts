@@ -28,6 +28,8 @@ export interface ArmXrayInput {
   /** freeze: keep the last placement, ignore new landmarks */
   frozen?: boolean;
   side?: 'right' | 'left';
+  /** layers not drawn at all (e.g. [1] = no skin) */
+  hideLayers?: number[];
 }
 
 export interface ArmLabel {
@@ -284,7 +286,7 @@ export class ArmXray {
     const Y = Yv.clone().divideScalar(L);
     const X = this.sideDir(A.frame, inst.pl.xAlong, Y);
     const Z = new THREE.Vector3().crossVectors(X, Y).normalize();
-    const s = this.sideScale(inst.pl, L, g);
+    const s = this.sideScale(inst.pl, L, g) * (inst.pl.flipSide ? -1 : 1);
     inst.mesh.matrix.makeBasis(X.multiplyScalar(s), Y.multiplyScalar(L), Z.multiplyScalar(s)).setPosition(A.pos);
     inst.mesh.matrixWorldNeedsUpdate = true;
     inst.mid.copy(A.pos).lerp(B.pos, 0.5);
@@ -315,7 +317,8 @@ export class ArmXray {
       xs.push(X);
       zs.push(new THREE.Vector3().crossVectors(X, T).normalize());
     }
-    const s = this.sideScale(inst.pl, total, g);
+    const fs = inst.pl.flipSide ? -1 : 1;
+    const s = this.sideScale(inst.pl, total, g) * fs;
     const b = inst.base!;
     const pos = inst.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
     const nor = inst.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute;
@@ -333,7 +336,7 @@ export class ArmXray {
       arr[i * 3] = px + X.x * x + Z.x * z;
       arr[i * 3 + 1] = py + X.y * x + Z.y * z;
       arr[i * 3 + 2] = pz + X.z * x + Z.z * z;
-      const nx = b.n[i * 3], ny = b.n[i * 3 + 1], nz = b.n[i * 3 + 2];
+      const nx = b.n[i * 3] * fs, ny = b.n[i * 3 + 1], nz = b.n[i * 3 + 2] * fs;
       narr[i * 3] = X.x * nx + T.x * ny + Z.x * nz;
       narr[i * 3 + 1] = X.y * nx + T.y * ny + Z.y * nz;
       narr[i * 3 + 2] = X.z * nx + T.z * ny + Z.z * nz;
@@ -411,6 +414,7 @@ export class ArmXray {
     const g = this.geom;
     this.root.visible = !!g;
     if (!g) return [];
+    for (const l of LAYERS) this.layerGroups.get(l)!.visible = !(input.hideLayers ?? []).includes(l);
 
     // ---- keystroke pulses: newest press / lift per finger
     const press = new Map<FingerId, number>();

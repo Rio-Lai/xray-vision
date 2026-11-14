@@ -32,10 +32,12 @@ export default function ArmDemo() {
   const [caption, setCaption] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const cancelTour = useRef(false);
+  const drag = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
 
   useEffect(() => {
     loadArmTeardown().then(setTd);
     useArmStore.getState().setActive(true);
+    if (q.get('yaw') || q.get('pitch')) useArmStore.getState().setView({ yaw: Number(q.get('yaw') ?? 0), pitch: Number(q.get('pitch') ?? 0) });
     let stop: (() => void) | undefined;
     const pausedAt = capture ? Number(q.get('at') ?? 2400) : undefined;
     // capture modes run after the replay has fed the detector (so "typing" and its glowing parts are known)
@@ -100,6 +102,13 @@ export default function ArmDemo() {
       if (e.key === 'r' || e.key === 'R') reset();
       if (e.key === 'f' || e.key === 'F') useArmStore.getState().setFrozen(!useArmStore.getState().frozen);
       if (e.key === ' ') ask();
+      const v = useArmStore.getState().view;
+      const step = Math.PI / 12; // 15 degrees
+      if (e.key === 'ArrowLeft') useArmStore.getState().setView({ yaw: v.yaw - step });
+      if (e.key === 'ArrowRight') useArmStore.getState().setView({ yaw: v.yaw + step });
+      if (e.key === 'ArrowUp') useArmStore.getState().setView({ pitch: v.pitch - step });
+      if (e.key === 'ArrowDown') useArmStore.getState().setView({ pitch: v.pitch + step });
+      if (e.key === '0') useArmStore.getState().resetView();
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
@@ -112,7 +121,24 @@ export default function ArmDemo() {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'radial-gradient(ellipse at 40% 35%, #1d2a3b 0%, #0a0f17 75%)', overflow: 'hidden' }}>
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'radial-gradient(ellipse at 40% 35%, #1d2a3b 0%, #0a0f17 75%)', overflow: 'hidden', cursor: drag.current ? 'grabbing' : 'grab', touchAction: 'none' }}
+      onPointerDown={(e) => {
+        if ((e.target as HTMLElement).closest('button')) return;
+        drag.current = { x: e.clientX, y: e.clientY, yaw: s.view.yaw, pitch: s.view.pitch };
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        // 1 px = 0.6 degree
+        useArmStore.getState().setView({ yaw: d.yaw + (e.clientX - d.x) * 0.0105, pitch: d.pitch + (e.clientY - d.y) * 0.0105 });
+      }}
+      onPointerUp={() => (drag.current = null)}
+      onPointerCancel={() => (drag.current = null)}
+      onWheel={(e) => useArmStore.getState().setView({ zoom: s.view.zoom * Math.exp(-e.deltaY * 0.0015) })}
+      onDoubleClick={() => useArmStore.getState().resetView()}
+    >
       <ArmXrayView
         landmarks={s.frame}
         explode={s.explode}
@@ -121,6 +147,8 @@ export default function ArmDemo() {
         activity={s.activity}
         keystrokes={s.keystrokes}
         frozen={s.frozen}
+        view={s.view}
+        hideLayers={(q.get('hide') ?? '').split(',').filter(Boolean).map(Number)}
         onReady={() => setTimeout(() => (document.title = 'ready'), 1800)}
       />
       {!capture && (
@@ -139,9 +167,19 @@ export default function ArmDemo() {
           <button style={btn} onClick={reset}>
             Reset
           </button>
+          <span style={{ width: 8 }} />
+          <button style={btn} onClick={() => useArmStore.getState().resetView()} title="Lined up with the real arm (0 or double-click)">
+            Front
+          </button>
+          <button style={btn} onClick={() => useArmStore.getState().setView({ yaw: Math.PI / 2, pitch: 0 })}>
+            Side
+          </button>
+          <button style={btn} onClick={() => useArmStore.getState().setView({ yaw: Math.PI, pitch: 0 })}>
+            Back
+          </button>
           <span style={{ color: '#9fb3c8', font: '13px -apple-system, Helvetica, sans-serif', marginLeft: 8 }}>
             {s.activity === 'typing' ? `typing · ${Math.round(s.confidence * 100)}%` : 'no typing detected'} · {s.source}
-            {s.frozen ? ' · frozen' : ''}
+            {s.frozen ? ' · frozen' : ''} · drag to rotate, scroll to zoom
           </span>
         </div>
       )}

@@ -23,7 +23,11 @@ export interface ArmState {
   source: ArmSource;
   frozen: boolean;
   recording: boolean;
+  /** user view: yaw / pitch (radians) about the arm's centre, zoom factor. 0/0/1 = lined up with the camera */
+  view: { yaw: number; pitch: number; zoom: number };
 
+  setView: (v: Partial<ArmState['view']>) => void;
+  resetView: () => void;
   setActive: (on: boolean) => void;
   setExplode: (v: number) => void;
   setLayerFocus: (l: number | null) => void;
@@ -51,7 +55,17 @@ export const useArmStore = create<ArmState>((set) => ({
   source: 'live',
   frozen: false,
   recording: false,
+  view: { yaw: 0, pitch: 0, zoom: 1 },
 
+  setView: (v) =>
+    set((s) => ({
+      view: {
+        yaw: v.yaw ?? s.view.yaw,
+        pitch: Math.max(-1.5, Math.min(1.5, v.pitch ?? s.view.pitch)),
+        zoom: Math.max(0.4, Math.min(3, v.zoom ?? s.view.zoom)),
+      },
+    })),
+  resetView: () => set({ view: { yaw: 0, pitch: 0, zoom: 1 } }),
   setActive: (active) => set({ active }),
   setExplode: (explode) => set({ explode: Math.max(0, Math.min(1, explode)) }),
   setLayerFocus: (layerFocus) => set({ layerFocus }),

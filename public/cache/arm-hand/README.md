@@ -42,8 +42,21 @@ itself when the palm turns down**. Nerves, arteries and tendons are bent along t
   activity="typing"
   keystrokes={[{ finger: 'index', kind: 'press', t }]}   // press: flexor slip flashes, tendon slides ~5 mm and back (~150 ms); lift: extensor flash
   frozen={false}             // freeze-frame: the arm stays where it was
+  view={{ yaw: 0, pitch: 0, zoom: 1 }}   // turn the arm in 3D about its own centre (0/0/1 = lined up with the real arm)
+  hideLayers={[1]}           // layers not drawn at all, e.g. [1] = no skin
 />
 ```
+
+**Turning it in 3D** (`/arm-demo`): drag to rotate, scroll or pinch to zoom, arrow keys = 15 degrees, double-click
+or `0` = back in line with the real arm, buttons **Front / Side / Back**. `?yaw=1.57&pitch=0&hide=1` in the URL sets
+the angle and hides layers (previews). On the live camera view keep `view` at 0/0/1 so the overlay stays on the arm.
+The XREAL glasses only mirror the screen, so they cannot rotate it; walking round the real arm does (it is tracked).
+
+**How the muscles attach**: muscles that cross or wrap a joint (deltoid, biceps, triceps, brachialis,
+brachioradialis, the flexor and extensor groups) are bent along a path through their real origin, the joint and
+their insertion (e.g. biceps: scapula -> front of the humerus -> over the elbow -> radial tuberosity; triceps ->
+olecranon; flexors from the medial epicondyle, extensors from the lateral epicondyle). Short muscles are placed
+between two points. See `src/biology/arm/placement.ts`.
 
 A transparent canvas over the video, like `src/overlay/Overlay.tsx`; landmarks are smoothed (exponential moving
 average). It is plain three.js (the repo has no react-three-fiber).

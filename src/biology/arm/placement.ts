@@ -38,6 +38,8 @@ export interface Placement {
   xAlong?: 'lateral' | 'anterior' | 'axis';
   /** finger this instance belongs to (keystroke pulses) */
   finger?: FingerId;
+  /** turn the mesh 180 degrees about its long axis (e.g. so a cupped muscle's hollow faces the bone) */
+  flipSide?: boolean;
 }
 
 const FOUR: FingerId[] = ['index', 'middle', 'ring', 'little'];
@@ -54,22 +56,84 @@ function fingerJoints(f: FingerId) {
 export function placements(): Placement[] {
   const out: Placement[] = [
     // ---- layer 2: superficial muscles
-    // deltoid caps the head of the humerus: starts just above the shoulder point
-    // deltoid: a cupped shell over the shoulder, origin around the acromion, insertion at the deltoid tuberosity
-    { mesh: 'deltoid', part: 'deltoid', key: '', girth: 0.3, xAlong: 'anterior', path: [{ p: 'pose.elbow>shoulder@1.04', f: 'upper', l: 0.3 }, { p: 'pose.shoulder>elbow@0.45', f: 'upper', l: 0.7 }] },
-    { mesh: 'biceps', part: 'biceps', key: '', girth: 0.17, path: [{ p: 'pose.shoulder>elbow@0.06', f: 'upper', a: 0.45 }, { p: 'pose.elbow>wrist@0.1', f: 'fore', a: 0.5 }] },
-    { mesh: 'triceps', part: 'triceps', key: '', girth: 0.2, path: [{ p: 'pose.shoulder>elbow@0.1', f: 'upper', a: -0.5 }, { p: 'pose.elbow', f: 'upper', a: -0.65 }] },
-    { mesh: 'brachioradialis', part: 'brachioradialis', key: '', girth: 0.08, xAlong: 'anterior', path: [{ p: 'pose.shoulder>elbow@0.75', f: 'upper', l: 0.75 }, { p: 'pose.wrist', f: 'hand', l: 0.75, a: 0.1 }] },
-    // flexors: common origin on the MEDIAL epicondyle, bellies on the palm side
-    { mesh: 'forearm-flexors', part: 'forearm-flexors', key: '', girth: 0.17, path: [{ p: 'pose.elbow', f: 'fore', l: -0.6, a: 0.25 }, { p: 'pose.wrist', f: 'hand', a: 0.55, l: -0.05 }] },
-    // extensors: common origin on the LATERAL epicondyle, on the back of the forearm
-    { mesh: 'forearm-extensors', part: 'forearm-extensors', key: '', girth: 0.16, path: [{ p: 'pose.elbow', f: 'fore', l: 0.6, a: -0.2 }, { p: 'pose.wrist', f: 'hand', a: -0.55, l: 0.05 }] },
-    { mesh: 'thenar', part: 'thenar', key: '', girth: 0.05, path: [{ p: 'hand.wrist', f: 'hand', l: 0.45, a: 0.7 }, { p: 'hand.thumb_mcp', f: 'hand', a: 0.6 }] },
-    { mesh: 'hypothenar', part: 'hypothenar', key: '', girth: 0.04, path: [{ p: 'hand.wrist', f: 'hand', l: -0.5, a: 0.7 }, { p: 'hand.little_mcp', f: 'hand', a: 0.6 }] },
+    // Muscles that cross or wrap a joint are BENT along a path through their real origin, the joint and their
+    // insertion, so they lie on the bones instead of cutting straight across the bend of the elbow.
+    // deltoid: from the acromion, wrapping over the head of the humerus, to the deltoid tuberosity (lateral, mid-shaft)
+    {
+      mesh: 'deltoid', part: 'deltoid', key: '', girth: 0.25, xAlong: 'anterior', flipSide: true, // hollow faces the humeral head
+      path: [
+        { p: 'pose.elbow>shoulder@1.05', f: 'upper', l: 0.15 },
+        { p: 'pose.shoulder>elbow@0.1', f: 'upper', l: 0.6 },
+        { p: 'pose.shoulder>elbow@0.45', f: 'upper', l: 0.45 },
+      ],
+    },
+    // biceps: from the scapula (shoulder), down the FRONT of the humerus, over the elbow to the radial tuberosity
+    {
+      mesh: 'biceps', part: 'biceps', key: '', girth: 0.17,
+      path: [
+        { p: 'pose.shoulder>elbow@0.04', f: 'upper', a: 0.35 },
+        { p: 'pose.shoulder>elbow@0.55', f: 'upper', a: 0.7 },
+        { p: 'pose.shoulder>elbow@0.92', f: 'upper', a: 0.55 },
+        { p: 'pose.elbow>wrist@0.12', f: 'fore', a: 0.25, l: 0.25 },
+      ],
+    },
+    // triceps: from the back of the scapula / humerus, down the BACK of the arm to the olecranon
+    {
+      mesh: 'triceps', part: 'triceps', key: '', girth: 0.2,
+      path: [
+        { p: 'pose.shoulder>elbow@0.08', f: 'upper', a: -0.45 },
+        { p: 'pose.shoulder>elbow@0.5', f: 'upper', a: -0.75 },
+        { p: 'pose.shoulder>elbow@0.9', f: 'upper', a: -0.7 },
+        { p: 'pose.elbow', f: 'fore', a: -0.75 },
+      ],
+    },
+    // brachioradialis: lateral supracondylar ridge -> round the lateral side of the elbow -> along the THUMB side
+    // of the forearm -> radial styloid
+    {
+      mesh: 'brachioradialis', part: 'brachioradialis', key: '', girth: 0.08, xAlong: 'anterior',
+      path: [
+        { p: 'pose.shoulder>elbow@0.7', f: 'upper', l: 0.6 },
+        { p: 'pose.elbow', f: 'upper', l: 0.7, a: 0.2 },
+        { p: 'pose.elbow>wrist@0.35', f: 'fore', l: 0.6, a: 0.25 },
+        { p: 'pose.wrist', f: 'hand', l: 0.55, a: 0.1 },
+      ],
+    },
+    // flexors: common origin on the MEDIAL epicondyle, hugging the palm side of the forearm to the wrist
+    {
+      mesh: 'forearm-flexors', part: 'forearm-flexors', key: '', girth: 0.16,
+      path: [
+        { p: 'pose.elbow', f: 'fore', l: -0.75, a: 0.15 },
+        { p: 'pose.elbow>wrist@0.3', f: 'fore', a: 0.55, l: -0.35 },
+        { p: 'pose.elbow>wrist@0.7', f: 'fore', a: 0.55, l: -0.1 },
+        { p: 'pose.wrist', f: 'hand', a: 0.5 },
+      ],
+    },
+    // extensors: common origin on the LATERAL epicondyle, along the back of the forearm to the wrist
+    {
+      mesh: 'forearm-extensors', part: 'forearm-extensors', key: '', girth: 0.15,
+      path: [
+        { p: 'pose.elbow', f: 'fore', l: 0.75, a: -0.1 },
+        { p: 'pose.elbow>wrist@0.3', f: 'fore', a: -0.55, l: 0.35 },
+        { p: 'pose.elbow>wrist@0.7', f: 'fore', a: -0.55, l: 0.1 },
+        { p: 'pose.wrist', f: 'hand', a: -0.5 },
+      ],
+    },
+    // thenar: from the flexor retinaculum / trapezium (thumb side of the wrist) to the base of the thumb
+    { mesh: 'thenar', part: 'thenar', key: '', girth: 0.05, path: [{ p: 'hand.wrist>index_mcp@0.15', f: 'hand', l: 0.4, a: 0.55 }, { p: 'hand.thumb_mcp', f: 'hand', a: 0.45 }] },
+    // hypothenar: from the pisiform / hamate (little-finger side of the wrist) to the base of the little finger
+    { mesh: 'hypothenar', part: 'hypothenar', key: '', girth: 0.04, path: [{ p: 'hand.wrist>little_mcp@0.15', f: 'hand', l: -0.5, a: 0.55 }, { p: 'hand.little_mcp', f: 'hand', a: 0.45, l: -0.2 }] },
     // ---- layer 3: deep muscles
-    { mesh: 'brachialis', part: 'brachialis', key: '', girth: 0.15, path: [{ p: 'pose.shoulder>elbow@0.5', f: 'upper', a: 0.2 }, { p: 'pose.elbow>wrist@0.08', f: 'fore', a: 0.3 }] },
+    // brachialis: lower half of the front of the humerus, DEEP to the biceps, over the elbow to the coronoid process
+    {
+      mesh: 'brachialis', part: 'brachialis', key: '', girth: 0.14,
+      path: [
+        { p: 'pose.shoulder>elbow@0.5', f: 'upper', a: 0.3 },
+        { p: 'pose.shoulder>elbow@0.9', f: 'upper', a: 0.4 },
+        { p: 'pose.elbow>wrist@0.1', f: 'fore', a: 0.15, l: -0.15 },
+      ],
+    },
     // pronator teres: medial epicondyle -> lateral side of the mid radius (oblique)
-    { mesh: 'pronator-teres', part: 'pronators', key: 'teres', girth: 0.065, path: [{ p: 'pose.elbow', f: 'fore', l: -0.6, a: 0.3 }, { p: 'pose.elbow>wrist@0.5', f: 'fore', l: 0.45, a: 0.25 }] },
+    { mesh: 'pronator-teres', part: 'pronators', key: 'teres', girth: 0.055, path: [{ p: 'pose.elbow', f: 'fore', l: -0.5, a: 0.2 }, { p: 'pose.elbow>wrist@0.5', f: 'fore', l: 0.3, a: 0.15 }] },
     // pronator quadratus: a square sheet ACROSS the distal radius and ulna
     { mesh: 'pronator-quadratus', part: 'pronators', key: 'quadratus', girth: 0.05, xAlong: 'axis', path: [{ p: 'pose.elbow>wrist@0.88', f: 'fore', l: -0.6, a: 0.45 }, { p: 'pose.elbow>wrist@0.88', f: 'fore', l: 0.6, a: 0.45 }] },
     // ---- layer 5: nerves and arteries (bent along the limb)

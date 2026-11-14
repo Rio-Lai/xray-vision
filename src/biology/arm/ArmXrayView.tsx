@@ -27,6 +27,13 @@ export interface ArmXrayProps {
   showLabels?: boolean;
   /** called once the meshes are loaded and the first frame is drawn (previews) */
   onReady?: () => void;
+  /**
+   * Turn the arm in 3D about its own centre (yaw/pitch in radians, zoom factor). 0/0/1 keeps it lined up with
+   * the real arm; anything else is for looking around it (e.g. /arm-demo drag-to-rotate).
+   */
+  view?: { yaw: number; pitch: number; zoom: number };
+  /** layers not drawn at all (e.g. [1] = no skin) */
+  hideLayers?: number[];
 }
 
 const FOV = 30;
@@ -82,7 +89,16 @@ export function ArmXrayView(props: ArmXrayProps) {
 
     const camera = new THREE.PerspectiveCamera(FOV, 1, 1, 20000);
     const arm = new ArmXray(td);
-    scene.add(arm.root);
+    // pivot (at the arm's centre) -> offset (-centre) -> arm.root: rotating the pivot spins the arm in place
+    const pivot = new THREE.Group();
+    const offset = new THREE.Group();
+    pivot.add(offset);
+    offset.add(arm.root);
+    scene.add(pivot);
+    const centre = new THREE.Vector3();
+    let centreSet = false;
+    const userQ = new THREE.Quaternion();
+    const euler = new THREE.Euler(0, 0, 0, 'YXZ');
     if (import.meta.env.DEV) (window as unknown as { __arm?: unknown }).__arm = { arm, scene, camera };
     let readySent = false;
     let w = 0;
@@ -95,6 +111,7 @@ export function ArmXrayView(props: ArmXrayProps) {
     // direction from the target to the camera; (0,0,1) = straight on, like the real camera
     const viewDir = new THREE.Vector3(0, 0, 1);
     const viewDirTarget = new THREE.Vector3(0, 0, 1);
+    let userZoom = 1;
 
     let raf = 0;
     let lastLabels = 0;
@@ -126,6 +143,7 @@ export function ArmXrayView(props: ArmXrayProps) {
         now,
         frozen: p.frozen,
         side: p.side,
+        hideLayers: p.hideLayers,
       });
       // tour framing: when a layer is focused, drift slightly towards it and zoom in a little
       if (p.layerFocus && p.explode > 0.5) {
@@ -152,10 +170,24 @@ export function ArmXrayView(props: ArmXrayProps) {
       } else viewDirTarget.set(0, 0, 1);
       viewDir.lerp(viewDirTarget, 0.05).normalize();
       look.lerp(lookTarget, 0.06);
+      // user rotation about the arm's centre (shoulder/elbow/wrist/fingertips average), smoothed
+      if (geo) {
+        const c = geo.p.shoulder.clone().add(geo.p.elbow).add(geo.p.wrist).add(geo.p.hand[12]).multiplyScalar(0.25);
+        if (!centreSet) centre.copy(c);
+        else centre.lerp(c, 0.1);
+        centreSet = true;
+      }
+      const v = p.view ?? { yaw: 0, pitch: 0, zoom: 1 };
+      euler.set(v.pitch, v.yaw, 0);
+      userQ.setFromEuler(euler);
+      pivot.quaternion.slerp(userQ, 0.18);
+      pivot.position.copy(centre);
+      offset.position.copy(centre).negate();
       camera.position.copy(look).addScaledVector(viewDir, dist);
       camera.up.set(0, 1, 0);
       if (Math.abs(viewDir.y) > 0.9) camera.up.copy(geo ? geo.elbowFrame.axis : new THREE.Vector3(1, 0, 0));
-      camera.zoom = zoom;
+      userZoom += ((p.view?.zoom ?? 1) - userZoom) * 0.15;
+      camera.zoom = zoom * userZoom;
       camera.updateProjectionMatrix();
       camera.lookAt(look);
       arm.perspective = (z) => (dist / Math.max(1, dist - z)) * zoom;
@@ -166,7 +198,8 @@ export function ArmXrayView(props: ArmXrayProps) {
         camera.updateMatrixWorld();
         setLabels(
           out.map((l) => {
-            const v = new THREE.Vector3(...l.world).project(camera);
+            pivot.updateMatrixWorld(true);
+            const v = arm.root.localToWorld(new THREE.Vector3(...l.world)).project(camera);
             const at: [number, number] = [((v.x + 1) / 2) * w, ((1 - v.y) / 2) * h];
             return { ...l, at, label: [at[0] + 70, at[1] - 34] };
           }),
