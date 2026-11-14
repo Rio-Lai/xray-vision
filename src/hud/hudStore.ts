@@ -33,6 +33,11 @@ interface HudUiState {
    * reset (store.frozen is already false by then), so "put it back" animates over the same image.
    */
   holdFrozen: boolean;
+  /**
+   * Text for the quiet busy pill while a parts list loads, instead of "Looking…" (e.g. "This is a
+   * ThinkPad. Getting its parts…" when Claude corrects a cached guess). Set and cleared by src/lib/flow.ts.
+   */
+  busy: string | null;
 }
 
 export const useHud = create<HudUiState>(() => ({
@@ -41,7 +46,13 @@ export const useHud = create<HudUiState>(() => ({
   debug: false,
   log: [],
   holdFrozen: false,
+  busy: null,
 }));
+
+/** The busy pill's text while a parts list loads (null = "Looking…"). */
+export function setBusyText(text: string | null): void {
+  if (useHud.getState().busy !== text) useHud.setState({ busy: text });
+}
 
 export function setHoldFrozen(on: boolean): void {
   if (useHud.getState().holdFrozen !== on) useHud.setState({ holdFrozen: on });
