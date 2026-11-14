@@ -189,7 +189,7 @@ export function Stage() {
         inset: 0,
         overflow: 'hidden',
         zIndex: 0,
-        background: 'radial-gradient(ellipse at center, #0b1a26 0%, #03070b 75%)',
+        background: '#000', // black reads as transparent in the XREAL glasses
         userSelect: 'none',
       }}
     >

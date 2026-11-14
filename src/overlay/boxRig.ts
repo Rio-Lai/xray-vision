@@ -1,8 +1,10 @@
 /**
- * Box anchor (engineering): one placeholder mesh per teardown part, sized and placed from
- * part.size / part.offset (fractions of the object's on-screen box; offset +y is DOWN, flipped here),
- * exploded along the teardown axis in layer order, tilted so depth reads, cross-faded to a GLB
- * when part.mesh_url arrives.
+ * Box anchor (every non-hand teardown, including unknown anchors such as 'face' or 'pose'): one
+ * placeholder mesh per teardown part, sized and placed from part.size / part.offset (fractions of
+ * the object's on-screen box; offset +y is DOWN, flipped here), exploded along the teardown axis in
+ * layer order, tilted so depth reads, cross-faded to a GLB when part.mesh_url arrives.
+ * Placeholders are soft frosted glass: low-opacity white with a hint of the part colour and a soft
+ * white edge. Highlight = accent blue edge and full opacity; the other parts drop to ~30%.
  *
  * Scene units are viewport pixels, y up, origin at the viewport centre (orthographic camera).
  */
@@ -11,12 +13,18 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { Teardown, TeardownPart } from '../../shared/teardown';
 import { ExplodeAnimator, smoothstep } from './explodeAnimator';
 import type { LabelItem, StackBounds } from './labels';
-import { CYAN } from './ribbon';
 
 const PITCH = THREE.MathUtils.degToRad(25);
 const YAW = THREE.MathUtils.degToRad(-14);
-const EDGE_HL = new THREE.Color('#fff1c9');
-const EMISSIVE_HL = new THREE.Color('#ffc861');
+const WHITE = new THREE.Color('#ffffff');
+const ACCENT = new THREE.Color('#4DA3FF');
+const NEUTRAL = '#9aa4ae';
+/** How much of part.color tints the frosted white placeholder. */
+const TINT = 0.32;
+const BODY_OPACITY = 0.36;
+const EDGE_OPACITY = 0.5;
+/** Opacity factor for parts that are not highlighted while something is. */
+const DIM_TO = 0.3;
 const SPREAD_X_W = 1.2; // total spread = 1.2 x object width
 const LABEL_SIDE_PX = 230; // room kept for labels left and right
 const TOP_MARGIN = 70;
@@ -68,7 +76,7 @@ interface PartRig {
 }
 
 function safeColor(css: string): THREE.Color {
-  const c = new THREE.Color(0x7de3ff);
+  const c = new THREE.Color(NEUTRAL);
   if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(css.trim())) c.set(css.trim());
   return c;
 }
@@ -133,19 +141,19 @@ export class BoxRig {
         edgeSrc = geo;
     }
     const edgeGeo = new THREE.EdgesGeometry(edgeSrc, part.shape === 'sphere' ? 1 : 25);
-    const baseColor = safeColor(part.color).lerp(CYAN, 0.25);
+    const baseColor = WHITE.clone().lerp(safeColor(part.color), TINT);
     const bodyMat = new THREE.MeshStandardMaterial({
       color: baseColor.clone(),
       emissive: baseColor.clone(),
-      emissiveIntensity: 0.35,
-      roughness: 0.5,
-      metalness: 0.2,
+      emissiveIntensity: 0.12,
+      roughness: 0.45,
+      metalness: 0,
       transparent: true,
       opacity: 0,
       depthWrite: false,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
     });
-    const edgeMat = new THREE.LineBasicMaterial({ color: CYAN.clone(), transparent: true, opacity: 0, depthWrite: false });
+    const edgeMat = new THREE.LineBasicMaterial({ color: WHITE.clone(), transparent: true, opacity: 0, depthWrite: false });
     const body = new THREE.Mesh(geo, bodyMat);
     const edges = new THREE.LineSegments(edgeGeo, edgeMat);
     const pivot = new THREE.Group();
@@ -196,7 +204,18 @@ export class BoxRig {
             return;
           }
           rig.loadingUrl = null;
-          this.attachGlb(rig, gltf.scene, url);
+          try {
+            this.attachGlb(rig, gltf.scene, url);
+          } catch (err) {
+            // A broken model must never break the exploded view: keep the placeholder.
+            console.warn(`[overlay] GLB for ${rig.part.id} could not be attached, keeping placeholder`, err);
+            rig.failedUrl = url;
+            rig.glb = null;
+            rig.glbMats = [];
+            rig.glbFade = 0;
+            rig.glbHolder.clear();
+            disposeObject(gltf.scene);
+          }
         },
         undefined,
         (err) => {
@@ -291,7 +310,6 @@ export class BoxRig {
     dir.normalize();
     const spread = SPREAD_X_W * W;
     const anyHl = input.highlighted.size > 0;
-    const pulse = 0.5 + 0.5 * Math.sin(now * 0.006);
     const kHl = 1 - Math.exp(-dt * 10);
     const maxE = this.anim.max();
 
@@ -334,16 +352,16 @@ export class BoxRig {
       rig.dim += ((anyHl && !isHl ? 1 : 0) - rig.dim) * kHl;
       const appear = smoothstep(0.03, 0.3, e);
       rig.vis = p * appear;
-      const dimF = 1 - 0.75 * rig.dim;
+      const dimF = 1 - (1 - DIM_TO) * rig.dim;
       if (rig.glb) rig.glbFade = Math.min(1, rig.glbFade + dt / 0.6);
 
-      rig.bodyMat.opacity = rig.vis * (0.32 + 0.3 * rig.hl) * dimF * (1 - 0.8 * rig.glbFade);
-      rig.bodyMat.emissive.copy(rig.baseColor).lerp(EMISSIVE_HL, rig.hl);
-      rig.bodyMat.emissiveIntensity = 0.35 + rig.hl * (0.6 + 0.5 * pulse);
-      rig.edgeMat.color.copy(CYAN).lerp(EDGE_HL, rig.hl);
-      rig.edgeMat.opacity = rig.vis * 0.9 * dimF * (1 - 0.5 * rig.glbFade);
-      const s = 1 + rig.hl * (0.04 + 0.03 * pulse);
-      rig.tilt.scale.setScalar(s);
+      // Frosted glass; highlighted = (nearly) full opacity with an accent-blue edge. No pulsing.
+      rig.bodyMat.opacity = rig.vis * (BODY_OPACITY + (0.92 - BODY_OPACITY) * rig.hl) * dimF * (1 - 0.85 * rig.glbFade);
+      rig.bodyMat.emissive.copy(rig.baseColor).lerp(ACCENT, 0.45 * rig.hl);
+      rig.bodyMat.emissiveIntensity = 0.12 + 0.3 * rig.hl;
+      rig.edgeMat.color.copy(WHITE).lerp(ACCENT, rig.hl);
+      rig.edgeMat.opacity = rig.vis * (EDGE_OPACITY + (1 - EDGE_OPACITY) * rig.hl) * dimF * (1 - 0.6 * rig.glbFade);
+      rig.tilt.scale.setScalar(1 + 0.03 * rig.hl);
       rig.tilt.visible = rig.vis > 0.004;
 
       if (rig.glb) {

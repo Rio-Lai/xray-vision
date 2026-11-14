@@ -1,6 +1,7 @@
 /**
  * The overlay: one transparent three.js canvas over the video (orthographic camera in viewport
- * pixels, DPR capped at 2) + an HTML label layer. Stage calls tick(now) once per animation frame,
+ * pixels, DPR capped at 2), the part label layer, and the object label layer (live view, pure DOM,
+ * so it still works when WebGL does not). Stage calls tick(now) once per animation frame,
  * and pick(x, y) on clicks.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
@@ -17,6 +18,7 @@ import type { ScreenBox } from './boxRig';
 import { HandRig } from './handRig';
 import { LabelLayer } from './labels';
 import type { LabelItem, StackBounds } from './labels';
+import { ObjectLabelLayer } from './objectLabels';
 
 const DWELL_MS = 1200;
 /**
@@ -88,8 +90,10 @@ class OverlayEngine {
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
     this.camera.position.set(0, 0, 1000);
     this.camera.lookAt(0, 0, 0);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-    const dir = new THREE.DirectionalLight(0xffffff, 1.6);
+    // Soft, neutral studio light: frosted placeholder parts and real models both read as objects.
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa0a8, 0.9));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.4);
     dir.position.set(-0.4, 1, 1.2);
     this.scene.add(dir);
 
@@ -272,6 +276,26 @@ class OverlayEngine {
   }
 }
 
+/** Object labels: shown while the overlay is on and nothing is exploded; while an explode is loading, only its target. */
+function tickObjectLabels(layer: ObjectLabelLayer, now: number, dt: number): void {
+  const s = useStore.getState();
+  const names = new Map<string, string | undefined>();
+  for (const o of s.objects) names.set(o.id, o.name);
+  const loading = s.teardownStatus === 'loading';
+  layer.update({
+    now,
+    dt,
+    vw: Math.max(1, window.innerWidth),
+    vh: Math.max(1, window.innerHeight),
+    map: getCoverMap(),
+    objects: live.objects,
+    names,
+    focusedId: s.focusedObjectId,
+    only: loading ? new Set(s.selectedObjectId ? [s.selectedObjectId] : []) : null,
+    visible: s.overlayOn && s.teardown === null,
+  });
+}
+
 export interface OverlayHandle {
   tick: (now: number) => void;
   pick: (clientX: number, clientY: number) => void;
@@ -281,11 +305,27 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<OverlayEngine | null>(null);
+  const objLabelsRef = useRef<ObjectLabelLayer | null>(null);
+  const lastNowRef = useRef(0);
 
   useImperativeHandle(
     ref,
     () => ({
-      tick: (now: number) => engineRef.current?.tick(now),
+      tick: (now: number) => {
+        const last = lastNowRef.current;
+        lastNowRef.current = now;
+        const dt = last ? Math.min(0.1, Math.max(0, (now - last) / 1000)) : 1 / 60;
+        const ol = objLabelsRef.current;
+        if (ol) {
+          try {
+            tickObjectLabels(ol, now, dt);
+            setStatus('labels', null);
+          } catch (e) {
+            setStatus('labels', 'error', `Label error: ${errorText(e)}`);
+          }
+        }
+        engineRef.current?.tick(now);
+      },
       pick: (x: number, y: number) => engineRef.current?.pick(x, y),
     }),
     [],
@@ -295,6 +335,8 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
     const host = hostRef.current;
     const labels = labelRef.current;
     if (!host || !labels) return;
+    const objLabels = new ObjectLabelLayer(labels);
+    objLabelsRef.current = objLabels;
     let engine: OverlayEngine | null = null;
     try {
       engine = new OverlayEngine(host, labels);
@@ -306,6 +348,8 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
     return () => {
       engineRef.current = null;
       engine?.dispose();
+      objLabelsRef.current = null;
+      objLabels.dispose();
     };
   }, []);
 

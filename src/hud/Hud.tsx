@@ -1,26 +1,17 @@
 /**
- * HUD: object labels (only while the overlay is on), part and step cards, the exploded object's
- * title, on-screen errors, toast, and the hidden debug panel (D) with the developer keys.
- * Overlay off (the default) = nothing from here on screen, apart from real errors.
+ * HUD (PROJECT.md section 2): the exploded object's title pill, the part and step cards, one
+ * quiet status pill near the bottom, and the hidden debug panel (D) with the developer keys.
+ * Object and part labels are drawn by src/overlay (objectLabels.ts, labels.ts) every frame.
+ * Overlay off (the default) = nothing from here on screen, apart from a real error.
  * Pointer events are off for the whole HUD so clicks reach the Stage picker.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../state/store';
-import { boxToView, getCoverMap, MOCK_MODE } from '../camera/frame';
+import { MOCK_MODE } from '../camera/frame';
 import { live } from '../detect/live';
 import { FINGERS } from '../detect/handTracker';
 import { useHud } from './hudStore';
 import { HUD_CSS } from './styles';
-
-function useViewportVersion(): number {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    const on = () => setV((n) => n + 1);
-    window.addEventListener('resize', on);
-    return () => window.removeEventListener('resize', on);
-  }, []);
-  return v;
-}
 
 function useTicker(ms: number, enabled = true): number {
   const [n, setN] = useState(0);
@@ -32,62 +23,57 @@ function useTicker(ms: number, enabled = true): number {
   return n;
 }
 
-/** One label per detected thing of any kind, only while the overlay is on and nothing is exploded. */
-function ObjectLabels() {
-  const overlayOn = useStore((s) => s.overlayOn);
-  const objects = useStore((s) => s.objects);
-  const focused = useStore((s) => s.focusedObjectId);
-  const exploded = useStore((s) => s.teardown !== null);
-  useViewportVersion();
-  if (!overlayOn || exploded) return null;
-  const map = getCoverMap();
-  return (
-    <>
-      {objects.map((o) => {
-        const b = boxToView(map, o.box);
-        const isFocused = o.id === focused;
-        const label = o.label === 'hand' ? `hand ${o.id === 'hand-left' ? 'L' : 'R'}` : o.name ?? o.label;
-        return (
-          <div
-            key={o.id}
-            className={`xr-obj${isFocused ? ' focused' : ''}`}
-            style={{
-              transform: `translate(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px)`,
-              width: Math.max(4, b.w),
-              height: Math.max(4, b.h),
-            }}
-          >
-            <i className="tl" />
-            <i className="tr" />
-            <i className="bl" />
-            <i className="br" />
-            <div className="xr-obj-tag">{label.toUpperCase()}</div>
-          </div>
-        );
-      })}
-    </>
-  );
+/** How long an explode error ("I do not have parts for the phone yet.") stays on screen. */
+const EXPLODE_ERROR_MS = 6000;
+
+/** true until `ms` after `key` last changed (null key = false). */
+function useFreshFor(key: string | null, ms: number): boolean {
+  const [expired, setExpired] = useState<string | null>(null);
+  useEffect(() => {
+    if (key === null) return;
+    const id = setTimeout(() => setExpired(key), ms);
+    return () => clearTimeout(id);
+  }, [key, ms]);
+  return key !== null && expired !== key;
 }
 
-/** On screen: explode progress and real errors only. Info and warnings live in the debug panel. */
-function StatusStack() {
+/** The one status pill: an error if there is one, else a developer warning, else "Looking...". */
+function StatusPill() {
   const tdStatus = useStore((s) => s.teardownStatus);
   const tdError = useStore((s) => s.teardownError);
   const status = useHud((s) => s.status);
-  const lines = Object.entries(status).filter(([, l]) => l.level === 'error');
+  const toast = useHud((s) => s.toast);
+  const firstError = Object.values(status).find((l) => l.level === 'error');
+  // Count each new failure, so the same message twice in a row shows again.
+  const errSeq = useRef(0);
+  const prevStatus = useRef(tdStatus);
+  if (tdStatus !== prevStatus.current) {
+    if (tdStatus === 'error') errSeq.current += 1;
+    prevStatus.current = tdStatus;
+  }
+  const explodeErrorFresh = useFreshFor(tdStatus === 'error' ? `${errSeq.current}:${tdError ?? ''}` : null, EXPLODE_ERROR_MS);
+  let kind: 'error' | 'warn' | 'busy' | null = null;
+  let text = '';
+  if (tdStatus === 'error' && explodeErrorFresh) {
+    kind = 'error';
+    text = tdError || 'I could not load the parts for that.';
+  } else if (firstError) {
+    kind = 'error';
+    text = firstError.text;
+  } else if (toast && toast.level !== 'info') {
+    kind = toast.level;
+    text = toast.text;
+  } else if (tdStatus === 'loading') {
+    kind = 'busy';
+    text = 'Looking\u2026';
+  }
+  if (!kind) return null;
   return (
-    <div className="xr-status">
-      {tdStatus === 'loading' && (
-        <div className="xr-card xr-line info">
-          <span className="xr-dots">Scanning</span>
-        </div>
-      )}
-      {tdStatus === 'error' && <div className="xr-card xr-line error">{tdError || 'Could not load the parts'}</div>}
-      {lines.map(([key, l]) => (
-        <div key={key} className={`xr-card xr-line ${l.level}`}>
-          {l.text}
-        </div>
-      ))}
+    <div className="bf-status" key={`${kind}:${text}`}>
+      <div className="bf-pill bf-glass">
+        <i className={`bf-status-dot ${kind}`} />
+        <span>{text}</span>
+      </div>
     </div>
   );
 }
@@ -98,33 +84,27 @@ function ExplodedTitle() {
   const isLive = useStore((s) => s.teardown?.source === 'live');
   if (!tdName) return null;
   return (
-    <div className="xr-tc">
-      <div className="xr-card xr-pill" style={{ textTransform: 'none', letterSpacing: '0.06em' }}>
-        {tdName}
-      </div>
-      {isLive && <div className="xr-card xr-pill xr-chip-ai">AI-estimated</div>}
+    <div className="bf-title" key={tdName}>
+      <div className="bf-pill bf-glass">{tdName}</div>
+      {isLive && <div className="bf-pill bf-glass bf-chip-ai">AI-estimated</div>}
     </div>
   );
 }
 
+/** The selected part: name, one sentence, safety in warm amber. Bottom-left. */
 function PartCard() {
   const part = useStore((s) => (s.highlightedPartId && s.teardown ? s.teardown.parts.find((p) => p.id === s.highlightedPartId) ?? null : null));
   if (!part) return null;
   return (
-    <div className="xr-card xr-part">
-      <div className="xr-kicker">Part · layer {part.layer}</div>
-      <div className="xr-title">{part.name}</div>
-      <div className="xr-body">{part.summary}</div>
-      {part.safety && (
-        <div className="xr-safety">
-          <b>SAFETY</b>
-          {part.safety}
-        </div>
-      )}
+    <div className="bf-card bf-card-part" data-bf-avoid key={part.id}>
+      <div className="bf-card-title">{part.name}</div>
+      <div className="bf-card-body">{part.summary}</div>
+      {part.safety && <div className="bf-card-safety">{part.safety}</div>}
     </div>
   );
 }
 
+/** The current repair / explanation step. Bottom-right. */
 function StepCard() {
   const activeStep = useStore((s) => s.activeStep);
   const steps = useStore((s) => s.teardown?.steps ?? null);
@@ -132,13 +112,11 @@ function StepCard() {
   const step = steps.find((st) => st.n === activeStep);
   if (!step) return null;
   return (
-    <div className="xr-card xr-step">
-      <div className="xr-kicker">
+    <div className="bf-card bf-card-step" data-bf-avoid key={step.n}>
+      <div className="bf-card-kicker">
         Step {step.n} of {steps.length}
       </div>
-      <div className="xr-body" style={{ fontSize: 19, color: '#e9fbff' }}>
-        {step.text}
-      </div>
+      <div className="bf-card-body">{step.text}</div>
     </div>
   );
 }
@@ -197,26 +175,18 @@ function DebugPanel() {
     for (const l of log) lines.push(`  ${(l.t / 1000).toFixed(1)}s ${l.level === 'info' ? '' : `[${l.level}] `}${l.text}`);
   }
   lines.push('keys: ' + KEYS.map(([k, v]) => `${k} ${v}`).join(' | '));
-  return <div className="xr-card xr-debug">{lines.join('\n')}</div>;
-}
-
-function ToastView() {
-  const toast = useHud((s) => s.toast);
-  if (!toast) return null;
-  return <div className={`xr-card xr-toast ${toast.level}`}>{toast.text}</div>;
+  return <div className="bf-debug">{lines.join('\n')}</div>;
 }
 
 export function Hud() {
   return (
-    <div className="xr-hud">
+    <div className="bf-hud">
       <style>{HUD_CSS}</style>
-      <ObjectLabels />
       <ExplodedTitle />
-      <StatusStack />
+      <StatusPill />
       <PartCard />
       <StepCard />
       <DebugPanel />
-      <ToastView />
     </div>
   );
 }

@@ -126,6 +126,10 @@ export function captureCrop(box: Box): string | null {
   }
 }
 
+/** Frozen frame behind an exploded object: dimmed and softly blurred so the parts read clearly. */
+const BACKDROP_ON = 'brightness(0.6) saturate(0.85) blur(5px)';
+const BACKDROP_OFF = 'brightness(1) saturate(1) blur(0px)';
+
 const fill: CSSProperties = {
   position: 'absolute',
   inset: 0,
@@ -142,6 +146,7 @@ export function Camera() {
   const [requestedId, setRequestedId] = useState<string | null>(() => readRemembered());
   const frozen = useStore((s) => s.frozen);
   const debug = useHud((s) => s.debug);
+  const backdrop = useStore((s) => s.frozen && s.explodeAmount > 0 && s.teardown !== null && s.teardown.anchor !== 'hand');
 
   // Publish element refs to the frame runtime.
   useEffect(() => {
@@ -294,7 +299,17 @@ export function Camera() {
         onLoadedMetadata={onMeta}
         style={{ ...fill, visibility: frozen ? 'hidden' : 'visible' }}
       />
-      <canvas ref={canvasRef} style={{ ...fill, display: frozen ? 'block' : 'none' }} />
+      <canvas
+        ref={canvasRef}
+        style={{
+          ...fill,
+          display: frozen ? 'block' : 'none',
+          filter: backdrop ? BACKDROP_ON : BACKDROP_OFF,
+          // A 1.2% zoom hides the dark fringe the blur makes at the screen edges.
+          transform: backdrop ? 'scale(1.012)' : 'scale(1)',
+          transition: 'filter 500ms ease, transform 500ms ease',
+        }}
+      />
       {debug && devices.length > 0 && (
         <select
           data-xr-ui
@@ -308,10 +323,10 @@ export function Camera() {
             zIndex: 20,
             maxWidth: 260,
             font: '13px ui-monospace, SFMono-Regular, Menlo, monospace',
-            color: '#7de3ff',
-            background: 'rgba(6,14,22,0.7)',
-            border: '1px solid rgba(125,227,255,0.45)',
-            borderRadius: 4,
+            color: '#e8e8e8',
+            background: 'rgba(0,0,0,0.72)',
+            border: '1px solid rgba(255,255,255,0.25)',
+            borderRadius: 6,
             padding: '3px 6px',
             pointerEvents: 'auto',
           }}
