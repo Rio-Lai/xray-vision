@@ -106,7 +106,7 @@ How to switch:
 | What | How | Remembered |
 | --- | --- | --- |
 | Push-to-talk only on/off | press **P**, or open with `?ptt=1` / `?ptt=0` | yes, in this browser |
-| Microphone | open with `?mic=<part of its name>` (for example `?mic=c920` for the webcam on the cap, `?mic=iphone` for Continuity Camera), or press **\** to cycle | yes, in this browser |
+| Microphone | open with `?mic=<part of its name>` (for example `?mic=c920` for the webcam on the cap, `?mic=iphone` for Continuity Camera), or press `\` (backslash) to cycle | yes, in this browser |
 
 Changes apply at once to a running session, and each one is logged in the hidden debug panel (**D**). The camera's microphone is closest to the wearer's mouth, so pick it on the rig. Code: `src/voice/pushToTalk.ts`.
 
