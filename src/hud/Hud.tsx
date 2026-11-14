@@ -14,6 +14,13 @@ import { FINGERS, HAND_TUNING_DEFAULTS, handTuning, setHandTuning } from '../det
 import type { HandTuning } from '../detect/handTracker';
 import { useHud } from './hudStore';
 import { HUD_CSS } from './styles';
+import { modelControl } from '../stage/modelControl';
+import type { AppState } from '../state/store';
+
+/** Something is open: exploded in freeze / follow, or any model on stage (even at explode 0). */
+function isShowing(s: AppState): boolean {
+  return s.teardown !== null && (s.explodeAmount > 0 || s.trackingMode === 'stage');
+}
 
 function useTicker(ms: number, enabled = true): number {
   const [n, setN] = useState(0);
@@ -82,7 +89,7 @@ function StatusPill() {
 
 /** Name of the exploded object, plus "AI-estimated" when the parts list was generated live. */
 function ExplodedTitle() {
-  const tdName = useStore((s) => (s.explodeAmount > 0 ? s.teardown?.name ?? null : null));
+  const tdName = useStore((s) => (isShowing(s) ? s.teardown?.name ?? null : null));
   const isLive = useStore((s) => s.teardown?.source === 'live');
   if (!tdName) return null;
   return (
@@ -96,7 +103,7 @@ function ExplodedTitle() {
 /** The selected part: name, one sentence, safety in warm amber. Bottom-left. */
 function PartCard() {
   const part = useStore((s) =>
-    s.highlightedPartId && s.teardown && s.explodeAmount > 0 ? s.teardown.parts.find((p) => p.id === s.highlightedPartId) ?? null : null,
+    s.highlightedPartId && s.teardown && isShowing(s) ? s.teardown.parts.find((p) => p.id === s.highlightedPartId) ?? null : null,
   );
   if (!part) return null;
   return (
@@ -110,7 +117,7 @@ function PartCard() {
 
 /** The current repair / explanation step. Bottom-right. */
 function StepCard() {
-  const activeStep = useStore((s) => (s.explodeAmount > 0 ? s.activeStep : null));
+  const activeStep = useStore((s) => (isShowing(s) ? s.activeStep : null));
   const steps = useStore((s) => s.teardown?.steps ?? null);
   if (activeStep === null || !steps) return null;
   const step = steps.find((st) => st.n === activeStep);
@@ -128,6 +135,7 @@ function StepCard() {
 /** Developer keys. Listed only here, inside the hidden debug panel. */
 const KEYS: [string, string][] = [
   ['O', 'overlay on / off'],
+  ['A', 'analyse this (stage, parts just apart)'],
   ['E', 'explode this'],
   ['R', 'reset'],
   ['D', 'this panel'],
@@ -136,6 +144,8 @@ const KEYS: [string, string][] = [
   ['M', 'tracking mode'],
   ['< >', 'previous / next part'],
   ['click', 'pick a part'],
+  ['drag', 'turn the model (stage)'],
+  ['wheel', 'open / close it (stage)'],
 ];
 
 const SLIDERS: { key: 'pressOn' | 'pressOff' | 'extendOn'; label: string; min: number; max: number; step: number }[] = [
@@ -204,11 +214,15 @@ function DebugPanel() {
   const frozen = useStore((s) => s.frozen);
   const explode = useStore((s) => s.explodeAmount);
   const tdStatus = useStore((s) => s.teardownStatus);
+  const yaw = useStore((s) => s.modelYaw);
+  const pitch = useStore((s) => s.modelPitch);
   if (!visible) return null;
   const st = live.stats;
   const lines: string[] = [];
   lines.push(`render ${st.renderFps.toFixed(1)} fps | objects ${st.objMs.toFixed(1)} ms | hands ${st.handMs.toFixed(1)} ms${MOCK_MODE ? ' | MOCK' : ''}`);
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
+  const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
+  lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} | input ${modelControl.describe()}`);
   for (const n of st.notes) lines.push(n);
   for (const [key, l] of Object.entries(status)) lines.push(`[${l.level}] ${key}: ${l.text}`);
   lines.push(`focused: ${focused ?? '-'}   selected: ${selected ?? '-'}`);
