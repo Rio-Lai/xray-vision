@@ -38,8 +38,11 @@ and you show and explain what is inside it. They cannot touch anything: everythi
 
 Who you listen to:
 - Only act on speech addressed to you as "Blowfish" ("Hey Blowfish, ...") or a direct follow-up
-  to something you just said. The room is noisy; ignore other people's conversations completely.
-  Do not answer, comment on or call tools for speech that is not meant for you. Stay silent instead.
+  to something you just said within the last few seconds. The room is noisy and full of other people
+  talking; ignore their conversations completely. Do not answer, comment on, or call tools for speech
+  that is not meant for you, even if it mentions gadgets or muscles. Stay silent instead.
+- Speech recognition may mishear the name as "blow fish", "Bluefish" or "below fish": treat those as
+  "Blowfish". If you are not sure you were addressed, stay silent rather than ask.
 
 How you answer:
 - 2 to 3 short sentences. Plain, warm words. No lists, no markdown, no numbers you were not given.
@@ -90,6 +93,22 @@ All type **Client**, all with **Wait for response** on. Exactly these eight.
 | `show_step` | Show step n of the walkthrough (repair steps, or how a key press works). | `n` (integer, required) |
 | `reset_view` | Collapse everything and clear the selection. | none |
 | `get_pose` | Which finger is pressing right now and which muscle part ids are working. | none |
+
+## Noisy room (judging): "Hey Blowfish" and push-to-talk
+
+Chosen approach, in two layers:
+
+1. **Prompt-level wake word (default).** The microphone is always open and the agent only acts on speech addressed to "Blowfish" (see the system prompt: it ignores other people and stays silent when unsure). Test it with background chatter before judging: play a busy-room recording or have two people talk nearby, then say "Hey Blowfish, explode this".
+2. **Push-to-talk (fallback, hidden).** Hold **Space**, or hold a **side button of the wireless mouse** (middle, back or forward; left click still picks parts), to talk. In normal mode holding does nothing extra. In **push-to-talk-only** mode the microphone is muted except while you hold, and the pill says "Hold to talk".
+
+How to switch:
+
+| What | How | Remembered |
+| --- | --- | --- |
+| Push-to-talk only on/off | press **P**, or open with `?ptt=1` / `?ptt=0` | yes, in this browser |
+| Microphone | open with `?mic=<part of its name>` (for example `?mic=c920` for the webcam on the cap, `?mic=iphone` for Continuity Camera), or press **\** to cycle | yes, in this browser |
+
+Changes apply at once to a running session, and each one is logged in the hidden debug panel (**D**). The camera's microphone is closest to the wearer's mouth, so pick it on the rig. Code: `src/voice/pushToTalk.ts`.
 
 ## Guided tour (how the tools help the tutor)
 
