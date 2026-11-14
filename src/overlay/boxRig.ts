@@ -68,17 +68,17 @@ const GLB_HL_TINT = 0.35;
 const SHADOW_OPACITY = 0.45;
 const MODEL_MAX_DEPTH = 2;
 /** Room kept for the label columns left and right of the stack. */
-const LABEL_SIDE_MAX_PX = 290;
-const LABEL_SIDE_FRAC = 0.2;
-const TOP_MARGIN = 70;
+export const LABEL_SIDE_MAX_PX = 290;
+export const LABEL_SIDE_FRAC = 0.2;
+export const TOP_MARGIN = 70;
 /** Bottom-centre space for the voice pill, captions and status pill. */
-const BOTTOM_MARGIN = 150;
+export const BOTTOM_MARGIN = 150;
 /** Stage: the assembled model's widest extent (any yaw), as a fraction of the view height. */
-const STAGE_SIZE = 0.56;
+export const STAGE_SIZE = 0.56;
 /** Stage: model units across the object's box (its height follows the box's aspect). */
 const STAGE_UNITS = 600;
 /** Stage springs (rad/s): the glide in / out (~0.6 s) and the orientation follow. */
-const STAGE_LIFT_OMEGA = 8.5;
+export const STAGE_LIFT_OMEGA = 8.5;
 const STAGE_TURN_OMEGA = 12;
 const STAGE_SHADOW_OPACITY = 0.5;
 

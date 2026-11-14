@@ -8,6 +8,7 @@ import { kindOf, mockIdentify } from '../../shared/demo';
 import { partPrompt } from '../../shared/prompts';
 import { ApiError, SERVER_DOWN_MESSAGE, api, isServerDown } from './api';
 import { voiceBridge } from '../voice/bridge';
+import { stageTeardownFor } from '../stage/armTeardown';
 
 /** Bumped by resetAll and each new explode, so stale async results are dropped. */
 let runId = 0;
@@ -126,6 +127,9 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
     console.warn(`[flow] teardown for ${ident.object_id} failed`, err);
     return fail(teardownFailMessage(err, ident.name));
   }
+  if (stale()) return { ok: false, message: 'Cancelled.' };
+  // On stage a hand is shown as Kash's 3D arm, so its parts list becomes the arm's (src/stage/armTeardown.ts).
+  td = await stageTeardownFor(td);
   if (stale()) return { ok: false, message: 'Cancelled.' };
 
   // 3. Show it.

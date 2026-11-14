@@ -1,0 +1,341 @@
+{
+  "deltoid": {
+    "id": "deltoid",
+    "part_id": "deltoid",
+    "width": 0.6857172268315789,
+    "depth": 0.620220404848179,
+    "triangles": 30000,
+    "bytes": 879700,
+    "flipped": true,
+    "spread": [
+      0.076,
+      0.187
+    ]
+  },
+  "biceps": {
+    "id": "biceps",
+    "part_id": "biceps",
+    "width": 0.26615813856161147,
+    "depth": 0.23407433315354806,
+    "triangles": 30000,
+    "bytes": 929376,
+    "flipped": false,
+    "spread": [
+      0.104,
+      0.047
+    ]
+  },
+  "triceps": {
+    "id": "triceps",
+    "part_id": "triceps",
+    "width": 0.23591359485809626,
+    "depth": 0.20314764598861593,
+    "triangles": 30000,
+    "bytes": 962208,
+    "flipped": false,
+    "spread": [
+      0.07,
+      0.068
+    ]
+  },
+  "brachioradialis": {
+    "id": "brachioradialis",
+    "part_id": "brachioradialis",
+    "width": 0.1110787970473616,
+    "depth": 0.11562564275964769,
+    "triangles": 30000,
+    "bytes": 807984,
+    "flipped": false,
+    "spread": [
+      0.045,
+      0.018
+    ]
+  },
+  "forearm-flexors": {
+    "id": "forearm-flexors",
+    "part_id": "forearm-flexors",
+    "width": 0.1841506606038731,
+    "depth": 0.15930025145220095,
+    "triangles": 30000,
+    "bytes": 933296,
+    "flipped": false,
+    "spread": [
+      0.053,
+      0.048
+    ]
+  },
+  "forearm-extensors": {
+    "id": "forearm-extensors",
+    "part_id": "forearm-extensors",
+    "width": 0.17759733589731289,
+    "depth": 0.16886365265551082,
+    "triangles": 29998,
+    "bytes": 985200,
+    "flipped": true,
+    "spread": [
+      0.046,
+      0.049
+    ]
+  },
+  "thenar": {
+    "id": "thenar",
+    "part_id": "thenar",
+    "width": 0.48410837149383834,
+    "depth": 0.48577904826520246,
+    "triangles": 30000,
+    "bytes": 906964,
+    "flipped": true,
+    "spread": [
+      0.061,
+      0.136
+    ]
+  },
+  "hypothenar": {
+    "id": "hypothenar",
+    "part_id": "hypothenar",
+    "width": 0.23576811100459272,
+    "depth": 0.20101012015454495,
+    "triangles": 30000,
+    "bytes": 902428,
+    "flipped": true,
+    "spread": [
+      0.024,
+      0.027
+    ]
+  },
+  "brachialis": {
+    "id": "brachialis",
+    "part_id": "brachialis",
+    "width": 0.5845537641468216,
+    "depth": 0.3666083305071438,
+    "triangles": 30000,
+    "bytes": 864256,
+    "flipped": false,
+    "spread": [
+      0.23,
+      0.142
+    ]
+  },
+  "pronator-teres": {
+    "id": "pronator-teres",
+    "part_id": "pronators",
+    "width": 0.13978181291902625,
+    "depth": 0.14002524337858543,
+    "triangles": 30000,
+    "bytes": 793912,
+    "flipped": true,
+    "spread": [
+      0.028,
+      0.031
+    ]
+  },
+  "pronator-quadratus": {
+    "id": "pronator-quadratus",
+    "part_id": "pronators",
+    "width": 0.9813396779353802,
+    "depth": 0.17379587170360378,
+    "triangles": 30000,
+    "bytes": 846396,
+    "flipped": true,
+    "spread": [
+      0.175,
+      0.195
+    ]
+  },
+  "interosseous": {
+    "id": "interosseous",
+    "part_id": "interossei-lumbricals",
+    "width": 0.2180457306293292,
+    "depth": 0.21901354043732926,
+    "triangles": 7324,
+    "bytes": 413032,
+    "flipped": false,
+    "spread": [
+      0.05,
+      0.053
+    ]
+  },
+  "flexor-tendon": {
+    "id": "flexor-tendon",
+    "part_id": "flexor-tendons",
+    "width": 0.10557009888937222,
+    "depth": 0.03176673445731595,
+    "triangles": 3000,
+    "bytes": 109948,
+    "flipped": false,
+    "spread": [
+      0.024,
+      0.021
+    ]
+  },
+  "extensor-tendon": {
+    "id": "extensor-tendon",
+    "part_id": "extensor-tendons",
+    "width": 0.1423684692056416,
+    "depth": 0.21154379719790184,
+    "triangles": 4944,
+    "bytes": 159896,
+    "flipped": true,
+    "spread": [
+      0.092,
+      0.049
+    ]
+  },
+  "median-nerve": {
+    "id": "median-nerve",
+    "part_id": "median-nerve",
+    "width": 0.3939167568926882,
+    "depth": 0.28086554180087175,
+    "triangles": 6000,
+    "bytes": 208848,
+    "flipped": false,
+    "spread": [
+      0.05,
+      0.115
+    ]
+  },
+  "ulnar-nerve": {
+    "id": "ulnar-nerve",
+    "part_id": "ulnar-nerve",
+    "width": 0.1502628929717153,
+    "depth": 0.0324800533144698,
+    "triangles": 6000,
+    "bytes": 177996,
+    "flipped": true,
+    "spread": [
+      0.037,
+      0.022
+    ]
+  },
+  "radial-nerve": {
+    "id": "radial-nerve",
+    "part_id": "radial-nerve",
+    "width": 0.18155188820644455,
+    "depth": 0.10540806841394261,
+    "triangles": 6000,
+    "bytes": 191968,
+    "flipped": false,
+    "spread": [
+      0.035,
+      0.042
+    ]
+  },
+  "arteries": {
+    "id": "arteries",
+    "part_id": "arteries",
+    "width": 0.4221573471397758,
+    "depth": 0.06738910359229129,
+    "triangles": 8998,
+    "bytes": 275380,
+    "flipped": true,
+    "spread": [
+      0.094,
+      0.074
+    ]
+  },
+  "humerus": {
+    "id": "humerus",
+    "part_id": "humerus",
+    "width": 0.193914034174717,
+    "depth": 0.19602473721410055,
+    "triangles": 30000,
+    "bytes": 736980,
+    "flipped": false,
+    "spread": [
+      0.074,
+      0.065
+    ]
+  },
+  "radius": {
+    "id": "radius",
+    "part_id": "radius-ulna",
+    "width": 0.18481268077466792,
+    "depth": 0.18498922945359722,
+    "triangles": 30000,
+    "bytes": 823992,
+    "flipped": true,
+    "spread": [
+      0.069,
+      0.061
+    ]
+  },
+  "ulna": {
+    "id": "ulna",
+    "part_id": "radius-ulna",
+    "width": 0.1725695419104168,
+    "depth": 0.1673688393511614,
+    "triangles": 30000,
+    "bytes": 817108,
+    "flipped": false,
+    "spread": [
+      0.054,
+      0.045
+    ]
+  },
+  "carpals": {
+    "id": "carpals",
+    "part_id": "hand-bones",
+    "width": 0.5077674174832921,
+    "depth": 0.3968085004089867,
+    "triangles": 30000,
+    "bytes": 936064,
+    "flipped": false,
+    "spread": [
+      0.095,
+      0.077
+    ]
+  },
+  "metacarpal": {
+    "id": "metacarpal",
+    "part_id": "hand-bones",
+    "width": 0.3419919141294503,
+    "depth": 0.27421929986578675,
+    "triangles": 6462,
+    "bytes": 270648,
+    "flipped": false,
+    "spread": [
+      0.132,
+      0.072
+    ]
+  },
+  "phalanx-proximal": {
+    "id": "phalanx-proximal",
+    "part_id": "hand-bones",
+    "width": 0.3562454377658371,
+    "depth": 0.30900443338436484,
+    "triangles": 6000,
+    "bytes": 184804,
+    "flipped": false,
+    "spread": [
+      0.123,
+      0.061
+    ]
+  },
+  "phalanx-middle": {
+    "id": "phalanx-middle",
+    "part_id": "hand-bones",
+    "width": 0.14371942907307964,
+    "depth": 0.15424271726282845,
+    "triangles": 6000,
+    "bytes": 169080,
+    "flipped": false,
+    "spread": [
+      0.049,
+      0.045
+    ]
+  },
+  "phalanx-distal": {
+    "id": "phalanx-distal",
+    "part_id": "hand-bones",
+    "width": 0.46,
+    "depth": 0.32,
+    "triangles": 720,
+    "bytes": 16164,
+    "flipped": false,
+    "spread": [
+      0.15,
+      0.129
+    ],
+    "mesh_source": "procedural-fallback"
+  }
+}

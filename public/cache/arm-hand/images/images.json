@@ -1,0 +1,236 @@
+{
+  "deltoid": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a thick curved shell of red muscle shaped like a rounded triangle or a shield, about as wide as it is long, convex on one side and hollow on the other like a cupped hand, its fibres converging from a wide curved top edge down to one short white tendon at the lower point. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbef-c917-7703-9a2e-6a8d9d3b7ed1",
+    "files": [
+      "deltoid-a.png",
+      "deltoid-b.png"
+    ]
+  },
+  "biceps": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a red spindle-shaped muscle belly that splits into two rounded heads with two thin white tendons at one end and narrows into one short white tendon at the other end. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb4-b192-7402-a7b4-0180d99dc7f1",
+    "files": [
+      "biceps-a.png",
+      "biceps-b.png"
+    ]
+  },
+  "brachioradialis": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a long slender red muscle belly at one end that becomes a long thin white tendon over its second half. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb4-b193-70c0-89fd-1c41e340df53",
+    "files": [
+      "brachioradialis-a.png",
+      "brachioradialis-b.png"
+    ]
+  },
+  "triceps": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a large long red muscle made of three fleshy heads lying SIDE BY SIDE along their length and merging into one broad flat white tendon at one end, overall shaped like a long thick spindle, not stacked balls. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbef-c915-7b63-bc44-4844abbbb4b2",
+    "files": [
+      "triceps-a.png",
+      "triceps-b.png"
+    ]
+  },
+  "forearm-flexors": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a bundle of several long red muscle bellies starting together from one short white tendon at one end and separating into five long thin white tendons at the other end. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb4-db9b-7463-ab73-53082f242e47",
+    "files": [
+      "forearm-flexors-a.png",
+      "forearm-flexors-b.png"
+    ]
+  },
+  "forearm-extensors": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a bundle of several long darker red muscle bellies starting together from one short white tendon at one end and separating into several long thin white tendons at the other end. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb4-deb9-72f1-ac45-2d16341de661",
+    "files": [
+      "forearm-extensors-a.png",
+      "forearm-extensors-b.png"
+    ]
+  },
+  "thenar": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a small rounded mound of red muscle, slightly oval, with a short white tendon at one end. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb4-e81b-7540-8e2c-97df9c9f0504",
+    "files": [
+      "thenar-a.png",
+      "thenar-b.png"
+    ]
+  },
+  "hypothenar": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a small elongated red muscle about the size of a thumb, with short white tendons at both ends. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb4-eda3-75e3-8414-d2ea00d4df7b",
+    "files": [
+      "hypothenar-a.png",
+      "hypothenar-b.png"
+    ]
+  },
+  "pronator-teres": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a short thick red spindle-shaped muscle with a short white tendon at each end. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb4-faef-7332-9b84-605feb90bcf6",
+    "files": [
+      "pronator-teres-a.png",
+      "pronator-teres-b.png"
+    ]
+  },
+  "brachialis": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a broad flat red muscle, wide at one end and narrowing to a short thick white tendon at the other. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb4-f8b2-7481-b944-83b5b45e8daf",
+    "files": [
+      "brachialis-a.png",
+      "brachialis-b.png"
+    ]
+  },
+  "pronator-quadratus": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a small flat square sheet of red muscle with parallel fibres running across it. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-064c-7dc1-855a-fc34784aff0f",
+    "files": [
+      "pronator-quadratus-a.png",
+      "pronator-quadratus-b.png"
+    ]
+  },
+  "interosseous": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a small slender red muscle shaped like an elongated leaf, with fine fibres angled towards a thin white tendon that runs along its centre and out of one end. realistic muscle red with fine striations and glistening fascia, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb6-3398-7f63-9c51-772b32fdad54",
+    "files": [
+      "interosseous-a.png",
+      "interosseous-b.png"
+    ]
+  },
+  "flexor-tendon": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: one long thin round glossy white cord, like a strand of cooked spaghetti, slightly curved, with tapered ends. glossy pearly white tendon, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-1b37-7692-8db5-944311410587",
+    "files": [
+      "flexor-tendon-a.png",
+      "flexor-tendon-b.png"
+    ]
+  },
+  "extensor-tendon": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: one long thin flat glossy white ribbon that widens slightly into a thin fan at one end. glossy pearly white tendon, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-25c6-7ac2-b4ad-0213696e9790",
+    "files": [
+      "extensor-tendon-a.png",
+      "extensor-tendon-b.png"
+    ]
+  },
+  "ulnar-nerve": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: one long thin smooth yellow cord that splits into two small thin branches at one end. smooth yellow nerve, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-2d12-7063-8eec-ec4b8bdaea9b",
+    "files": [
+      "ulnar-nerve-a.png",
+      "ulnar-nerve-b.png"
+    ]
+  },
+  "median-nerve": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: one long thin smooth yellow cord that splits into four small thin branches at one end. smooth yellow nerve, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-282f-78c2-992d-f28f48f2b76d",
+    "files": [
+      "median-nerve-a.png",
+      "median-nerve-b.png"
+    ]
+  },
+  "radial-nerve": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: one long thin smooth yellow cord that splits into two thin branches at one end. smooth yellow nerve, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-35d9-78c2-b77e-26cc18b8c0ef",
+    "files": [
+      "radial-nerve-a.png",
+      "radial-nerve-b.png"
+    ]
+  },
+  "radius": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a single human radius bone, museum bone specimen: a long slender ivory bone with a small round disc-shaped head at one end, widening into a broad flat end at the other. realistic ivory bone, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-4926-71e1-8b73-bf892fcd2731",
+    "files": [
+      "radius-a.png",
+      "radius-b.png"
+    ]
+  },
+  "arteries": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: one long glossy red tube that splits into a Y shape, two thinner red tubes continuing side by side. glossy red artery, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-3ee3-7e83-83d6-3ccea9ceb5ce",
+    "files": [
+      "arteries-a.png",
+      "arteries-b.png"
+    ]
+  },
+  "humerus": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a single human humerus bone, museum bone specimen: one long ivory bone with a smooth round ball-shaped head at one end and a wide end with two side knobs at the other. realistic ivory bone, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-48d5-75b1-ac22-da8e8f985679",
+    "files": [
+      "humerus-a.png",
+      "humerus-b.png"
+    ]
+  },
+  "ulna": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a single human ulna bone, museum bone specimen: a long slender ivory bone with a large hook-shaped notch at one end, tapering to a small rounded knob at the other. realistic ivory bone, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-4deb-70d3-8328-2a8a50978ec2",
+    "files": [
+      "ulna-a.png",
+      "ulna-b.png"
+    ]
+  },
+  "carpals": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: the eight human carpal bones, museum bone specimen: a compact cluster of small rounded ivory bones fitted together like pebbles, about the size of a walnut. realistic ivory bone, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-60d7-7670-8dc3-db194993974d",
+    "files": [
+      "carpals-a.png",
+      "carpals-b.png"
+    ]
+  },
+  "phalanx-middle": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a single human middle phalanx bone, museum bone specimen: one short small ivory bone, waisted in the middle. realistic ivory bone, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-6782-79f1-9d36-769e45341fd5",
+    "files": [
+      "phalanx-middle-a.png",
+      "phalanx-middle-b.png"
+    ]
+  },
+  "phalanx-proximal": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a single human proximal phalanx bone, museum bone specimen: one small ivory bone with a slightly wider concave base and a pulley-shaped head. realistic ivory bone, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-6623-76f3-8c0f-011c32c8651b",
+    "files": [
+      "phalanx-proximal-a.png",
+      "phalanx-proximal-b.png"
+    ]
+  },
+  "metacarpal": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a single human metacarpal bone, museum bone specimen: one small slim ivory bone with a slightly wider flat base and a smooth round head. realistic ivory bone, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb5-612a-7da3-9f84-826f4756055d",
+    "files": [
+      "metacarpal-a.png",
+      "metacarpal-b.png"
+    ]
+  },
+  "phalanx-distal": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single object on a plain white background: a single human distal phalanx bone, museum bone specimen: one very small short ivory bone, wider at its base and narrowing to a small rounded rough tip shaped like a tiny spade. realistic ivory bone, medical illustration style 3D render. The object lies horizontally, long axis left to right, entirely in frame with space around it. Only this one object, nothing else in the image, no labels, no text.",
+    "request_id": "01a1dbb6-339d-7f02-8a83-21e05dec7b97",
+    "files": [
+      "phalanx-distal-a.png",
+      "phalanx-distal-b.png"
+    ]
+  }
+}

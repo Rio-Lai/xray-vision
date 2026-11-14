@@ -6,6 +6,15 @@
 import { useStore, type FingerName, type HandState } from '../state/store';
 import type { ClientToolName, Teardown, TeardownPart } from '../../shared/teardown';
 import { explodeObject, resetAll } from '../lib/flow';
+import { armPose } from '../biology/arm/tour';
+import { startArmLive } from '../biology/arm/armLive';
+import { ARM_MUSCLE_IDS, armLayerNames, armPartExtras, armStepExtras, isArmTeardown, resolveObjectId } from '../stage/armTeardown';
+
+// Kash's X-ray arm (public/cache/arm-hand) is the floating model for a hand on stage: flow.ts loads it as the hand's
+// parts list, so these tools work on it through the store like on any other object (src/stage/armTeardown.ts), and
+// add his extra fields (nerve, typing role, layer, clinical note). object_id "arm-hand" means the hand in view.
+// Live hands also feed his typing detector (get_pose "arm").
+startArmLive();
 
 type Params = Record<string, unknown> | undefined | null;
 type Tool = (params?: Params) => Promise<string>;
@@ -35,21 +44,21 @@ function findPart(query: string) {
   );
 }
 
-const FLEXORS = ['fdp', 'fds', 'flexor-tendons'];
-const THUMB = ['fpl', 'thenar'];
-const EXTENSORS = ['extensor-digitorum'];
+/** Part ids for a pressing finger, the thumb and a lifting finger on the hand overlay's parts list (the arm: ARM_MUSCLE_IDS). */
+const HAND_MUSCLE_IDS = { flexors: ['fdp', 'fds', 'flexor-tendons'], thumb: ['fpl', 'thenar'], extensors: ['extensor-digitorum'] };
+type MuscleIds = typeof HAND_MUSCLE_IDS;
 
-function describeHand(h: HandState) {
+function describeHand(h: HandState, ids: MuscleIds) {
   const active: FingerName | null = h.activeFinger;
   const pressing = active ? h.fingers[active]?.pressing === true : false;
   let action: 'pressing' | 'extending' | null = null;
   let muscles: string[] = [];
   if (active && pressing) {
     action = 'pressing';
-    muscles = active === 'thumb' ? THUMB : FLEXORS;
+    muscles = active === 'thumb' ? ids.thumb : ids.flexors;
   } else if (active) {
     action = 'extending';
-    muscles = EXTENSORS;
+    muscles = ids.extensors;
   }
   const fingers = Object.fromEntries(
     (Object.keys(h.fingers) as FingerName[]).map((f) => [
@@ -121,8 +130,11 @@ const tools: Record<ClientToolName, Tool> = {
 
   async explode(p) {
     const amount = num(p, 'amount');
-    const objectId = str(p, 'object_id');
     const s = useStore.getState();
+    // "arm-hand" (Kash's arm) means the hand in view: the arm is how a hand is shown on stage.
+    const asked = str(p, 'object_id');
+    const objectId = asked === undefined ? undefined : resolveObjectId(asked, s);
+    if (objectId === null) return 'No hand in view. Ask the user to hold a hand in front of the camera, then call explode again.';
     if (amount !== undefined && amount <= 0) {
       s.setExplode(0);
       return 'Collapsed the view.';
@@ -137,15 +149,20 @@ const tools: Record<ClientToolName, Tool> = {
     const td = useStore.getState().teardown;
     if (!result.ok || !td) return result.message;
     const tour = tourParts(td);
+    const arm = isArmTeardown(td);
     return json({
       ok: true,
       message: result.message,
       source: td.source,
       part_ids: td.parts.map((x) => x.id),
+      // Kash's arm: its layers (0 = skin) and its guided tour
+      ...(arm ? { layers: await armLayerNames(), steps: td.steps.length } : {}),
       tour: tour.map((x) => ({ id: x.id, name: x.name, summary: x.summary, safety: x.safety ?? null })),
-      next: `Give a short tour of these ${tour.length} parts in order: call highlight_part before you mention each one, one short sentence each, and say any safety note.${
-        td.source === 'live' ? ' Say once that the parts are AI-estimated.' : ''
-      }`,
+      next: arm
+        ? `This is a layered 3D model of the arm and hand. Say that in one sentence, then walk through it: call show_step with n 1, then 2, up to ${td.steps.length}, one short sentence each.`
+        : `Give a short tour of these ${tour.length} parts in order: call highlight_part before you mention each one, one short sentence each, and say any safety note.${
+            td.source === 'live' ? ' Say once that the parts are AI-estimated.' : ''
+          }`,
     });
   },
 
@@ -159,9 +176,11 @@ const tools: Record<ClientToolName, Tool> = {
       return `Unknown part "${q}". Valid ids: ${ids}`;
     }
     useStore.getState().highlightPart(part.id);
+    // Kash's arm: nerve supply, role in typing, layer
+    const extras = isArmTeardown(useStore.getState().teardown) ? await armPartExtras(part.id) : {};
     return json({
       ok: true,
-      part: { id: part.id, name: part.name, summary: part.summary, details: part.details, safety: part.safety ?? null },
+      part: { id: part.id, name: part.name, summary: part.summary, details: part.details, safety: part.safety ?? null, ...extras },
       ...(part.safety ? { remember: 'Say the safety note.' } : {}),
     });
   },
@@ -177,6 +196,9 @@ const tools: Record<ClientToolName, Tool> = {
     // Light up the part the step is about, so the wearer sees where to look.
     const first = step.part_ids.find((id) => td.parts.some((x) => x.id === id));
     if (first) useStore.getState().highlightPart(first);
+    // Kash's arm opens for its tour (as his tour did) and adds the layer, nerves, typing roles and clinical note.
+    const arm = isArmTeardown(td);
+    if (arm && useStore.getState().explodeAmount < 0.5) useStore.getState().setExplode(1);
     return json({
       ok: true,
       step: step.n,
@@ -184,6 +206,7 @@ const tools: Record<ClientToolName, Tool> = {
       text: step.text,
       part_ids: step.part_ids,
       part_names: partNames(step.part_ids),
+      ...(arm ? await armStepExtras(step.n) : {}),
       next: step.n < td.steps.length ? `Say this step in one sentence, then call show_step with n ${step.n + 1}.` : 'That was the last step.',
     });
   },
@@ -217,19 +240,29 @@ const tools: Record<ClientToolName, Tool> = {
 
   async get_pose() {
     const s = useStore.getState();
-    const hands = s.hands.map(describeHand);
-    if (hands.length === 0) return json({ hands: [], note: 'No hands in view. Ask the user to hold a hand in front of the camera.' });
+    const armOnStage = isArmTeardown(s.teardown);
+    const ids = armOnStage ? ARM_MUSCLE_IDS : HAND_MUSCLE_IDS;
+    const hands = s.hands.map((h) => describeHand(h, ids));
+    // arm (Kash): { activity: "typing" | "none", confidence, active_parts: [{ part_id, intensity, role }], ... }
+    const arm = await armPose();
+    if (hands.length === 0 && arm.activity !== 'typing') {
+      return json({ hands: [], arm, note: 'No hands in view. Ask the user to hold a hand in front of the camera.' });
+    }
     const handLoaded = s.teardown?.anchor === 'hand';
     const active = hands.find((h) => h.muscles.length > 0);
-    const muscles = active?.muscles ?? FLEXORS;
+    const muscles = active?.muscles ?? ids.flexors;
     return json({
       hands: hands.map((h) => ({ ...h, muscle_names: handLoaded ? partNames(h.muscles) : [] })),
       working_now: active ? partNames(active.muscles) : [],
-      note: !handLoaded
-        ? 'The hand layers are not shown yet. Call explode with no object_id while the user looks at their hand, then call highlight_part with the first muscle id.'
-        : active
-          ? `Call highlight_part with "${active.muscles[0]}", then name the muscles in working_now.`
-          : `No finger is moving right now. Typing mainly uses ${partNames(muscles).join(', ') || 'the forearm flexors'}; highlight "${muscles[0]}" and ask the user to type.`,
+      arm,
+      note:
+        arm.activity === 'typing' && !armOnStage
+          ? 'The arm is typing: answer from arm.active_parts, then call explode with object_id "arm-hand" and show_step 1 to 6.'
+          : !handLoaded
+            ? 'The hand layers are not shown yet. Call explode with no object_id while the user looks at their hand, then call highlight_part with the first muscle id.'
+            : active
+              ? `Call highlight_part with "${active.muscles[0]}", then name the muscles in working_now.`
+              : `No finger is moving right now. Typing mainly uses ${partNames(muscles).join(', ') || 'the forearm flexors'}; highlight "${muscles[0]}" and ask the user to type.`,
     });
   },
 };

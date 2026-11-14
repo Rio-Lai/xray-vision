@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>arm parts sheet</title>
+    <style>
+      html, body { margin: 0; background: #f4f1ea; color: #222; font: 13px/1.3 -apple-system, Helvetica, sans-serif; }
+      h1 { font-size: 18px; margin: 14px 16px 4px; }
+      p.sub { margin: 0 16px 10px; color: #666; }
+      #grid { display: grid; grid-template-columns: repeat(var(--cols, 7), 1fr); gap: 8px; padding: 0 12px 12px; }
+      .cell { background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+      .cell img { display: block; width: 100%; }
+      .cell div { padding: 5px 8px 7px; }
+      .cell b { display: block; font-size: 13px; }
+      .cell small { color: #777; }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }
+    </script>
+  </head>
+  <body>
+    <h1>X-ray arm: fal meshes, normalised</h1>
+    <p class="sub">Each part on its own, long axis vertical, <b>proximal end (towards the shoulder) at the top</b>. Colours are fal's own textures.</p>
+    <div id="grid"></div>
+    <script type="module">
+      // Serve the repo root; open /scripts/arm/parts-sheet.html  (?dir=/.cache-live/arm-hand/cmp&ids=a,b&cols=2)
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+      const q = new URLSearchParams(location.search);
+      const dir = q.get('dir') || '/public/cache/arm-hand';
+      if (q.get('cols')) document.documentElement.style.setProperty('--cols', q.get('cols'));
+      const info = await fetch(`${dir}/meshes.json`).then((r) => r.json()).catch(() => ({}));
+      const ids = q.get('ids') ? q.get('ids').split(',') : Object.keys(info);
+      const W = 260, H = 420;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: false });
+      renderer.setSize(W, H);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const env = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+      const loader = new GLTFLoader();
+      const grid = document.getElementById('grid');
+      // load everything in parallel first (much faster than one by one), then draw each cell
+      const loaded = await Promise.all(ids.map((id) => loader.loadAsync(`${dir}/${id}.glb`).then((g) => g, (e) => e)));
+      for (const [n, id] of ids.entries()) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        const meta = info[id] || {};
+        cell.innerHTML = `<div><b>${id}</b><small>${meta.part_id ?? ''}${meta.bytes ? ' · ' + (meta.bytes / 1e6).toFixed(2) + ' MB' : ''}</small></div>`;
+        grid.appendChild(cell);
+        try {
+          const gltf = loaded[n];
+          if (gltf instanceof Error) throw gltf;
+          const scene = new THREE.Scene();
+          scene.environment = env;
+          scene.background = new THREE.Color('#ffffff');
+          const key = new THREE.DirectionalLight(0xffffff, 1.6);
+          key.position.set(1, 2, 3);
+          scene.add(key);
+          const obj = gltf.scene;
+          // Normalised: y = 0 proximal .. 1 distal. Show proximal at the top: flip y about 0.5, then centre.
+          const holder = new THREE.Group();
+          holder.add(obj);
+          holder.rotation.z = Math.PI;
+          holder.position.y = 0;
+          obj.position.y = -0.5;
+          scene.add(holder);
+          const cam = new THREE.PerspectiveCamera(18, W / H, 0.05, 20);
+          cam.position.set(0.9, 0.35, 3.6);
+          cam.lookAt(0, 0, 0);
+          // proximal marker
+          const m = new THREE.Mesh(new THREE.SphereGeometry(0.015), new THREE.MeshBasicMaterial({ color: 0x2563eb }));
+          m.position.set(0, 0.5, 0);
+          scene.add(m);
+          renderer.render(scene, cam);
+          const img = new Image();
+          img.src = renderer.domElement.toDataURL();
+          cell.prepend(img);
+        } catch (e) {
+          cell.innerHTML += `<small>failed: ${e.message}</small>`;
+        }
+      }
+      document.title = 'ready';
+    </script>
+  </body>
+</html>
