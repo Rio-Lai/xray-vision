@@ -13,13 +13,28 @@
  * Placeholders are soft frosted glass: low-opacity white with a hint of the part colour and a soft
  * white edge. Highlight = accent blue edge and full opacity; the other parts drop to ~30%.
  *
+ * Real models (part.mesh_url): loaded through glbCache (shared, preloaded for the demo laptop),
+ * centred, turned to the axis-aligned orientation that best matches the part's box, scaled to fill
+ * its width and height (as the camera sees it), and cross-faded in over 0.6 s with a soft shadow. Highlight tints
+ * the model accent blue and draws the part's box edge in accent blue around it. A missing or
+ * broken model keeps its placeholder (and says why in the debug panel).
+ *
  * Scene units are viewport pixels, y up, origin at the viewport centre (orthographic camera).
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { Teardown, TeardownPart } from '../../shared/teardown';
+import { devLog } from '../hud/hudStore';
 import { ExplodeAnimator, smoothstep } from './explodeAnimator';
-import { PITCH, explodeLayout, projectedHalfHeight } from './explodeLayout';
+import {
+  MODEL_ORIENTATIONS,
+  PITCH,
+  chooseOrientation,
+  explodeLayout,
+  orientedSize,
+  partDims,
+  projectedHalfHeight,
+} from './explodeLayout';
+import { loadGlbTemplate } from './glbCache';
 import type { LabelItem, StackBounds } from './labels';
 
 /** The exploded stack may grow up to this much to fill the screen. */
@@ -35,6 +50,11 @@ const BODY_OPACITY = 0.36;
 const EDGE_OPACITY = 0.5;
 /** Opacity factor for parts that are not highlighted while something is. */
 const DIM_TO = 0.3;
+/** Real models: cross-fade time, highlight tint, soft shadow strength. */
+const GLB_FADE_S = 0.6;
+const GLB_HL_TINT = 0.35;
+const SHADOW_OPACITY = 0.45;
+const MODEL_MAX_DEPTH = 2;
 /** Room kept for the label columns left and right of the stack. */
 const LABEL_SIDE_MAX_PX = 290;
 const LABEL_SIDE_FRAC = 0.2;
@@ -75,7 +95,10 @@ interface PartRig {
   horizontalAxis: boolean;
   glbHolder: THREE.Group;
   glb: THREE.Object3D | null;
-  glbMats: { mat: THREE.Material; base: number }[];
+  /** Materials cloned for this rig (the only GPU things it owns of a model). */
+  glbMats: GlbMat[];
+  shadow: THREE.Mesh;
+  shadowMat: THREE.MeshBasicMaterial;
   glbNorm: THREE.Vector3;
   glbFade: number;
   glbUrl: string | null;
@@ -95,24 +118,37 @@ function safeColor(css: string): THREE.Color {
   return c;
 }
 
-function disposeObject(obj: THREE.Object3D): void {
-  obj.traverse((o: THREE.Object3D) => {
-    const mesh = o as THREE.Mesh;
-    if (mesh.isMesh) {
-      mesh.geometry?.dispose();
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const m of mats) {
-        if (!m) continue;
-        for (const v of Object.values(m as unknown as Record<string, unknown>)) {
-          if (v instanceof THREE.Texture) v.dispose();
-        }
-        m.dispose();
-      }
-    }
-  });
+interface GlbMat {
+  mat: THREE.Material;
+  /** opacity the model was made with */
+  base: number;
+  /** the material's own emissive colour object (tinted on highlight) and its original value */
+  emissive: THREE.Color | null;
+  emissiveBase: THREE.Color | null;
 }
 
-const loader = new GLTFLoader();
+let shadowTex: THREE.CanvasTexture | null = null;
+/** A soft round shadow (one shared 128 px texture). */
+function shadowTexture(): THREE.CanvasTexture | null {
+  if (shadowTex) return shadowTex;
+  try {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+    if (!ctx) return null;
+    const g = ctx.createRadialGradient(64, 64, 4, 64, 64, 64);
+    g.addColorStop(0, 'rgba(0,0,0,0.75)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.35)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    shadowTex = new THREE.CanvasTexture(c);
+    return shadowTex;
+  } catch {
+    return null;
+  }
+}
 
 export class BoxRig {
   readonly root = new THREE.Group();
@@ -123,6 +159,7 @@ export class BoxRig {
   private presence = 1;
   private disposed = false;
   private axis: Teardown['explode_axis'];
+  private readonly planeGeo = new THREE.PlaneGeometry(1, 1);
 
   constructor(td: Teardown, scene: THREE.Scene) {
     this.axis = td.explode_axis;
@@ -160,6 +197,7 @@ export class BoxRig {
       emissiveIntensity: 0.12,
       roughness: 0.45,
       metalness: 0,
+      envMapIntensity: 0.8,
       transparent: true,
       opacity: 0,
       depthWrite: false,
@@ -171,8 +209,17 @@ export class BoxRig {
     const pivot = new THREE.Group();
     const tilt = new THREE.Group();
     const glbHolder = new THREE.Group();
+    const shadowMat = new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    const shadow = new THREE.Mesh(this.planeGeo, shadowMat);
+    shadow.visible = false;
     tilt.userData.partId = part.id;
-    tilt.add(body, edges, glbHolder);
+    tilt.add(shadow, body, edges, glbHolder);
     pivot.add(tilt);
     this.root.add(pivot);
     return {
@@ -189,6 +236,8 @@ export class BoxRig {
       glbHolder,
       glb: null,
       glbMats: [],
+      shadow,
+      shadowMat,
       glbNorm: new THREE.Vector3(1, 1, 1),
       glbFade: 0,
       glbUrl: null,
@@ -208,30 +257,23 @@ export class BoxRig {
       const url = td.parts.find((p) => p.id === rig.part.id)?.mesh_url ?? null;
       if (!url || url === rig.glbUrl || url === rig.loadingUrl || url === rig.failedUrl) continue;
       rig.loadingUrl = url;
-      loader.load(
-        url,
-        (gltf) => {
-          if (this.disposed || rig.loadingUrl !== url) {
-            disposeObject(gltf.scene);
-            return;
-          }
+      loadGlbTemplate(url).then(
+        (tpl) => {
+          if (this.disposed || rig.loadingUrl !== url) return;
           rig.loadingUrl = null;
           try {
-            this.attachGlb(rig, gltf.scene, url);
+            this.attachGlb(rig, tpl, url);
           } catch (err) {
             // A broken model must never break the exploded view: keep the placeholder.
-            console.warn(`[overlay] GLB for ${rig.part.id} could not be attached, keeping placeholder`, err);
+            console.warn(`[overlay] model for ${rig.part.id} could not be attached, keeping placeholder`, err);
+            devLog(`Model for ${rig.part.id} could not be shown: ${err instanceof Error ? err.message : String(err)}`, 'warn');
             rig.failedUrl = url;
-            rig.glb = null;
-            rig.glbMats = [];
-            rig.glbFade = 0;
-            rig.glbHolder.clear();
-            disposeObject(gltf.scene);
+            this.clearGlb(rig);
           }
         },
-        undefined,
-        (err) => {
-          console.warn(`[overlay] GLB for ${rig.part.id} failed, keeping placeholder`, err);
+        (err: unknown) => {
+          console.warn(`[overlay] model for ${rig.part.id} failed to load, keeping placeholder`, err);
+          devLog(`Model for ${rig.part.id} failed to load (${url}): ${err instanceof Error ? err.message : String(err)}`, 'warn');
           if (rig.loadingUrl === url) rig.loadingUrl = null;
           rig.failedUrl = url;
         },
@@ -239,46 +281,69 @@ export class BoxRig {
     }
   }
 
-  private attachGlb(rig: PartRig, obj: THREE.Object3D, url: string): void {
+  /** Remove a rig's model. Geometry and textures belong to the shared template: only our materials go. */
+  private clearGlb(rig: PartRig): void {
+    if (rig.glb) rig.glbHolder.remove(rig.glb);
+    for (const gm of rig.glbMats) gm.mat.dispose();
+    rig.glb = null;
+    rig.glbMats = [];
+    rig.glbFade = 0;
+    rig.glbUrl = null;
+    rig.shadow.visible = false;
+  }
+
+  private attachGlb(rig: PartRig, tpl: THREE.Object3D, url: string): void {
+    const obj = tpl.clone(true);
+    obj.updateMatrixWorld(true);
     const bbox = new THREE.Box3().setFromObject(obj);
-    if (bbox.isEmpty()) {
-      rig.failedUrl = url;
-      disposeObject(obj);
-      return;
-    }
+    if (bbox.isEmpty()) throw new Error('the model is empty');
     const size = bbox.getSize(new THREE.Vector3());
     const centre = bbox.getCenter(new THREE.Vector3());
-    const norm = Math.max(size.x, size.y, 1e-6);
+    if (![size.x, size.y, size.z, centre.x, centre.y, centre.z].every(Number.isFinite)) throw new Error('the model has no finite size');
     obj.position.sub(centre);
+    // Turn it so its box best matches the part's box (e.g. a battery modelled lying flat).
+    const B = this.display ?? { cx: 0, cy: 0, w: 600, h: 400 };
+    const dims = partDims(rig.part, Math.max(20, B.w), Math.max(20, B.h));
+    const modelSize: [number, number, number] = [size.x, size.y, size.z];
+    const o = MODEL_ORIENTATIONS[chooseOrientation(modelSize, [dims.w, dims.h, dims.d])];
+    const r = orientedSize(modelSize, o);
+    const norm = Math.max(r[0], r[1], 1e-6);
+    const basis = new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(o.cols[0][0], o.cols[0][1], o.cols[0][2]),
+      new THREE.Vector3(o.cols[1][0], o.cols[1][1], o.cols[1][2]),
+      new THREE.Vector3(o.cols[2][0], o.cols[2][1], o.cols[2][2]),
+    );
     const wrapper = new THREE.Group();
     wrapper.add(obj);
+    wrapper.quaternion.setFromRotationMatrix(basis);
     wrapper.scale.setScalar(1 / norm);
-    const mats: { mat: THREE.Material; base: number }[] = [];
-    obj.traverse((o: THREE.Object3D) => {
-      const mesh = o as THREE.Mesh;
+    // Own materials (the template's stay untouched), faded in from 0.
+    const mats: GlbMat[] = [];
+    obj.traverse((child: THREE.Object3D) => {
+      const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
       const src = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       const cloned = src.map((m) => {
         const c = m.clone();
+        const em = (c as unknown as { emissive?: unknown }).emissive;
+        const emissive = em instanceof THREE.Color ? em : null;
+        mats.push({ mat: c, base: m.opacity ?? 1, emissive, emissiveBase: emissive ? emissive.clone() : null });
         c.transparent = true;
-        mats.push({ mat: c, base: m.opacity ?? 1 });
         c.opacity = 0;
         return c;
       });
       mesh.material = Array.isArray(mesh.material) ? cloned : cloned[0];
       mesh.frustumCulled = false;
-      for (const m of src) m.dispose();
     });
-    if (rig.glb) {
-      rig.glbHolder.remove(rig.glb);
-      disposeObject(rig.glb);
-    }
+    this.clearGlb(rig);
     rig.glb = wrapper;
     rig.glbMats = mats;
-    rig.glbNorm.set(size.x / norm, size.y / norm, size.z / norm);
+    rig.glbNorm.set(r[0] / norm, r[1] / norm, r[2] / norm);
     rig.glbFade = 0;
     rig.glbUrl = url;
     rig.glbHolder.add(wrapper);
+    rig.shadow.visible = rig.shadowMat.map !== null;
+    devLog(`Model for ${rig.part.id}: ${o.name}`);
   }
 
   /** Tilt groups for raycasting (userData.partId). */
@@ -366,24 +431,40 @@ export class BoxRig {
       const appear = smoothstep(0.02, 0.25, e);
       rig.vis = p * appear;
       const dimF = 1 - (1 - DIM_TO) * rig.dim;
-      if (rig.glb) rig.glbFade = Math.min(1, rig.glbFade + dt / 0.6);
+      if (rig.glb) rig.glbFade = Math.min(1, rig.glbFade + dt / GLB_FADE_S);
+      const gf = rig.glbFade;
 
       // Frosted glass; highlighted = (nearly) full opacity with an accent-blue edge. No pulsing.
-      rig.bodyMat.opacity = rig.vis * (BODY_OPACITY + (0.92 - BODY_OPACITY) * rig.hl) * dimF * (1 - 0.85 * rig.glbFade);
+      // With a real model the glass fades out and the edge stays only as the highlight outline.
+      rig.bodyMat.opacity = rig.vis * (BODY_OPACITY + (0.92 - BODY_OPACITY) * rig.hl) * dimF * (1 - gf);
       rig.bodyMat.emissive.copy(rig.baseColor).lerp(ACCENT, 0.45 * rig.hl);
       rig.bodyMat.emissiveIntensity = 0.12 + 0.3 * rig.hl;
       rig.edgeMat.color.copy(WHITE).lerp(ACCENT, rig.hl);
-      rig.edgeMat.opacity = rig.vis * (EDGE_OPACITY + (1 - EDGE_OPACITY) * rig.hl) * dimF * (1 - 0.6 * rig.glbFade);
+      rig.edgeMat.opacity = rig.vis * dimF * ((1 - gf) * (EDGE_OPACITY + (1 - EDGE_OPACITY) * rig.hl) + gf * rig.hl);
       rig.tilt.scale.setScalar(1 + 0.03 * rig.hl);
       rig.tilt.visible = rig.vis > 0.004;
 
       if (rig.glb) {
-        const fit = Math.min(w / Math.max(1e-6, rig.glbNorm.x), h / Math.max(1e-6, rig.glbNorm.y));
-        rig.glbHolder.scale.setScalar(fit);
-        for (const gm of rig.glbMats) gm.mat.opacity = gm.base * rig.vis * rig.glbFade * dimF;
+        // Fill the part's box like the placeholder does: the box is the part as the camera sees it
+        // (foreshortened), so all full-width parts line up. Depth follows the smaller scale, but a
+        // model is never more than MODEL_MAX_DEPTH x as thick as its placeholder (no spill into
+        // the next layer when a generated "hinge" is really a plate).
+        const sx = w / Math.max(1e-6, rig.glbNorm.x);
+        const sy = h / Math.max(1e-6, rig.glbNorm.y);
+        const sz = Math.min(sx, sy, (MODEL_MAX_DEPTH * d) / Math.max(1e-6, rig.glbNorm.z));
+        rig.glbHolder.scale.set(sx, sy, sz);
+        for (const gm of rig.glbMats) {
+          gm.mat.opacity = gm.base * rig.vis * gf * dimF;
+          if (gm.emissive && gm.emissiveBase) gm.emissive.copy(gm.emissiveBase).lerp(ACCENT, GLB_HL_TINT * rig.hl);
+        }
+        // Soft shadow just behind the model, slightly low, so it lifts off the dimmed frame.
+        rig.shadow.position.set(0, -0.06 * h, -MODEL_MAX_DEPTH * d / 2 - 2);
+        rig.shadow.scale.set(w * 1.15, h * 1.25, 1);
+        rig.shadowMat.opacity = SHADOW_OPACITY * rig.vis * gf * dimF;
       }
 
       const order = 10 + (this.anim.layerCount - this.anim.rankOf(part.layer)) * 4;
+      rig.shadow.renderOrder = order - 1;
       rig.body.renderOrder = order;
       rig.edges.renderOrder = order + 1;
       if (rig.glb) rig.glb.traverse((o: THREE.Object3D) => {
@@ -445,8 +526,10 @@ export class BoxRig {
       rig.edges.geometry.dispose();
       rig.bodyMat.dispose();
       rig.edgeMat.dispose();
-      if (rig.glb) disposeObject(rig.glb);
+      rig.shadowMat.dispose();
+      this.clearGlb(rig);
     }
+    this.planeGeo.dispose();
     this.parts = [];
   }
 }
