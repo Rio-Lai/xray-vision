@@ -31,6 +31,11 @@ export const DEMO_IDENTIFY: Record<'laptop' | 'hand', IdentifyResponse> = {
   },
 };
 
+/** True for the demo objects above: their parts lists ship in public/cache/, so they never need Claude to open. */
+export function isDemoObject(objectId: string): boolean {
+  return Object.values(DEMO_IDENTIFY).some((d) => d.object_id === objectId);
+}
+
 export function slugify(s: string): string {
   const slug = s
     .toLowerCase()

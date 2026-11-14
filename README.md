@@ -108,10 +108,10 @@ Works with the Wi-Fi off:
 Needs the network:
 
 - the voice session: ElevenLabs listens and speaks in the cloud. Without it the pill says "Voice off"; use the hidden keys.
-- Claude: naming an object exactly, and the parts list for an object that is not cached. With no network the MacBook and hand still open, because identify falls back to the detector's label ("laptop", "hand").
+- Claude: naming an object exactly, and the parts list for an object that is not cached. The MacBook and the hand never wait for it: they open at once from the detector's label ("laptop", "hand"), and Claude's exact name is filled in if it answers.
 - live fal models for a new object's parts (cached parts never ask fal; hands never do).
 
-If the Wi-Fi is slow rather than off, comment out `ANTHROPIC_API_KEY` and `FAL_KEY` in `.env` and restart `npm run dev`: "analyse this" then never waits for Claude, and voice stays on. Do not use `MOCK=1` for this: it turns voice off too.
+If the Wi-Fi is slow rather than off, leave the keys in: the MacBook and the hand still open at once, and for any other object "analyse this" waits at most 4 seconds for Claude to name it before it goes on with the detector's label. Only a new object's parts list and its fal models are slow on a slow network. Do not use `MOCK=1`: it turns voice off too.
 
 ## Developer fallback
 

@@ -24,10 +24,17 @@ import { listCheckedObjects, safeId } from './cache';
 let client: Anthropic | null = null;
 const getClient = () => {
   // At low effort a parts list takes ~10-20 s; the timeout only stops a stuck call. One SDK retry for
-  // 429/5xx/network; invalid JSON is retried separately in teardownLive.
+  // 429/5xx/network; invalid JSON is retried separately in teardownLive. Identify sets its own, shorter limit.
   if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 60_000, maxRetries: 1 });
   return client;
 };
+
+/**
+ * Identify answers quickly or not at all, with no retry: "analyse this" stops waiting after 4 s and
+ * goes on with the detector's label (IDENTIFY_TIMEOUT_MS in src/lib/flow.ts, #84). A little longer
+ * here so the client's limit decides; on a time-out the route answers with the label (fallback).
+ */
+const IDENTIFY_REQUEST = { timeout: 5_000, maxRetries: 0 };
 
 type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -152,7 +159,7 @@ export async function identifyLive(req: IdentifyRequest): Promise<IdentifyRespon
         ],
       },
     ],
-  });
+  }, IDENTIFY_REQUEST);
 
   const raw = extractJson(textOf(msg)) as Record<string, unknown>;
   const conf = Number(raw.confidence);

@@ -3,12 +3,19 @@
  * keyboard handlers, the HUD and the voice client tools.
  */
 import { useStore, type SceneObject } from '../state/store';
-import type { IdentifyResponse, Teardown } from '../../shared/teardown';
-import { kindOf, mockIdentify } from '../../shared/demo';
+import type { IdentifyResponse, Lens, Teardown } from '../../shared/teardown';
+import { isDemoObject, kindOf, mockIdentify } from '../../shared/demo';
 import { partPrompt } from '../../shared/prompts';
 import { ApiError, SERVER_DOWN_MESSAGE, api, isServerDown } from './api';
 import { voiceBridge } from '../voice/bridge';
 import { stageTeardownFor } from '../stage/armTeardown';
+
+/**
+ * How long "analyse this" waits for Claude to name a detected object before it goes on with the
+ * detector's label, as it does when identify fails (#84). On slow Wi-Fi the call could otherwise
+ * take a minute or two. The server's identify call has a matching limit (server/lib/claude.ts).
+ */
+export const IDENTIFY_TIMEOUT_MS = 4_000;
 
 /** Bumped by resetAll and each new explode, so stale async results are dropped. */
 let runId = 0;
@@ -106,16 +113,27 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   // Which server prompt to use comes from the object itself, never from a UI setting.
   const kind = kindOf(target.label, target.anchor);
 
-  // 1. Identify. Any failure except "server not running" falls back to the mock mapping by detector label.
-  let ident: IdentifyResponse | null = null;
-  try {
-    const crop = useStore.getState().camera?.captureCrop(target.box) ?? null;
-    if (crop) ident = await api.identify({ image: crop, lens: kind, hint: target.label });
-  } catch (err) {
-    if (isServerDown(err)) return fail(SERVER_DOWN_MESSAGE);
-    console.warn('[flow] identify failed, using mock mapping', err);
+  // 1. Identify. The detector's label gives a first guess (shared/demo.ts).
+  const guess = mockIdentify(target.label, kind);
+  let ident: IdentifyResponse = guess;
+  if (isDemoObject(guess.object_id)) {
+    // Cached (the MacBook, a hand): never wait on the network. Open it now from the label and
+    // patch Claude's exact name in if it answers for this run (#84). The server answers a hand
+    // itself without asking Claude, so a hand is not sent at all.
+    if (target.anchor !== 'hand') nameInBackground(target, guess, kind, stale);
+  } else {
+    // Anything else waits for Claude, but at most IDENTIFY_TIMEOUT_MS. Any failure except
+    // "server not running" (a time-out included) goes on with the detector's label.
+    try {
+      const crop = useStore.getState().camera?.captureCrop(target.box) ?? null;
+      if (crop) {
+        ident = await api.identify({ image: crop, lens: kind, hint: target.label }, { timeoutMs: IDENTIFY_TIMEOUT_MS });
+      }
+    } catch (err) {
+      if (isServerDown(err)) return fail(SERVER_DOWN_MESSAGE);
+      console.warn('[flow] identify failed or timed out, using the detector label', err);
+    }
   }
-  if (!ident) ident = mockIdentify(target.label, kind);
   if (stale()) return { ok: false, message: 'Cancelled.' };
   useStore.getState().patchObject(target.id, { name: ident.name });
 
@@ -143,6 +161,28 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   if (td.anchor !== 'hand') void generateMeshes(td, myRun);
 
   return { ok: true, message: `Exploded ${td.name}: ${td.parts.length} parts.` };
+}
+
+/**
+ * For a cached object opened from its detector label: ask Claude for the exact name without
+ * waiting for it. The answer is used only if it is for the same run and names the same cached
+ * object (a different id would not match the parts on screen); otherwise it is dropped.
+ * No client time limit: the server's identify call has its own (server/lib/claude.ts).
+ */
+function nameInBackground(target: SceneObject, guess: IdentifyResponse, kind: Lens, stale: () => boolean): void {
+  const crop = useStore.getState().camera?.captureCrop(target.box) ?? null;
+  if (!crop) return;
+  api
+    .identify({ image: crop, lens: kind, hint: target.label })
+    .then((ident) => {
+      if (stale() || ident.mock || ident.fallback) return;
+      if (ident.object_id !== guess.object_id) {
+        console.info(`[flow] Claude named ${target.id} "${ident.object_id}"; keeping the cached ${guess.object_id}`);
+        return;
+      }
+      useStore.getState().patchObject(target.id, { name: ident.name });
+    })
+    .catch((err: unknown) => console.warn('[flow] background identify failed; keeping the detector name', err));
 }
 
 /** Two fal jobs at a time. Stops on mock mode, skips failures silently. */
