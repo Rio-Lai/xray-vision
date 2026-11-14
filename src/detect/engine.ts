@@ -8,7 +8,7 @@
  */
 import { useStore } from '../state/store';
 import type { SceneObject } from '../state/store';
-import { errorText, frame, frameSize, MOCK_MODE, MOCK_SCENE } from '../camera/frame';
+import { errorText, frame, frameSize, MOCK_GESTURE, MOCK_MODE, MOCK_SCENE } from '../camera/frame';
 import { setStatus } from '../hud/hudStore';
 import { loadVisionTasks, USEFUL_CLASSES } from './mediapipe';
 import type { VisionTasks } from './mediapipe';
@@ -17,6 +17,10 @@ import type { RawDetection } from './objectTracker';
 import { HandTracker, handTuning } from './handTracker';
 import type { RawHand } from './handTracker';
 import { mockHandLandmarks, mockLaptop, mockPhone } from './mock';
+import { mockGestureHands } from './mockGesture';
+
+/** ?mock=gesture: the scripted hands start this long after the page (the laptop is analysed first). */
+const MOCK_GESTURE_START_MS = 2600;
 import { live } from './live';
 
 
@@ -184,6 +188,7 @@ export function createDetectionEngine(): DetectionEngine {
   let handPausedUntil = 0;
   let wasFrozen = false;
   let publishedEmpty = false;
+  let mockStart = -1;
 
   if (MOCK_MODE) {
     setStatus('models', 'warn', `Mock mode (${MOCK_SCENE} in the centre): fake laptop, phone and hand; MediaPipe skipped`);
@@ -255,7 +260,12 @@ export function createDetectionEngine(): DetectionEngine {
     wasFrozen = frozen;
 
     let engObjects: SceneObject[];
-    if (MOCK_MODE) {
+    if (MOCK_MODE && MOCK_GESTURE) {
+      if (mockStart < 0) mockStart = now;
+      engObjects = [mockLaptop(true), mockPhone()];
+      const t = now - mockStart - MOCK_GESTURE_START_MS;
+      handTracker.update(t < 0 ? [] : mockGestureHands(t, fw, fh), now, fw, fh);
+    } else if (MOCK_MODE) {
       const handInCentre = MOCK_SCENE === 'hand';
       engObjects = [mockLaptop(!handInCentre), mockPhone()];
       const lm = mockHandLandmarks(now, handInCentre ? 0 : 0.3);
