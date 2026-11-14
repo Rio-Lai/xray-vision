@@ -15,6 +15,7 @@ import { api, ApiError } from '../lib/api';
 import { describeTeardown } from '../lib/flow';
 import { clientTools } from './clientTools';
 import { registerVoiceBridge, voiceBridge } from './bridge';
+import { resolveInputDeviceId, usePushToTalk } from './pushToTalk';
 
 const errorListeners = new Set<(msg: string) => void>();
 const emitError = (msg: string) => errorListeners.forEach((fn) => fn(msg));
@@ -103,6 +104,14 @@ export function useVoiceAgent() {
     };
   }, []);
 
+  // Push-to-talk and microphone choice (noisy room). Stable wrappers over the SDK controls.
+  const setMuted = useCallback((muted: boolean) => ref.current.setMuted(muted), []);
+  const changeInputDevice = useCallback(
+    (config: { inputDeviceId?: string }) => ref.current.changeInputDevice(config),
+    [],
+  );
+  usePushToTalk({ connected: conversation.status === 'connected', setMuted, changeInputDevice });
+
   const status = conversation.status;
   const isSpeaking = conversation.isSpeaking;
 
@@ -153,11 +162,13 @@ export function useVoiceAgent() {
       setError('Microphone permission denied.');
       return;
     }
+    // The chosen microphone (?mic=..., or \ to cycle); undefined = browser default.
+    const inputDeviceId = await resolveInputDeviceId();
     useStore.getState().setVoiceStatus('connecting');
     const mine = ++attempt.current;
     try {
       // Signed URLs are for WebSocket sessions. startSession returns void: failures come via onError.
-      ref.current.startSession({ signedUrl, connectionType: 'websocket' });
+      ref.current.startSession({ signedUrl, connectionType: 'websocket', ...(inputDeviceId ? { inputDeviceId } : {}) });
     } catch (err) {
       useStore.getState().setVoiceStatus('disconnected');
       setError(err instanceof Error ? err.message : String(err));
