@@ -5,7 +5,7 @@
  * Overlay off (the default) = nothing from here on screen, apart from a real error.
  * Pointer events are off for the whole HUD so clicks reach the Stage picker.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../state/store';
 import { MOCK_MODE } from '../camera/frame';
 import { live } from '../detect/live';
@@ -23,6 +23,20 @@ function useTicker(ms: number, enabled = true): number {
   return n;
 }
 
+/** How long an explode error ("I do not have parts for the phone yet.") stays on screen. */
+const EXPLODE_ERROR_MS = 6000;
+
+/** true until `ms` after `key` last changed (null key = false). */
+function useFreshFor(key: string | null, ms: number): boolean {
+  const [expired, setExpired] = useState<string | null>(null);
+  useEffect(() => {
+    if (key === null) return;
+    const id = setTimeout(() => setExpired(key), ms);
+    return () => clearTimeout(id);
+  }, [key, ms]);
+  return key !== null && expired !== key;
+}
+
 /** The one status pill: an error if there is one, else a developer warning, else "Looking...". */
 function StatusPill() {
   const tdStatus = useStore((s) => s.teardownStatus);
@@ -30,9 +44,17 @@ function StatusPill() {
   const status = useHud((s) => s.status);
   const toast = useHud((s) => s.toast);
   const firstError = Object.values(status).find((l) => l.level === 'error');
+  // Count each new failure, so the same message twice in a row shows again.
+  const errSeq = useRef(0);
+  const prevStatus = useRef(tdStatus);
+  if (tdStatus !== prevStatus.current) {
+    if (tdStatus === 'error') errSeq.current += 1;
+    prevStatus.current = tdStatus;
+  }
+  const explodeErrorFresh = useFreshFor(tdStatus === 'error' ? `${errSeq.current}:${tdError ?? ''}` : null, EXPLODE_ERROR_MS);
   let kind: 'error' | 'warn' | 'busy' | null = null;
   let text = '';
-  if (tdStatus === 'error') {
+  if (tdStatus === 'error' && explodeErrorFresh) {
     kind = 'error';
     text = tdError || 'I could not load the parts for that.';
   } else if (firstError) {
