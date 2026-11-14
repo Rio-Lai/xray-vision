@@ -16,6 +16,10 @@ import { useHud } from './hudStore';
 import { HUD_CSS } from './styles';
 import { modelControl } from '../stage/modelControl';
 import type { AppState } from '../state/store';
+import { gestureLive } from '../detect/gestureDriver';
+import { GESTURE_TUNING_DEFAULTS } from '../detect/gestures';
+import type { GestureTuning } from '../detect/gestures';
+import { gestureTuning, gestureTuningUrl, setGestureTuning } from '../detect/gestureTuning';
 
 /** Something is open: exploded in freeze / follow, or any model on stage (even at explode 0). */
 function isShowing(s: AppState): boolean {
@@ -202,6 +206,84 @@ function TuningPanel() {
   );
 }
 
+type NumKey = { [K in keyof GestureTuning]: GestureTuning[K] extends number ? K : never }[keyof GestureTuning];
+type BoolKey = { [K in keyof GestureTuning]: GestureTuning[K] extends boolean ? K : never }[keyof GestureTuning];
+
+const GESTURE_SLIDERS: { key: NumKey; label: string; min: number; max: number; step: number }[] = [
+  { key: 'pinchOn', label: 'Pinch starts below (hand sizes)', min: 0.05, max: 0.6, step: 0.01 },
+  { key: 'pinchOff', label: 'Pinch ends above (hand sizes)', min: 0.1, max: 0.9, step: 0.01 },
+  { key: 'holdMs', label: 'Hold before it counts (ms)', min: 0, max: 300, step: 5 },
+  { key: 'releaseMs', label: 'Open before release (ms)', min: 0, max: 300, step: 5 },
+  { key: 'restOpenMin', label: 'Other fingers open at least (not a fist)', min: 0.5, max: 1.6, step: 0.01 },
+  { key: 'rotGain', label: 'Turn (radians per hand size dragged)', min: 0.2, max: 3, step: 0.05 },
+  { key: 'spreadGain', label: 'Open per doubling of the two-hand distance', min: 0.2, max: 2, step: 0.05 },
+  { key: 'fistMax', label: 'Fist at or below (openness)', min: 0.5, max: 1.4, step: 0.01 },
+  { key: 'spreadMin', label: 'Spread at or above (openness)', min: 1.1, max: 2.1, step: 0.01 },
+  { key: 'burstMs', label: 'Fist to spread within (ms)', min: 150, max: 1000, step: 10 },
+];
+
+const GESTURE_TOGGLES: { key: BoolKey; label: string }[] = [
+  { key: 'enabled', label: 'Hand gestures on' },
+  { key: 'twoHand', label: 'Two hands pinch and pull apart to open' },
+  { key: 'burst', label: 'Fist opening quickly opens (closing collapses)' },
+];
+
+/** Gesture tuning (debug panel only): every threshold live, saved in localStorage, URL-overridable. */
+function GestureTuningPanel() {
+  const [t, setT] = useState<GestureTuning>(() => ({ ...gestureTuning }));
+  const update = (patch: Partial<GestureTuning>) => {
+    setGestureTuning(patch);
+    setT({ ...gestureTuning });
+  };
+  return (
+    <div className="bf-tuning" data-xr-ui>
+      <div className="bf-tuning-title">Gesture tuning</div>
+      {GESTURE_TOGGLES.map((tg) => (
+        <label className="bf-tuning-row" key={tg.key}>
+          <input type="checkbox" checked={t[tg.key]} onChange={(e: ChangeEvent<HTMLInputElement>) => update({ [tg.key]: e.target.checked } as Partial<GestureTuning>)} />
+          <span>{tg.label}</span>
+        </label>
+      ))}
+      {GESTURE_SLIDERS.map((sl) => (
+        <label key={sl.key}>
+          <span>
+            {sl.label} <b>{sl.step >= 1 ? Math.round(t[sl.key]) : t[sl.key].toFixed(2)}</b>
+          </span>
+          <input
+            type="range"
+            min={sl.min}
+            max={sl.max}
+            step={sl.step}
+            value={t[sl.key]}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => update({ [sl.key]: Number(e.target.value) } as Partial<GestureTuning>)}
+          />
+        </label>
+      ))}
+      <div className="bf-tuning-row">
+        <button type="button" onClick={() => update({ ...GESTURE_TUNING_DEFAULTS })}>
+          Defaults
+        </button>
+        <code>?{gestureTuningUrl(t)}</code>
+      </div>
+    </div>
+  );
+}
+
+/** Debug-panel lines for the gesture recogniser: mode, last events, per-hand values. */
+function gestureLines(now: number): string[] {
+  const out = gestureLive.out;
+  const lines: string[] = [];
+  const ago = gestureLive.lastAt ? `${((now - gestureLive.lastAt) / 1000).toFixed(1)}s ago` : '';
+  lines.push(`gestures ${gestureTuning.enabled ? 'on' : 'OFF'} | mode ${out?.mode ?? '-'} | last ${gestureLive.last} ${ago}`);
+  for (const h of out?.hands ?? []) {
+    const state = h.pinched ? (h.stale ? 'PINCH (let go first)' : 'PINCH') : '     ';
+    lines.push(
+      `  ${h.id.padEnd(10)} pinch ${h.pinchDist.toFixed(2)}  open ${h.open.toFixed(2)}  rest ${h.restOpen.toFixed(2)}  ${h.openState.padEnd(6)} ${state}`,
+    );
+  }
+  return lines;
+}
+
 function DebugPanel() {
   const visible = useHud((s) => s.debug);
   useTicker(250, visible);
@@ -223,6 +305,7 @@ function DebugPanel() {
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
   const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} | input ${modelControl.describe()}`);
+  lines.push(...gestureLines(performance.now()));
   for (const n of st.notes) lines.push(n);
   for (const [key, l] of Object.entries(status)) lines.push(`[${l.level}] ${key}: ${l.text}`);
   lines.push(`focused: ${focused ?? '-'}   selected: ${selected ?? '-'}`);
@@ -250,7 +333,10 @@ function DebugPanel() {
   return (
     <>
       <div className="bf-debug">{lines.join('\n')}</div>
-      <TuningPanel />
+      <div className="bf-tuning-col" data-xr-ui>
+        <TuningPanel />
+        <GestureTuningPanel />
+      </div>
     </>
   );
 }

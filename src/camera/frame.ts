@@ -20,8 +20,15 @@ function urlParam(name: string): string | null {
 
 const MOCK_RAW = urlParam('mock');
 
-/** `?mock=1` in the URL: no camera models, a fake laptop and a fake typing hand. */
-export const MOCK_MODE: boolean = MOCK_RAW === '1' || MOCK_RAW === 'true' || MOCK_RAW === 'laptop' || MOCK_RAW === 'hand';
+/**
+ * `?mock=1` in the URL: no camera models, a fake laptop and a fake typing hand.
+ * `?mock=gesture`: the fake laptop is analysed by itself and scripted hands turn it and pull it apart.
+ */
+export const MOCK_MODE: boolean =
+  MOCK_RAW === '1' || MOCK_RAW === 'true' || MOCK_RAW === 'laptop' || MOCK_RAW === 'hand' || MOCK_RAW === 'gesture';
+
+/** `?mock=gesture`: scripted gesture hands instead of the typing hand (see detect/mockGesture.ts). */
+export const MOCK_GESTURE: boolean = MOCK_RAW === 'gesture';
 
 /** Which mock object sits in the centre of view (is "this"): `?mock=hand` for the hand, else the laptop. */
 export const MOCK_SCENE: 'laptop' | 'hand' = MOCK_RAW === 'hand' ? 'hand' : 'laptop';

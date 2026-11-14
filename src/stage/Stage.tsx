@@ -7,6 +7,8 @@
  *   D debug panel   F freeze   S next step   M tracking mode   Left/Right or [ ] previous/next part
  * Hidden mouse fallback while a model is on stage: drag turns it (with a little inertia), the
  * wheel opens and closes it; a click without dragging picks a part.
+ * Hand gestures (detect/gestures.ts) run every frame after detection: pinch-drag turns the model,
+ * two hands pinching and pulling apart open it (tuning in the debug panel).
  * `?overlay=1` starts with the overlay on.
  */
 import { useEffect, useRef } from 'react';
@@ -15,9 +17,10 @@ import { useStore } from '../state/store';
 import type { TrackingMode } from '../state/store';
 import { explodeObject, pickPart, resetAll } from '../lib/flow';
 import { Camera } from '../camera/Camera';
-import { errorText, urlFlag } from '../camera/frame';
+import { MOCK_GESTURE, errorText, urlFlag } from '../camera/frame';
 import { createDetectionEngine } from '../detect/engine';
 import { live } from '../detect/live';
+import { resetGestures, tickGestures } from '../detect/gestureDriver';
 import { Overlay } from '../overlay/Overlay';
 import type { OverlayHandle } from '../overlay/Overlay';
 import { Hud } from '../hud/Hud';
@@ -93,9 +96,12 @@ export function Stage() {
   /** The press in progress: where it started, the last point, and whether it became a drag. */
   const pressRef = useRef<{ id: number; x0: number; y0: number; x: number; y: number; drag: boolean } | null>(null);
 
-  // Developer convenience: ?overlay=1 starts with the overlay on.
+  // Developer convenience: ?overlay=1 starts with the overlay on; ?mock=gesture analyses the fake laptop by itself.
   useEffect(() => {
     if (urlFlag('overlay')) useStore.getState().setOverlayOn(true);
+    if (!MOCK_GESTURE) return;
+    const id = setTimeout(() => runExplode(STAGE_MIN_EXPLODE), 1200);
+    return () => clearTimeout(id);
   }, []);
 
   // The single animation loop: detection first, then the overlay reads its results and renders.
@@ -115,6 +121,11 @@ export function Stage() {
         engine.tick(now);
       } catch (e) {
         setStatus('loop-detect', 'error', `Detection loop error: ${errorText(e)}`);
+      }
+      try {
+        tickGestures(now);
+      } catch (e) {
+        setStatus('loop-gestures', 'error', `Gesture error: ${errorText(e)}`);
       }
       try {
         modelControl.tick(now, dt);
@@ -139,6 +150,7 @@ export function Stage() {
       cancelAnimationFrame(raf);
       engine.dispose();
       modelControl.stop();
+      resetGestures();
     };
   }, []);
 

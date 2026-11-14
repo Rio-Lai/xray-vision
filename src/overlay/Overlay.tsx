@@ -27,6 +27,8 @@ import type { LabelItem, StackBounds } from './labels';
 import { ObjectLabelLayer } from './objectLabels';
 import { preloadTeardownMeshes } from './glbCache';
 import { modelControl } from '../stage/modelControl';
+import { gestureLive } from '../detect/gestureDriver';
+import { PinchDotLayer } from './pinchDots';
 
 const DWELL_MS = 1200;
 /**
@@ -438,6 +440,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
   const labelRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<OverlayEngine | null>(null);
   const objLabelsRef = useRef<ObjectLabelLayer | null>(null);
+  const pinchRef = useRef<PinchDotLayer | null>(null);
   const lastNowRef = useRef(0);
 
   useImperativeHandle(
@@ -457,6 +460,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
           }
         }
         engineRef.current?.tick(now);
+        pinchRef.current?.update(gestureLive.out?.dots ?? [], getCoverMap());
       },
       pick: (x: number, y: number) => engineRef.current?.pick(x, y),
     }),
@@ -469,6 +473,8 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
     if (!host || !labels) return;
     const objLabels = new ObjectLabelLayer(labels);
     objLabelsRef.current = objLabels;
+    const pinch = new PinchDotLayer(labels);
+    pinchRef.current = pinch;
     let engine: OverlayEngine | null = null;
     try {
       engine = new OverlayEngine(host, labels);
@@ -482,6 +488,8 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
       engine?.dispose();
       objLabelsRef.current = null;
       objLabels.dispose();
+      pinchRef.current = null;
+      pinch.dispose();
     };
   }, []);
 

@@ -2,8 +2,13 @@
  * Per-layer critically damped springs toward store.explodeAmount, with a per-layer stagger:
  * exploding, the outermost layer (layer 0) leaves first; collapsing, the deepest returns first
  * (the exact reverse). With 5 layers: 4 x 110 ms stagger + ~0.6 s settle = about 1 s in all.
+ * Only a jump (voice, a key, a burst gesture) is staggered: small steps that come every frame
+ * (two hands pulling the model apart, the mouse wheel) move every layer at once, so the model
+ * follows the hands proportionally instead of waiting for them to stop.
  */
 const STAGGER_MS = 110;
+/** A target change at least this big is staggered layer by layer. */
+const STAGGER_MIN_JUMP = 0.2;
 const OMEGA = 9; // rad/s; critically damped => no overshoot, ~97% of the way after 0.6 s
 
 interface LayerState {
@@ -44,9 +49,10 @@ export class ExplodeAnimator {
 
   update(now: number, dtSec: number, target: number): void {
     if (target !== this.target) {
+      const jump = Math.abs(target - this.target);
       this.rising = target > this.target;
       this.target = target;
-      this.changedAt = now;
+      this.changedAt = jump >= STAGGER_MIN_JUMP ? now : -Infinity;
     }
     const n = this.layers.length;
     let remaining = Math.min(0.1, Math.max(0, dtSec));
