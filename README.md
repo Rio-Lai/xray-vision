@@ -82,6 +82,34 @@ Check which keys the server sees (booleans only): http://localhost:5173/api/heal
 | `MOCK=1` | Answer every route from the cache, even with keys set (this turns voice off too). |
 | `PORT` | API server port (default 8791). |
 
+## Demo day
+
+The MacBook and hand demos run from the laptop, so they survive bad venue Wi-Fi. While you still have a working network:
+
+```bash
+npm install            # needs the network
+npm run predemo        # downloads the vision models if they are missing, then checks everything offline needs
+```
+
+`npm run predemo` prints one ok / WARN / FAIL line per item and ends with PASS or FAIL. It checks the installed packages, the MediaPipe models and wasm in `public/models/`, every checked parts list in `public/cache/` and each of its 3D models (present, valid, no external files), that the app has no other remote URLs (no web fonts), and which keys `.env` sets (yes or no, never the values). Fix every FAIL line before the Wi-Fi goes. `node scripts/predemo.mjs --no-fetch` checks without downloading anything.
+
+Then run `npm run dev`, open http://localhost:5173 in Chrome, and check http://localhost:5173/api/health shows the keys you expect. To prove it, turn the Wi-Fi off and reload: the debug panel (`D`) should say "wasm: local /models/wasm" and "object model: local; hand model: local".
+
+Works with the Wi-Fi off:
+
+- the camera, object detection and labels, hand tracking
+- the cached MacBook Air and hand: parts lists, all twelve MacBook models, the muscle and tendon overlay with key presses
+- gestures (pinch-drag, two hands apart), the hidden keys and the mouse
+- part cards, safety notes and steps (`Left` / `Right`, `S`)
+
+Needs the network:
+
+- the voice session: ElevenLabs listens and speaks in the cloud. Without it the pill says "Voice off"; use the hidden keys.
+- Claude: naming an object exactly, and the parts list for an object that is not cached. With no network the MacBook and hand still open, because identify falls back to the detector's label ("laptop", "hand").
+- live fal models for a new object's parts (cached parts never ask fal; hands never do).
+
+If the Wi-Fi is slow rather than off, comment out `ANTHROPIC_API_KEY` and `FAL_KEY` in `.env` and restart `npm run dev`: "analyse this" then never waits for Claude, and voice stays on. Do not use `MOCK=1` for this: it turns voice off too.
+
 ## Developer fallback
 
 Never shown on screen during the demo; voice does all of this. The keys show nothing on screen when they work.
@@ -124,6 +152,7 @@ URL options:
 - `npm run dev:server`, `npm run dev:web`: one at a time
 - `npm run typecheck`, `npm run build`: what CI runs on every pull request
 - `npm run fetch-models`: download the MediaPipe models and wasm into `public/models/` (run once)
+- `npm run predemo`: fetch the models if missing, then check that everything the cached demos need is on the laptop (see "Demo day")
 - `npm run pregenerate -- <object_id>`: make the part models for a cached parts list with fal, for review (needs `FAL_KEY`; see `docs/KASH.md`)
 - `npm run build-eye`: build the procedural eye models
 
