@@ -6,10 +6,12 @@
  * Pointer events are off for the whole HUD so clicks reach the Stage picker.
  */
 import { useEffect, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { useStore } from '../state/store';
 import { MOCK_MODE } from '../camera/frame';
 import { live } from '../detect/live';
-import { FINGERS } from '../detect/handTracker';
+import { FINGERS, HAND_TUNING_DEFAULTS, handTuning, setHandTuning } from '../detect/handTracker';
+import type { HandTuning } from '../detect/handTracker';
 import { useHud } from './hudStore';
 import { HUD_CSS } from './styles';
 
@@ -136,6 +138,60 @@ const KEYS: [string, string][] = [
   ['click', 'pick a part'],
 ];
 
+const SLIDERS: { key: 'pressOn' | 'pressOff' | 'extendOn'; label: string; min: number; max: number; step: number }[] = [
+  { key: 'pressOn', label: 'Press starts above', min: 0.1, max: 3, step: 0.05 },
+  { key: 'pressOff', label: 'Press ends below', min: 0, max: 1.5, step: 0.05 },
+  { key: 'extendOn', label: 'Lift (extend) above', min: 0.2, max: 4, step: 0.05 },
+];
+
+/**
+ * Hand tuning (debug panel only): the three press thresholds and the left/right swap, live and
+ * saved in localStorage. Watch "peak" per finger in the text panel while typing: a good press
+ * threshold sits between the peaks of real presses and of fingers that only ride along.
+ */
+function TuningPanel() {
+  const [t, setT] = useState<HandTuning>(() => ({ ...handTuning }));
+  const update = (patch: Partial<HandTuning>) => {
+    setHandTuning(patch);
+    setT({ ...handTuning });
+  };
+  const url = `?press=${t.pressOn.toFixed(2)}&release=${t.pressOff.toFixed(2)}&extend=${t.extendOn.toFixed(2)}${t.swapHandedness ? '' : '&hands=raw'}`;
+  return (
+    <div className="bf-tuning" data-xr-ui>
+      <div className="bf-tuning-title">Hand tuning (hand sizes per second)</div>
+      {SLIDERS.map((sl) => (
+        <label key={sl.key}>
+          <span>
+            {sl.label} <b>{t[sl.key].toFixed(2)}</b>
+          </span>
+          <input
+            type="range"
+            min={sl.min}
+            max={sl.max}
+            step={sl.step}
+            value={t[sl.key]}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => update({ [sl.key]: Number(e.target.value) } as Partial<HandTuning>)}
+          />
+        </label>
+      ))}
+      <label className="bf-tuning-row">
+        <input
+          type="checkbox"
+          checked={t.swapHandedness}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => update({ swapHandedness: e.target.checked })}
+        />
+        <span>Swap left / right (camera not mirrored)</span>
+      </label>
+      <div className="bf-tuning-row">
+        <button type="button" onClick={() => update({ ...HAND_TUNING_DEFAULTS })}>
+          Defaults
+        </button>
+        <code>{url}</code>
+      </div>
+    </div>
+  );
+}
+
 function DebugPanel() {
   const visible = useHud((s) => s.debug);
   useTicker(250, visible);
@@ -168,7 +224,7 @@ function DebugPanel() {
     for (const f of FINGERS) {
       const d = h.dyn[f];
       lines.push(
-        `  ${f.padEnd(7)} curl ${d.curl.toFixed(2)}  v ${d.signal >= 0 ? ' ' : ''}${d.signal.toFixed(2)}  ${d.pressing ? 'PRESS' : '     '} ${d.extending ? 'EXT' : ''}`,
+        `  ${f.padEnd(7)} curl ${d.curl.toFixed(2)}  v ${d.signal >= 0 ? ' ' : ''}${d.signal.toFixed(2)}  peak ${d.peak.toFixed(2)}  ${d.pressing ? 'PRESS' : '     '} ${d.extending ? 'EXT' : ''}`,
       );
     }
   }
@@ -177,7 +233,12 @@ function DebugPanel() {
     for (const l of log) lines.push(`  ${(l.t / 1000).toFixed(1)}s ${l.level === 'info' ? '' : `[${l.level}] `}${l.text}`);
   }
   lines.push('keys: ' + KEYS.map(([k, v]) => `${k} ${v}`).join(' | '));
-  return <div className="bf-debug">{lines.join('\n')}</div>;
+  return (
+    <>
+      <div className="bf-debug">{lines.join('\n')}</div>
+      <TuningPanel />
+    </>
+  );
 }
 
 export function Hud() {

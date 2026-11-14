@@ -5,9 +5,10 @@
  * divided by hand size (wrist -> middle MCP, px). Its time derivative (hand sizes per second),
  * EMA-smoothed and with the median of all five fingers subtracted (cancels whole-hand motion),
  * is v. A press is a short positive spike (tip moving down in the image / away from the camera
- * relative to its own MCP): ON when v > PRESS_ON, OFF when v < PRESS_OFF or after PRESS_MAX_MS.
- * A quick extension is a negative spike below -EXT_ON.
- * Thresholds can be tuned live with URL params: ?press=0.6&release=0.15&extend=1.2
+ * relative to its own MCP): ON when v > pressOn, OFF when v < pressOff or after PRESS_MAX_MS.
+ * A quick extension is a negative spike below -extendOn.
+ * The three thresholds (and the left/right swap) live in `handTuning`: tune them with the sliders in
+ * the debug panel (D), which are saved in localStorage; URL params ?press=&release=&extend= override.
  */
 import type { FingerName, FingerState, HandState, SceneObject } from '../state/store';
 import { urlNumber } from '../camera/frame';
@@ -35,9 +36,61 @@ export const FINGER_CHAINS: Record<FingerName, [number, number, number, number]>
   pinky: [17, 18, 19, 20],
 };
 
-const PRESS_ON = urlNumber('press', 0.6);
-const PRESS_OFF = urlNumber('release', 0.15);
-const EXT_ON = urlNumber('extend', 1.2);
+export interface HandTuning {
+  /** press starts when the finger's signal rises above this (hand sizes per second) */
+  pressOn: number;
+  /** press ends when it falls below this */
+  pressOff: number;
+  /** a quick lift (extension) when it falls below minus this */
+  extendOn: number;
+  /**
+   * MediaPipe labels hands as if the image were mirrored (selfie). Our camera is not mirrored, so
+   * the labels are swapped by default; untick in the debug panel (or ?hands=raw) if left/right look wrong.
+   */
+  swapHandedness: boolean;
+}
+
+export const HAND_TUNING_DEFAULTS: HandTuning = { pressOn: 0.6, pressOff: 0.15, extendOn: 1.2, swapHandedness: true };
+const TUNING_KEY = 'blowfish.handTuning';
+
+function loadTuning(): HandTuning {
+  let saved: Partial<HandTuning> = {};
+  try {
+    const raw = window.localStorage.getItem(TUNING_KEY);
+    if (raw) saved = JSON.parse(raw) as Partial<HandTuning>;
+  } catch {
+    /* private mode or bad JSON: defaults */
+  }
+  const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  const t: HandTuning = {
+    pressOn: num(saved.pressOn, HAND_TUNING_DEFAULTS.pressOn),
+    pressOff: num(saved.pressOff, HAND_TUNING_DEFAULTS.pressOff),
+    extendOn: num(saved.extendOn, HAND_TUNING_DEFAULTS.extendOn),
+    swapHandedness: typeof saved.swapHandedness === 'boolean' ? saved.swapHandedness : HAND_TUNING_DEFAULTS.swapHandedness,
+  };
+  t.pressOn = urlNumber('press', t.pressOn);
+  t.pressOff = urlNumber('release', t.pressOff);
+  t.extendOn = urlNumber('extend', t.extendOn);
+  try {
+    if (new URLSearchParams(window.location.search).get('hands') === 'raw') t.swapHandedness = false;
+  } catch {
+    /* ignore */
+  }
+  return t;
+}
+
+/** Live hand tuning, read every frame. Change it with setHandTuning. */
+export const handTuning: HandTuning = loadTuning();
+
+export function setHandTuning(patch: Partial<HandTuning>): void {
+  Object.assign(handTuning, patch);
+  try {
+    window.localStorage.setItem(TUNING_KEY, JSON.stringify(handTuning));
+  } catch {
+    /* ignore */
+  }
+}
+
 const Z_WEIGHT = 0.5;
 const PRESS_MAX_MS = 320;
 const PRESS_REFRACTORY_MS = 140;
@@ -57,6 +110,8 @@ export interface FingerDyn {
   lastPressAt: number;
   extending: boolean;
   extendStart: number;
+  /** largest |signal| lately (decays over ~1.5 s), shown in the debug panel to help tuning */
+  peak: number;
   /** 0..1 glow levels read by the overlay */
   flexGlow: number;
   extendGlow: number;
@@ -88,6 +143,7 @@ function newDyn(): FingerDyn {
     lastPressAt: -1e9,
     extending: false,
     extendStart: 0,
+    peak: 0,
     flexGlow: 0,
     extendGlow: 0,
     curl: 0,
@@ -261,28 +317,31 @@ export class HandTracker {
 
     const common = median(vels);
     const decay = Math.exp(-dt / GLOW_TAU_S);
+    const peakDecay = Math.exp(-dt / 1.5);
+    const { pressOn, pressOff, extendOn } = handTuning;
     for (const f of FINGERS) {
       const dyn = h.dyn[f];
       dyn.signal = dyn.vel - common;
+      dyn.peak = Math.max(dyn.peak * peakDecay, Math.abs(dyn.signal));
       // Press with hysteresis.
       if (!dyn.pressing) {
-        if (dyn.signal > PRESS_ON && now - dyn.lastPressAt > PRESS_REFRACTORY_MS) {
+        if (dyn.signal > pressOn && now - dyn.lastPressAt > PRESS_REFRACTORY_MS) {
           dyn.pressing = true;
           dyn.pressStart = now;
           dyn.lastPressAt = now;
           h.activeFinger = f;
           h.activeAt = now;
         }
-      } else if (dyn.signal < PRESS_OFF || now - dyn.pressStart > PRESS_MAX_MS) {
+      } else if (dyn.signal < pressOff || now - dyn.pressStart > PRESS_MAX_MS) {
         dyn.pressing = false;
       }
       // Quick extension.
       if (!dyn.extending) {
-        if (!dyn.pressing && dyn.signal < -EXT_ON) {
+        if (!dyn.pressing && dyn.signal < -extendOn) {
           dyn.extending = true;
           dyn.extendStart = now;
         }
-      } else if (dyn.signal > -EXT_ON * 0.3 || now - dyn.extendStart > PRESS_MAX_MS) {
+      } else if (dyn.signal > -extendOn * 0.3 || now - dyn.extendStart > PRESS_MAX_MS) {
         dyn.extending = false;
       }
       dyn.flexGlow = dyn.pressing ? 1 : dyn.flexGlow * decay;

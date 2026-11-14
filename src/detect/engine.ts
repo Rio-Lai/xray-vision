@@ -14,22 +14,11 @@ import { loadVisionTasks, USEFUL_CLASSES } from './mediapipe';
 import type { VisionTasks } from './mediapipe';
 import { ObjectTracker } from './objectTracker';
 import type { RawDetection } from './objectTracker';
-import { HandTracker } from './handTracker';
+import { HandTracker, handTuning } from './handTracker';
 import type { RawHand } from './handTracker';
 import { mockHandLandmarks, mockLaptop, mockPhone } from './mock';
 import { live } from './live';
 
-/**
- * MediaPipe labels handedness assuming a mirrored (selfie) image. Our cap camera is NOT mirrored,
- * so the labels are swapped. Add ?hands=raw to the URL to disable the swap if left/right look wrong.
- */
-const FLIP_HANDEDNESS = (() => {
-  try {
-    return new URLSearchParams(window.location.search).get('hands') !== 'raw';
-  } catch {
-    return true;
-  }
-})();
 
 const PUBLISH_MS = 66;
 const OBJECT_EVERY_N_FRAMES = 3;
@@ -83,7 +72,8 @@ function parseHands(res: unknown): RawHand[] {
     const cat = hd[i]?.[0];
     const name = (cat?.categoryName || cat?.displayName || 'Right').toLowerCase();
     const labelLeft = name.startsWith('l');
-    const isLeft = FLIP_HANDEDNESS ? !labelLeft : labelLeft;
+    // MediaPipe assumes a mirrored (selfie) image; our camera is not mirrored (see handTuning).
+    const isLeft = handTuning.swapHandedness ? !labelLeft : labelLeft;
     out.push({
       handedness: isLeft ? 'left' : 'right',
       score: cat?.score ?? 0.9,

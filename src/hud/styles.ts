@@ -91,4 +91,14 @@ export const HUD_CSS = `
 .bf-debug { position: absolute; left: 18px; top: 56px; max-width: calc(100vw - 36px); max-height: calc(100vh - 200px); overflow: hidden;
   padding: 10px 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.72); color: #e8e8e8;
   font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace !important; white-space: pre; }
+.bf-tuning { position: absolute; top: 16px; right: 18px; width: 320px; padding: 12px 14px; border-radius: 10px; pointer-events: auto;
+  background: rgba(0, 0, 0, 0.78); color: #e8e8e8; font-size: 13px !important; display: flex; flex-direction: column; gap: 8px; }
+.bf-tuning * { font-size: 13px; }
+.bf-tuning-title { font-weight: 600; }
+.bf-tuning label { display: flex; flex-direction: column; gap: 2px; }
+.bf-tuning label b { color: #fff; }
+.bf-tuning input[type=range] { width: 100%; accent-color: ${ACCENT}; }
+.bf-tuning .bf-tuning-row { flex-direction: row; align-items: center; gap: 8px; }
+.bf-tuning button { padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.1); color: #fff; cursor: pointer; }
+.bf-tuning code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace !important; color: #bbb; user-select: text; word-break: break-all; }
 `;
