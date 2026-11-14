@@ -1,7 +1,8 @@
 /**
- * HUD-local UI state (status lines, toast, legend/debug toggles).
+ * HUD-local UI state (status lines, toast, developer log, debug toggle).
  * This is NOT app state: the shared app state lives in src/state/store.ts.
- * Camera, detection and overlay report failures here so they show as red HUD lines.
+ * Camera, detection and overlay report problems here. On screen, only errors (and warnings from
+ * explicit developer actions) are shown; everything else is visible in the hidden debug panel (D).
  */
 import { create } from 'zustand';
 
@@ -16,18 +17,24 @@ export interface Toast extends StatusLine {
   id: number;
 }
 
+export interface LogLine extends StatusLine {
+  /** performance.now() when logged */
+  t: number;
+}
+
 interface HudUiState {
   status: Record<string, StatusLine>;
   toast: Toast | null;
-  legend: boolean;
   debug: boolean;
+  /** Last few developer messages (key presses, explode results), shown only in the debug panel. */
+  log: LogLine[];
 }
 
 export const useHud = create<HudUiState>(() => ({
   status: {},
   toast: null,
-  legend: true,
   debug: false,
+  log: [],
 }));
 
 /** Set (or clear, with level null) one status line. No-op when unchanged, so it is safe to call every frame. */
@@ -45,10 +52,22 @@ export function setStatus(key: string, level: StatusLevel | null, text?: string 
   useHud.setState({ status: { ...current, [key]: { level, text } } });
 }
 
+/** Add a line to the debug panel's log only (never on screen). */
+export function devLog(text: string, level: StatusLevel = 'info'): void {
+  const line: LogLine = { t: performance.now(), level, text };
+  useHud.setState((s) => ({ log: [...s.log.slice(-11), line] }));
+}
+
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let toastSeq = 0;
 
+/**
+ * A short message for the person at the keyboard. Always logged; shown on screen only for
+ * warnings and errors (info goes to the debug panel only, so nothing chatty appears in the demo).
+ */
 export function showToast(text: string, level: StatusLevel = 'info', ms = 3500): void {
+  devLog(text, level);
+  if (level === 'info') return;
   if (toastTimer) clearTimeout(toastTimer);
   toastSeq += 1;
   const id = toastSeq;
@@ -56,10 +75,6 @@ export function showToast(text: string, level: StatusLevel = 'info', ms = 3500):
   toastTimer = setTimeout(() => {
     if (useHud.getState().toast?.id === id) useHud.setState({ toast: null });
   }, ms);
-}
-
-export function toggleLegend(): void {
-  useHud.setState((s) => ({ legend: !s.legend }));
 }
 
 export function toggleDebug(): void {
