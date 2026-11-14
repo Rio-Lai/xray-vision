@@ -48,6 +48,11 @@ const KEYS_MS = 2000;
 const TYPING_MS = 2000;
 /** A click picks the part whose label point is this close (px). */
 const PICK_PX = 60;
+/**
+ * The arm waits for its models (26 GLBs, parsed on each mount) before it lifts out of the hand, so
+ * they do not pop in during the glide; at most this long (ms).
+ */
+const MAX_WAIT_MS = 1500;
 
 /** For the overlay: which part of the arm is at a viewport point (null when the arm is not up). */
 export const armStage: { pickAt: (x: number, y: number) => string | null } = { pickAt: () => null };
@@ -78,6 +83,8 @@ class ArmStageCtl {
   private labels: LabelLayer | null = null;
   private td: ArmTeardown | null = null;
   private done = false;
+  private ready = false;
+  private mountAt = 0;
   private lastNow = 0;
   // glide (like BoxRig.updateStage)
   private lift = 0;
@@ -111,6 +118,7 @@ class ArmStageCtl {
     this.wrap = wrap;
     this.labels = new LabelLayer(labelHost);
     this.lastInput = performance.now();
+    this.mountAt = performance.now();
     loadArmTeardown()
       .then((t) => (this.td = t))
       .catch((e: unknown) => console.error('[arm] teardown', e));
@@ -195,10 +203,11 @@ class ArmStageCtl {
       this.from.w += (box.w - this.from.w) * k;
       this.from.h += (box.h - this.from.h) * k;
     }
-    [this.lift, this.liftV] = springStep(this.lift, this.liftV, on ? 1 : 0, STAGE_LIFT_OMEGA, dt);
+    const go = on && (this.ready || now - this.mountAt > MAX_WAIT_MS);
+    [this.lift, this.liftV] = springStep(this.lift, this.liftV, go ? 1 : 0, STAGE_LIFT_OMEGA, dt);
     const L = clamp01(this.lift);
-    const presTarget = on ? 1 : smoothstep(0.03, 0.35, L);
-    this.presence += (presTarget - this.presence) * (1 - Math.exp(-dt * (on ? 9 : 14)));
+    const presTarget = go ? 1 : smoothstep(0.03, 0.35, L);
+    this.presence += (presTarget - this.presence) * (1 - Math.exp(-dt * (go ? 9 : 14)));
     if (!on && L < 0.02 && this.presence < 0.02 && !this.done) {
       this.done = true;
       setTimeout(() => this.onDone(), 0);
@@ -255,6 +264,11 @@ class ArmStageCtl {
       frozen: false,
       view: { yaw: this.yaw, pitch: this.pitch, zoom: 1 },
     };
+  };
+
+  /** His models are loaded (from ArmXrayView's onReady). */
+  onReady = (): void => {
+    this.ready = true;
   };
 
   /** Every frame, after his renderer drew: Blowfish label pills and the pick points. */
@@ -361,6 +375,7 @@ function ArmStageView({ onDone }: { onDone: () => void }) {
           showLabels={false}
           drive={ctl.drive}
           onFrame={ctl.onFrame}
+          onReady={ctl.onReady}
         />
       </div>
       <div ref={labelRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
