@@ -1,7 +1,12 @@
 /**
- * Wraps the ElevenLabs React SDK (@elevenlabs/react 1.x, provider style per the current docs):
- * <VoiceProvider> (ConversationProvider) takes the client tools and callbacks below, and this hook
- * calls useConversation() inside it for status, startSession and the send methods.
+ * Wraps the ElevenLabs React SDK (@elevenlabs/react 1.x, provider style; checked against the published
+ * 1.22.1 types): <VoiceProvider> (ConversationProvider) takes the client tools and callbacks below, and
+ * this hook calls useConversation() inside it for status, startSession and the send methods.
+ *
+ * SDK facts this file relies on:
+ * - startSession() and endSession() return void, not a Promise: connection failures arrive through
+ *   onError and status 'error', never as a rejected await.
+ * - status is 'disconnected' | 'connecting' | 'connected' | 'error'.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useConversation } from '@elevenlabs/react';
@@ -36,6 +41,16 @@ export const voiceOptions = {
     const who = o.role ?? o.source;
     useStore.getState().addTranscript({ role: who === 'user' ? 'user' : 'agent', text });
   },
+  // 'error' (or a drop while connecting) must not leave the store stuck on 'connecting'.
+  onStatusChange: (p: unknown) => {
+    const st = asRecord(p).status;
+    const status = typeof st === 'string' ? st : '';
+    if (status === 'error' || status === 'disconnected') {
+      registerVoiceBridge(null);
+      useStore.getState().setVoiceStatus('disconnected');
+      useStore.getState().setAgentSpeaking(false);
+    }
+  },
   onModeChange: (m: unknown) => {
     const mode = typeof m === 'string' ? m : asRecord(m).mode;
     useStore.getState().setAgentSpeaking(mode === 'speaking');
@@ -44,11 +59,16 @@ export const voiceOptions = {
     console.error('[voice] error', ...args);
     const first = args[0];
     emitError(first instanceof Error ? first.message : typeof first === 'string' ? first : 'Voice error');
+    // A failed connect never reports 'connected'; do not stay on 'connecting'.
+    if (useStore.getState().voiceStatus === 'connecting') useStore.getState().setVoiceStatus('disconnected');
   },
 };
 
 const toVoiceStatus = (s: string): VoiceStatus =>
   s === 'connected' ? 'connected' : s === 'connecting' ? 'connecting' : 'disconnected';
+
+/** If the SDK never reports connected (bad signed URL, blocked socket), give up after this long. */
+const CONNECT_TIMEOUT_MS = 15000;
 
 export function useVoiceAgent() {
   const conversation = useConversation();
@@ -56,6 +76,8 @@ export function useVoiceAgent() {
   ref.current = conversation;
 
   const [error, setError] = useState<string | null>(null);
+  /** Bumped on every start, so an old connect timeout never cancels a newer attempt. */
+  const attempt = useRef(0);
   const [notConfigured, setNotConfigured] = useState(false);
 
   useEffect(() => {
@@ -95,8 +117,9 @@ export function useVoiceAgent() {
     } else {
       registerVoiceBridge(null);
     }
-    // Do not overwrite our own 'connecting' while the SDK still reports disconnected.
-    if (!(vs === 'disconnected' && useStore.getState().voiceStatus === 'connecting')) {
+    // Do not overwrite our own 'connecting' while the SDK still reports disconnected
+    // (it has not started yet); 'error' always wins.
+    if (status === 'error' || !(vs === 'disconnected' && useStore.getState().voiceStatus === 'connecting')) {
       useStore.getState().setVoiceStatus(vs);
     }
     if (vs === 'connected') {
@@ -131,18 +154,33 @@ export function useVoiceAgent() {
       return;
     }
     useStore.getState().setVoiceStatus('connecting');
+    const mine = ++attempt.current;
     try {
-      // Signed URLs are for WebSocket sessions.
-      await ref.current.startSession({ signedUrl, connectionType: 'websocket' });
+      // Signed URLs are for WebSocket sessions. startSession returns void: failures come via onError.
+      ref.current.startSession({ signedUrl, connectionType: 'websocket' });
     } catch (err) {
       useStore.getState().setVoiceStatus('disconnected');
       setError(err instanceof Error ? err.message : String(err));
+      return;
     }
+    window.setTimeout(() => {
+      if (attempt.current !== mine || useStore.getState().voiceStatus !== 'connecting') return;
+      console.warn('[voice] no connection after', CONNECT_TIMEOUT_MS, 'ms; giving up');
+      try {
+        ref.current.endSession();
+      } catch {
+        /* nothing to end */
+      }
+      useStore.getState().setVoiceStatus('disconnected');
+      setError('Voice could not connect.');
+    }, CONNECT_TIMEOUT_MS);
   }, []);
 
   const stop = useCallback(async () => {
     try {
-      await ref.current.endSession();
+      ref.current.endSession();
+    } catch (err) {
+      console.warn('[voice] endSession failed', err);
     } finally {
       registerVoiceBridge(null);
       useStore.getState().setVoiceStatus('disconnected');
