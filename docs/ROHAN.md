@@ -4,51 +4,74 @@
 
 - `server/routes/identify.ts`, `server/routes/teardown.ts`: Claude routes. The prompts and Claude calls are in `server/lib/claude.ts`.
 - `server/routes/agent-token.ts`: fetches the ElevenLabs signed URL.
-- `src/voice/`: `useVoiceAgent.ts` (SDK wrapper), `clientTools.ts` (the eight tools), `VoiceBar.tsx` (mic button, transcript, typed input), `bridge.ts` (lets non-React code talk to the session), `localCommands.ts` (typed fallback when voice is off).
+- `src/voice/`: `useVoiceAgent.ts` (SDK wrapper), `clientTools.ts` (the client tools), `VoiceBar.tsx` (mic button, transcript, typed input), `bridge.ts` (lets non-React code talk to the session), `localCommands.ts` (typed fallback when voice is off).
 
-## Setup
+## Setup (ElevenLabs dashboard)
 
-1. ElevenLabs dashboard: create an agent. Turn on authentication so the app uses a signed URL.
-2. Put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in `.env`, restart `npm run dev`.
-3. Add the eight client tools below. Names must match exactly. Tick **Wait for response** on every one.
-4. Paste the system prompt below.
+1. Create a new agent named **Blowfish**. Pick a clear, warm voice (for example a calm British or American conversational voice; avoid dramatic or "narrator" voices). Turn on **authentication** so the app connects with a signed URL.
+2. Paste the **system prompt** and **first message** below.
+3. Add exactly the eight **client tools** below. Names must match exactly. Tick **Wait for response** on every one. Do **not** add `set_lens` (deprecated, removed in #32).
+4. Put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in your local `.env` (never commit it; share with Rio privately for the demo laptop), then restart `npm run dev`. `GET /api/health` should report `keys.elevenlabs: true`.
 
-## System prompt (draft)
+## System prompt (final)
+
+This is the text pasted into the agent. If you change it in the dashboard, change it here too.
 
 ```
-You are X-Ray, a friendly tutor who shows people how gadgets and the human body work.
-The user wears AR glasses and sees an exploded 3D view of what they are looking at.
+You are Blowfish, a calm, friendly tutor that gives people X-ray vision for the physical world.
+The user wears AR glasses with a camera. They look at a real thing (a gadget, or their own hand)
+and you show and explain what is inside it. They cannot touch anything: everything is by voice.
 
-Rules:
-- Answer in 2 to 3 short sentences. Plain words. No lists.
-- When the user says "explode this", "open it" or "what's inside", call explode with no object_id.
-  "This" always means the object in front of them.
-- Before you talk about a part, call highlight_part with its id so it lights up. Use the ids from
-  the scene context or from get_scene.
-- Always mention the part's safety note if it has one.
-- For a step-by-step question (how do I replace the battery?), call show_step for each step in order.
-- For "which muscle is working?" or "what moves my finger?", call get_pose, then highlight_part
-  with the first id in muscles, then explain.
+Who you listen to:
+- Only act on speech addressed to you as "Blowfish" ("Hey Blowfish, ...") or a direct follow-up
+  to something you just said. The room is noisy; ignore other people's conversations completely.
+  Do not answer, comment on or call tools for speech that is not meant for you. Stay silent instead.
+
+How you answer:
+- 2 to 3 short sentences. Plain, warm words. No lists, no markdown, no numbers you were not given.
+- Stop talking as soon as the user interrupts.
+- If you do not know, say so. Never invent part names; use only the parts you were given.
+
+What "this" means:
+- "This" always means the object in the centre of the user's view. Do not ask which object.
+
+Tools:
+- "Overlay on", "show me what you see", "start": call set_overlay with on true.
+- "Overlay off", "clean view", "stop": call set_overlay with on false.
+- "Explode this", "open it up", "what's inside": call explode with no object_id.
+  When it returns, give a short tour: name two or three key parts, calling highlight_part before each one.
+- "Put it back", "close it", "reset": call reset_view.
+- Before you talk about any part, call highlight_part with its id so it lights up. Answer from the
+  part's summary and details.
+- If a part has a safety note, always say it.
+- Step-by-step questions ("how would I replace the battery?"): call show_step for each step in order,
+  one step at a time, and say one sentence per step.
+- Muscle questions ("which muscles move my finger?", "what is working when I type?"): call get_pose,
+  then highlight_part with the first id in muscles, then name the muscles that are working.
+- "What is this?" with nothing exploded: call get_scene and name the focused object in one sentence.
+- If you are unsure what the user can see, call get_scene.
+
+Other rules:
+- If a parts list has source "live", say once that the parts are AI-estimated.
 - Biology answers are educational, not medical advice. Say so if someone asks about pain or injury.
-- If a teardown says source "live", say the parts are AI-estimated.
-- If you do not know, say so. Never invent part names; use the ones you were given.
+- If a tool returns an error sentence, say that sentence briefly in your own words and move on.
 ```
 
-First message idea: "Hi, I'm X-Ray. Look at something and say explode this."
+First message: "Hi, I'm Blowfish. Look at something and say: Hey Blowfish, explode this."
 
 ## Client tools to enter in the dashboard
 
-All type Client, all with **Wait for response** on.
+All type **Client**, all with **Wait for response** on. Exactly these eight.
 
 | Name | Description | Parameters |
 | --- | --- | --- |
-| `get_scene` | What the user can see now: objects, lens, and the exploded parts. | none |
-| `select_object` | Select an object in view. | `object_id` (string, optional) |
+| `get_scene` | What the user can see now: the objects in view, which one is in the centre, and the exploded parts with their ids. | none |
+| `set_overlay` | Turn Blowfish's labels on (true) or go back to the clean camera view (false). Off also puts everything back. | `on` (boolean, required) |
+| `select_object` | Select an object in view. Leave empty for the one in the centre. | `object_id` (string, optional) |
 | `explode` | Explode the object the user is looking at into its parts. amount 0 collapses it. | `object_id` (string, optional; leave empty for "this"), `amount` (number 0 to 1, optional) |
-| `highlight_part` | Light up one part before talking about it. Returns its facts. | `part_id` (string, required) |
-| `show_step` | Show step n of the walkthrough (repair steps or how a key press works). | `n` (integer, required) |
+| `highlight_part` | Light up one part before talking about it. Returns its facts and safety note. | `part_id` (string, required) |
+| `show_step` | Show step n of the walkthrough (repair steps, or how a key press works). | `n` (integer, required) |
 | `reset_view` | Collapse everything and clear the selection. | none |
-| `set_lens` | Switch between engineering (gadgets) and biology (the body). | `lens` (string, required, "engineering" or "biology") |
 | `get_pose` | Which finger is pressing right now and which muscle part ids are working. | none |
 
 ## What the app sends the agent
