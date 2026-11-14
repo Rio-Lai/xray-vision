@@ -58,6 +58,17 @@ interface Instance {
   layer: number;
   /** world point used for this part's label */
   mid: THREE.Vector3;
+  /** tendon slide it was last placed with */
+  slide?: number;
+}
+
+/** Same limb points (within 0.01 px)? Then the meshes need not be placed again. */
+function samePoints(a: ArmGeometry, b: ArmGeometry): boolean {
+  if (a === b) return true;
+  const eq = (u: THREE.Vector3, v: THREE.Vector3) => Math.abs(u.x - v.x) < 0.01 && Math.abs(u.y - v.y) < 0.01 && Math.abs(u.z - v.z) < 0.01;
+  if (!eq(a.p.shoulder, b.p.shoulder) || !eq(a.p.elbow, b.p.elbow) || !eq(a.p.wrist, b.p.wrist)) return false;
+  if (a.p.hand.length !== b.p.hand.length) return false;
+  return a.p.hand.every((v, i) => eq(v, b.p.hand[i]));
 }
 
 const LAYERS = [1, 2, 3, 4, 5, 6];
@@ -100,6 +111,9 @@ export class ArmXray {
   private geom: ArmGeometry | null = null;
   private layerEase = new Map<number, number>();
   private opacity = new Map<number, number>();
+  /** geometry and mesh count the meshes were last placed for (a still arm is not re-placed every frame) */
+  private placedGeom: ArmGeometry | null = null;
+  private placedCount = -1;
   ready: Promise<void>;
 
   constructor(td: ArmTeardown) {
@@ -433,14 +447,25 @@ export class ArmXray {
       return 0.02 * g.foreLen * Math.sin((Math.PI * d) / 150);
     };
 
-    for (const inst of this.instances) {
-      if (inst.base) {
-        const slide = inst.pl.part === 'flexor-tendons' && inst.pl.finger ? slideOf(inst.pl.finger) : 0;
-        this.placeBent(inst, g, slide);
-      } else this.placeRigid(inst, g);
+    // A still arm (the fixed pose on the app's stage, or a frozen replay) keeps its placement: bending ~150k
+    // vertices every frame is the costliest part of a frame. Then only a sliding tendon is placed again.
+    const count = this.instances.length + this.slips.length;
+    const moved = !this.placedGeom || count !== this.placedCount || !samePoints(this.placedGeom, g);
+    if (moved) {
+      this.placedGeom = g;
+      this.placedCount = count;
     }
-    this.placeSkin(g);
-    for (const s of this.slips) this.placeSlip(s, g);
+    for (const inst of this.instances) {
+      const slide = inst.base && inst.pl.part === 'flexor-tendons' && inst.pl.finger ? slideOf(inst.pl.finger) : 0;
+      if (!moved && slide === inst.slide) continue;
+      inst.slide = slide;
+      if (inst.base) this.placeBent(inst, g, slide);
+      else this.placeRigid(inst, g);
+    }
+    if (moved) {
+      this.placeSkin(g);
+      for (const s of this.slips) this.placeSlip(s, g);
+    }
 
     // ---- explode: outer layers move towards the viewer and fan out on screen (into the space below the arm,
     // where they can be told apart), staggered (outer first) and eased. Bones (layer 6) stay on the real arm.

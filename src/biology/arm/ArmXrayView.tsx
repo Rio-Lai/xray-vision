@@ -34,7 +34,18 @@ export interface ArmXrayProps {
   view?: { yaw: number; pitch: number; zoom: number };
   /** layers not drawn at all (e.g. [1] = no skin) */
   hideLayers?: number[];
+  /**
+   * Called every frame before drawing (canvas size in px); what it returns overrides the props above for that
+   * frame. Lets the app's stage (src/overlay/ArmStage.tsx) drive the arm from its store without a React render.
+   */
+  drive?: (now: number, w: number, h: number) => ArmXrayDrive;
+  /** Called every frame after drawing, with every part's label point projected to canvas px (`at`). */
+  onFrame?: (labels: ArmLabel[], w: number, h: number) => void;
 }
+
+export type ArmXrayDrive = Partial<
+  Pick<ArmXrayProps, 'landmarks' | 'explode' | 'layerFocus' | 'highlight' | 'keystrokes' | 'frozen' | 'view' | 'hideLayers'>
+>;
 
 const FOV = 30;
 
@@ -130,8 +141,8 @@ export function ArmXrayView(props: ArmXrayProps) {
         camera.far = dist * 4;
         setSize({ w, h });
       }
-      const p = live.current;
       const now = performance.now();
+      const p = live.current.drive ? { ...live.current, ...live.current.drive(now, w, h) } : live.current;
       const out = arm.update({
         frame: p.landmarks,
         width: w,
@@ -192,18 +203,21 @@ export function ArmXrayView(props: ArmXrayProps) {
       camera.lookAt(look);
       arm.perspective = (z) => (dist / Math.max(1, dist - z)) * zoom;
       renderer.render(scene, camera);
-      if (now - lastLabels > 60) {
-        lastLabels = now;
+      const ownLabels = p.showLabels !== false && now - lastLabels > 60;
+      if (ownLabels || p.onFrame) {
         // project each label point with the real camera (it drifts, zooms and orbits during the tour)
         camera.updateMatrixWorld();
-        setLabels(
-          out.map((l) => {
-            pivot.updateMatrixWorld(true);
-            const v = arm.root.localToWorld(new THREE.Vector3(...l.world)).project(camera);
-            const at: [number, number] = [((v.x + 1) / 2) * w, ((1 - v.y) / 2) * h];
-            return { ...l, at, label: [at[0] + 70, at[1] - 34] };
-          }),
-        );
+        pivot.updateMatrixWorld(true);
+        const projected = out.map((l): ArmLabel => {
+          const v = arm.root.localToWorld(new THREE.Vector3(...l.world)).project(camera);
+          const at: [number, number] = [((v.x + 1) / 2) * w, ((1 - v.y) / 2) * h];
+          return { ...l, at, label: [at[0] + 70, at[1] - 34] };
+        });
+        p.onFrame?.(projected, w, h);
+        if (ownLabels) {
+          lastLabels = now;
+          setLabels(projected);
+        }
       }
       if (!readySent && out.length > 0) {
         readySent = true;
@@ -215,6 +229,9 @@ export function ArmXrayView(props: ArmXrayProps) {
       cancelAnimationFrame(raf);
       arm.dispose();
       renderer.dispose();
+      // free the WebGL context now: the app mounts this view each time the arm comes on stage, and Chrome drops
+      // the oldest live context (the app's main overlay) once there are too many
+      renderer.forceContextLoss();
       el.removeChild(renderer.domElement);
     };
   }, [td]);

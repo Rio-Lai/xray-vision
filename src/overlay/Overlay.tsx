@@ -7,10 +7,11 @@
  * Stage mode (the default): the box rig lifts the model out of the object and floats it in the
  * middle of the view, turned by store.modelYaw / modelPitch, plus a very slow idle drift once
  * nothing has touched it for IDLE_MS. "Put it away" (reset) glides it back into its object.
- * A hand teardown goes on stage the same way once its parts have models (mesh_url; it switches
- * by itself when they appear): the 3D hand and forearm float in the middle, while the
- * landmark-drawn tendons and muscles keep following the real hand (not exploded, still lit by
- * key presses). A highlight shows on both. Without models a hand is drawn on the real hand only.
+ * A hand on stage is Kash's 3D arm (flow.ts swaps in its parts list, src/stage/armTeardown.ts):
+ * ArmStage.tsx draws it in the middle of the view with its own renderer and labels, while the
+ * landmark-drawn tendons keep following the real hand here (the live preview, lit by key presses).
+ * Any other hand teardown goes on stage like a box once its parts have models (mesh_url); without
+ * models a hand is drawn on the real hand only.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import * as THREE from 'three';
@@ -34,6 +35,8 @@ import { modelControl } from '../stage/modelControl';
 import { gestureLive } from '../detect/gestureDriver';
 import { PinchDotLayer } from './pinchDots';
 import { hasPartMeshes } from './stageState';
+import { ArmStage, armStage } from './ArmStage';
+import { isArmTeardown } from '../stage/armTeardown';
 
 const DWELL_MS = 1200;
 /**
@@ -58,9 +61,9 @@ function teardownSignature(td: Teardown): string {
   ].join('|');
 }
 
-/** Whether the teardown gets the box rig: every non-hand teardown; a hand only on stage with models. */
+/** Whether the teardown gets the box rig: every non-hand teardown; a hand only on stage with models (not the arm). */
 function wantsBoxRig(td: Teardown | null, s: AppState): boolean {
-  if (!td) return false;
+  if (!td || isArmTeardown(td)) return false;
   if (td.anchor !== 'hand') return true;
   return s.trackingMode === 'stage' && hasPartMeshes(td);
 }
@@ -286,6 +289,7 @@ class OverlayEngine {
 
   /** Part id under viewport point (x, y), if any. */
   partAt(x: number, y: number): string | null {
+    if (isArmTeardown(this.teardownRef)) return armStage.pickAt(x, y);
     if (this.boxRig) {
       if (this.boxRig.explodeLevel() < 0.3) return null;
       this.ndc.set((x / this.vw) * 2 - 1, -(y / this.vh) * 2 + 1);
@@ -352,7 +356,9 @@ class OverlayEngine {
       bounds = out.bounds;
     }
 
-    const handTd = td && td.anchor === 'hand' ? td : null;
+    // Kash's arm on stage (ArmStage.tsx): the real hand keeps the live tendon preview, lit by key presses.
+    const armUp = isArmTeardown(td);
+    const handTd = td && td.anchor === 'hand' && !armUp ? td : null;
     // The hand's model is on stage: the live drawing stays on the real hand, collapsed, without labels.
     const handOnStage = handTd !== null && this.boxRig !== null;
     const sel = s.selectedObjectId && s.selectedObjectId.startsWith('hand-') ? s.selectedObjectId : null;
@@ -366,8 +372,9 @@ class OverlayEngine {
       hands: live.hands,
       preferredId: sel ?? foc,
       teardown: handTd,
-      // Live tendons on a focused hand once the overlay is on (the full layers come with explode).
-      preview: !td && s.overlayOn && foc !== null,
+      // Live tendons on a focused hand once the overlay is on (the full layers come with explode),
+      // and on the real hand while the arm floats on stage.
+      preview: armUp || (!td && s.overlayOn && foc !== null),
       explodeTarget: handOnStage ? 0 : s.explodeAmount,
       highlighted: hl,
     });
@@ -537,6 +544,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
   return (
     <>
       <div ref={hostRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+      <ArmStage />
       <div ref={labelRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
     </>
   );
