@@ -35,6 +35,12 @@ export const TeardownPartSchema = z.object({
   safety: z.string().nullable().optional(),
   /** GLB from fal once generated; null until then (the app shows the placeholder shape). */
   mesh_url: z.string().nullable().optional(),
+  /**
+   * What the part looks like, as one plain phrase for the image prompt (shape, colour, material,
+   * distinguishing features), e.g. "a flat grey lithium-polymer pack of four rectangular cells
+   * joined by a thin flex cable". Written by Claude for live parts lists; optional everywhere.
+   */
+  visual: z.string().optional(),
 });
 export type TeardownPart = z.infer<typeof TeardownPartSchema>;
 

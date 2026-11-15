@@ -6,7 +6,7 @@ Last updated: Sat 14 Nov 2026, 21:15 (v2: floating model, hand gestures, video r
 
 ## 1. What we are building
 
-**Blowfish** is voice-controlled X-ray vision for the physical world. You wear a camera and AR glasses, look at a real thing, and say "Hey Blowfish, explode this". Blowfish freezes the view, pulls the object apart into its parts as floating 3D pieces placed over the real object, and a voice tutor explains each part and answers questions. It works on machines and on living things with the same pipeline.
+**Blowfish** is voice-controlled X-ray vision for the physical world. You wear a camera and AR glasses, look at a real thing, and say "Hey Blowfish, analyse this". A 3D model of it lifts out of the real object and floats in the middle of your view; you turn it and pull it apart with your hands or your voice, and a voice tutor explains each part and answers questions. It works on machines and on living things with the same pipeline.
 
 - **Event:** Imperial AI Hack. Submissions close **Sunday 15 Nov, 12:00**. Judging 13:00 to 16:30 in three rounds: **round 1** is a **2-minute pre-recorded video** shown to 2 judges, then 6 minutes of questions; **round 2** is a live demo to 6 to 8 judges; the track winner shows the product to the whole cohort.
 - **Track:** Voice, Vision & Generative Media. Bounties: ElevenLabs (main), fal. Extra prize: Figma.
@@ -27,10 +27,21 @@ There are no modes, tabs, lenses or menus. One flow:
 
 Everything is driven by voice. Keyboard shortcuts and the typed command box exist only as a hidden developer fallback and must never appear on screen during the demo.
 
+### The user journey (agreed Sunday 00:30)
+
+1. **Explode anything.** What sections 1 to 7 above describe: look, "analyse this", turn it, pull it apart. Owner: Rio with the orchestrator's agents.
+2. **Learn from it.** Once something is open, ask how it works: "now show me how the muscle group works", "how does the eye focus?". The parts involved light up in turn while the tutor teaches, and questions change what is shown. Owners: Rohan and Kash (with the pitch).
+3. **Put it away and keep it.** When the wearer is done, the model collapses and is saved, so it can be brought back later for more teaching.
+
+**How Blowfish talks.** Short by default: after "explode this" it says "<thing> exploded." and stops. It explains and teaches only when asked ("tell me about...", "teach me...", "how does...").
+
+**The live pitch.** A judge sits typing on the MacBook. The wearer says, in turn: "analyse the hand" (the typing hand and forearm, Kash's arm), "analyse this" on the MacBook, then "analyse the eye" (the eye the judge is reading with). If asked whether it works on anything else: the arm, the MacBook and the eye are checked and stored ahead of time, which is why they open instantly with full models and no fal call; anything else is named by Claude and built live, marked "AI-estimated", with grey translucent shapes until fal models arrive. Say exactly that; never present a stored model as generated live.
+
 ### Demo scope (what must work for the video and the live rounds)
 
 - A **MacBook Air M3 (13-inch)** on a desk with a teammate typing on it: label, analyse, turn it by hand, explode it by hand, part tour, battery replacement steps.
 - The **typing hands**: live muscle and tendon overlay with key-press activation, explained by the tutor.
+- The **eye**: look at a person's face, "analyse the eye": Kash's eye model (cornea to optic nerve) floats up, with the path of light as its steps.
 - One **judge's object** generated live (marked "AI-estimated"), if the network allows.
 - The Figma work shows the design and the wider vision (see section 2 and `docs/design/`).
 
