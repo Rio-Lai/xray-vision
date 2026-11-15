@@ -32,11 +32,13 @@
  *    ring and pinky curled (a closed peace sign), the thumb anywhere but on the index or middle tip.
  *    From the world landmarks when present (else the image), in hand sizes: index and middle tips at
  *    least twoFingerReach from the wrist, at most twoFingerGap apart, ring and pinky tips at most
- *    twoFingerCurl from the wrist and TF_CURL_MARGIN nearer it than the index and middle, the thumb tip
+ *    twoFingerCurl from the wrist and twoFingerMargin nearer it than the index and middle, the thumb tip
  *    TF_THUMB_CLEAR or more from the index and middle tips (so neither a pinch nor the snap-ready pose
- *    counts; an open flat hand has its ring and pinky out, a fist its index and middle in). Looser by
+ *    counts; an open flat hand has its ring and pinky out, a fist its index and middle in), and the
+ *    hand at least TWO_FINGER_SIZE of restHandMax (not one on a mouse across the desk). Looser by
  *    TF_HYST once on. Held twoFingerHoldMs to start, lost releaseMs to end. While it holds the model
- *    follows the midpoint of the two fingertips (panX / panY since it began, panGain times). Not while
+ *    follows the hand's palm centre (panX / panY since it began, panGain times: the palm does not move
+ *    when the fingers curl, so closing the hand to stop leaves the model where it is). Not while
  *    that hand pinches; it starts only from idle (a hand of a globe turn that takes the pose is no
  *    longer an open palm: the globe ends first, then the pan starts).
  *  - drag (off by default: `pinchDrag`, ?pinchturn=1): one hand pinching turns the model like a globe
@@ -141,6 +143,8 @@ export interface GestureTuning {
   twoFingerGap: number;
   /** ...ring and pinky tips at most this far from the wrist (hand sizes) */
   twoFingerCurl: number;
+  /** ...and at least this much nearer the wrist than the index and middle tips (hand sizes) */
+  twoFingerMargin: number;
   /** ...held this long before the pan starts (ms) */
   twoFingerHoldMs: number;
   /** radians per hand size of pinch-drag */
@@ -200,7 +204,8 @@ export const GESTURE_TUNING_DEFAULTS: GestureTuning = {
   twoFinger: true,
   twoFingerReach: 1.35,
   twoFingerGap: 0.4,
-  twoFingerCurl: 1.2,
+  twoFingerCurl: 1.1,
+  twoFingerMargin: 0.6,
   twoFingerHoldMs: 120,
   rotGain: 1.1,
   spreadGain: 1.0,
@@ -307,10 +312,20 @@ const SNAP_NO_GRAB_MS = 600;
 const WHY_SNAP_READY = 'snap: ready (thumb on the middle finger)';
 const WHY_SNAP = 'snap: fired';
 const WHY_GRAB = 'grab: holding (open the hand to let go)';
-/** Two-finger pose: the ring and pinky tips at least this much nearer the wrist than the index and middle tips (hand sizes). */
-const TF_CURL_MARGIN = 0.35;
-/** ...and the thumb tip at least this far from the index and middle tips (not a pinch, not the snap-ready pose). */
-const TF_THUMB_CLEAR = 0.45;
+/** Two-finger pose: the thumb tip at least this far from the index and middle tips (not a pinch, not the snap-ready pose; above pinchOn and SNAP_TOUCH). */
+const TF_THUMB_CLEAR = 0.38;
+/**
+ * ...and the hand at least this share of restHandMax (wrist -> middle knuckle / frame height; KEEP_SIZE
+ * of that once on): not a hand on a mouse across the desk, but the wearer's own hand at arm's length
+ * from a head-worn phone (about 0.2 of the frame height) is. 0 when restHandMax is 0.
+ */
+export const TWO_FINGER_SIZE = 0.7;
+/**
+ * For that size, the knuckle width (index to pinky knuckle) counts this many times too, whichever is
+ * larger: a hand pointing towards or away from the camera looks short from wrist to knuckle but keeps
+ * its width (and a hand seen edge-on the other way round).
+ */
+const KNUCKLE_TO_SIZE = 1.2;
 /** ...every threshold this much looser once the pose is on (hysteresis). */
 const TF_HYST = 0.12;
 /** Which fingertips take part in a gesture (GestureMark.fingers), and all five. */
@@ -410,6 +425,8 @@ export interface HandGestureInfo {
   shape: HandShape;
   /** wrist -> middle MCP as a share of the frame height (compare restHandMax) */
   size: number;
+  /** the larger of that and KNUCKLE_TO_SIZE times the knuckle width, same units: the two-finger pose needs TWO_FINGER_SIZE * restHandMax */
+  tfSize: number;
   /** at least restHandMax: may make a globe or a burst */
   raised: boolean;
   /** knuckles and fingertips inside the frame */
@@ -562,11 +579,6 @@ interface HandTrack {
   fw: Euro;
   fpx: Euro;
   fpy: Euro;
-  /** the two-finger point (midpoint of the index and middle tips) */
-  ftx: Euro;
-  fty: Euro;
-  tx: number;
-  ty: number;
   /** the two-finger pose: raw this frame, on (held twoFingerHoldMs), since when raw (-1), since when lost while on (-1) */
   tfRaw: boolean;
   tfOn: boolean;
@@ -590,6 +602,7 @@ interface HandTrack {
   reach: number;
   restOpen: number;
   size: number;
+  tfSize: number;
   /** last time it was open over the model (a fist soon after grabs it) */
   armedAt: number;
   /** the sweep in progress: where (normalised) and when it left the top, -1 = none */
@@ -680,9 +693,6 @@ interface Features {
   py: number;
   cx: number;
   cy: number;
-  /** midpoint of the index and middle fingertips, frame px (the two-finger pan follows it) */
-  tx: number;
-  ty: number;
 }
 
 const d3 = (a: GestureLandmark, b: GestureLandmark) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -717,8 +727,6 @@ function featuresInto(f: Features, lm: GestureLandmark[], handSize: number, fw: 
   f.ringReach = dist2(lm[16], lm[0], fw, fh) / hs;
   f.pinkyReach = dist2(lm[20], lm[0], fw, fh) / hs;
   f.tipGap = dist2(i, m, fw, fh) / hs;
-  f.tx = ((i.x + m.x) / 2) * fw;
-  f.ty = ((i.y + m.y) / 2) * fh;
   // The hand's real 3D shape, whichever way it faces the camera (metres; wrist -> middle MCP ~ 9 cm).
   const wsz = world && world.length >= 21 ? d3(world[0], world[9]) : 0;
   if (wsz > 0.02 && wsz < 0.3) {
@@ -738,10 +746,10 @@ function featuresInto(f: Features, lm: GestureLandmark[], handSize: number, fw: 
 }
 
 function newFeatures(): Features {
-  return { pinchDist: 0, thumbMid: 1, midReach: 1.5, open: 0, openW: 0, world: false, restOpen: 0, reach: 0, ringReach: 1.5, pinkyReach: 1.5, tipGap: 1, px: 0, py: 0, cx: 0, cy: 0, tx: 0, ty: 0 };
+  return { pinchDist: 0, thumbMid: 1, midReach: 1.5, open: 0, openW: 0, world: false, restOpen: 0, reach: 0, ringReach: 1.5, pinkyReach: 1.5, tipGap: 1, px: 0, py: 0, cx: 0, cy: 0 };
 }
 
-/** Features of one hand: pinch distance, openness, rest openness, reach, the two-finger shape (hand sizes), pinch point, palm centre and two-finger point (frame px). */
+/** Features of one hand: pinch distance, openness, rest openness, reach, the two-finger shape (hand sizes), pinch point and palm centre (frame px). */
 export function handFeatures(lm: GestureLandmark[], handSize: number, fw: number, fh: number, world?: GestureLandmark[] | null): Features {
   return featuresInto(newFeatures(), lm, handSize, fw, fh, world);
 }
@@ -761,7 +769,7 @@ export function twoFingerPose(f: Features, tu: GestureTuning, held = false): boo
     out >= tu.twoFingerReach - slack &&
     f.tipGap <= tu.twoFingerGap + slack &&
     curled <= tu.twoFingerCurl + slack &&
-    out - curled >= TF_CURL_MARGIN - slack &&
+    out - curled >= tu.twoFingerMargin - slack &&
     Math.min(f.pinchDist, f.thumbMid) >= TF_THUMB_CLEAR - slack
   );
 }
@@ -867,7 +875,7 @@ export class GestureRecognizer {
   private pool: HandTrack[] = [];
   private nextKey = 1;
   private mode: GestureMode = 'idle';
-  /** the hand panning with two fingers, and its two-finger point when it began */
+  /** the hand panning with two fingers, and its palm centre when it began */
   private tfKey = '';
   private tfX0 = 0;
   private tfY0 = 0;
@@ -964,8 +972,6 @@ export class GestureRecognizer {
         fw: new Euro(1.5, 0.6),
         fpx: new Euro(1.2, 0.8),
         fpy: new Euro(1.2, 0.8),
-        ftx: new Euro(1.2, 0.8),
-        fty: new Euro(1.2, 0.8),
         info: {} as HandGestureInfo,
         mark: { key: '', x: 0, y: 0, palmX: 0, palmY: 0, tips: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], fingers: 0, active: false, label: '' },
       } as HandTrack);
@@ -977,7 +983,7 @@ export class GestureRecognizer {
     t.matched = false;
     t.lastPressAt = undefined;
     t.init = false;
-    t.cx = t.cy = t.px = t.py = t.tx = t.ty = 0;
+    t.cx = t.cy = t.px = t.py = 0;
     t.tfRaw = t.tfOn = false;
     t.tfSince = t.tfOffSince = -1;
     t.midReach = t.ringReach = t.pinkyReach = 1.5;
@@ -999,6 +1005,7 @@ export class GestureRecognizer {
     t.reach = 1.2;
     t.restOpen = 1.2;
     t.size = 0;
+    t.tfSize = 0;
     t.raised = false;
     t.inFrame = false;
     t.palmIn = false;
@@ -1046,6 +1053,7 @@ export class GestureRecognizer {
       stale: false,
       shape: 'other',
       size: 0,
+      tfSize: 0,
       raised: false,
       inFrame: false,
       blocked: 'new',
@@ -1089,8 +1097,6 @@ export class GestureRecognizer {
       t.fp.reset(f.pinchDist);
       t.fpx.reset(f.px);
       t.fpy.reset(f.py);
-      t.ftx.reset(f.tx);
-      t.fty.reset(f.ty);
     }
     t.fresh = true;
     t.freshAt = ts;
@@ -1112,8 +1118,6 @@ export class GestureRecognizer {
     t.pinchDist = t.fp.step(f.pinchDist, dt);
     t.px = t.fpx.step(f.px, dt, t.hs);
     t.py = t.fpy.step(f.py, dt, t.hs);
-    t.tx = t.ftx.step(f.tx, dt, t.hs);
-    t.ty = t.fty.step(f.ty, dt, t.hs);
     t.reach = f.reach;
     t.midReach = f.midReach;
     t.ringReach = f.ringReach;
@@ -1261,7 +1265,10 @@ export class GestureRecognizer {
     // The two-finger pan pose (index and middle out and together, ring and pinky curled): held
     // twoFingerHoldMs to count, lost for releaseMs to end. Not while pinching. (Held by a hand of a
     // globe turn, it is no longer an open palm: the globe ends, and only then can the pan start.)
-    const tfOk = tu.twoFinger && enabled && t.blocked === null && !t.pinched;
+    // (not a small hand far away, e.g. on a mouse across the desk; once on, down to KEEP_SIZE of that)
+    t.tfSize = Math.max(size, (KNUCKLE_TO_SIZE * dist2(h.lm[5], h.lm[17], fw, fh)) / Math.max(1, fh));
+    const tfBig = t.tfSize >= TWO_FINGER_SIZE * tu.restHandMax * (t.tfOn || this.busyWith(t) ? KEEP_SIZE : 1);
+    const tfOk = tu.twoFinger && enabled && t.blocked === null && !t.pinched && tfBig;
     t.tfRaw = tfOk && twoFingerPose(f, tu, t.tfOn);
     if (!tfOk) {
       t.tfOn = false;
@@ -1270,13 +1277,7 @@ export class GestureRecognizer {
       t.tfOffSince = -1;
       if (!t.tfOn) {
         if (t.tfSince < 0) t.tfSince = ts;
-        if (ts - t.tfSince >= tu.twoFingerHoldMs) {
-          t.tfOn = true;
-          t.ftx.reset(f.tx);
-          t.fty.reset(f.ty);
-          t.tx = f.tx;
-          t.ty = f.ty;
-        }
+        if (ts - t.tfSince >= tu.twoFingerHoldMs) t.tfOn = true;
       }
     } else {
       t.tfSince = -1;
@@ -1559,6 +1560,7 @@ export class GestureRecognizer {
       inf.stale = t.stale;
       inf.shape = t.pinched ? 'pinch' : this.fistNow(t, tu) ? 'fist' : t.tfRaw || t.tfOn ? 'two' : Math.max(t.open, t.openW) >= tu.globeOpenMin ? 'open' : 'other';
       inf.size = t.size;
+      inf.tfSize = t.tfSize;
       inf.raised = t.raised;
       inf.inFrame = t.inFrame;
       inf.blocked = t.blocked;
@@ -1707,10 +1709,11 @@ export class GestureRecognizer {
         this.startTwo(la, lb, now);
         return;
       } else {
-        // The model follows the two fingertips.
+        // The model follows the hand: its palm centre, which stays put when the fingers curl (letting
+        // the pose go by closing the hand does not drag the model) and is steadier than the fingertips.
         out.pan = true;
-        out.panX = (t.tx - this.tfX0) * tu.panGain;
-        out.panY = (t.ty - this.tfY0) * tu.panGain;
+        out.panX = (t.cx - this.tfX0) * tu.panGain;
+        out.panY = (t.cy - this.tfY0) * tu.panGain;
         if (t.fresh) this.actionAt = now;
         return;
       }
@@ -1763,9 +1766,13 @@ export class GestureRecognizer {
       const a = this.twoA;
       const b = this.twoB;
       if (!this.present(a) || !this.present(b) || !a.pinched || !b.pinched || a.stale || b.stale || !tu.twoHand) {
-        // One hand let go: the other must pinch again before it turns the model.
-        this.staleAfterTwo(a);
-        this.staleAfterTwo(b);
+        // One hand let go: with a pinch-drag on (?pinchturn=1 / ?pinchmove=1) the other must pinch
+        // again before it drags the model. Off (the default), a lone pinch does nothing, so the held
+        // pinch stays live: the other hand pinching again resumes the zoom from where it is.
+        if (tu.pinchDrag) {
+          this.staleAfterTwo(a);
+          this.staleAfterTwo(b);
+        }
         this.endMode(now, 'release');
         return;
       }
@@ -1880,8 +1887,8 @@ export class GestureRecognizer {
         if (!t.tfOn || !t.fresh || t.blocked !== null || t.pinched) continue;
         this.mode = 'twofinger';
         this.tfKey = t.key;
-        this.tfX0 = t.tx;
-        this.tfY0 = t.ty;
+        this.tfX0 = t.cx;
+        this.tfY0 = t.cy;
         out.events.push('twofinger-start');
         this.why(t, WHY_TF, now);
         this.globeSince = -1;

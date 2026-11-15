@@ -22,7 +22,7 @@ import type { AppState } from '../state/store';
 import { gestureLive } from '../detect/gestureDriver';
 import { describeGate } from '../voice/voiceGate';
 import { describeLock } from '../voice/voiceLock';
-import { GESTURE_TUNING_DEFAULTS } from '../detect/gestures';
+import { GESTURE_TUNING_DEFAULTS, TWO_FINGER_SIZE } from '../detect/gestures';
 import type { GestureTuning } from '../detect/gestures';
 import { gestureTuning, gestureTuningUrl, setGestureTuning } from '../detect/gestureTuning';
 import { detailInputActive, detailViewTarget } from '../stage/detailView';
@@ -325,6 +325,7 @@ const GESTURE_SLIDERS: { key: NumKey; label: string; min: number; max: number; s
   { key: 'twoFingerReach', label: 'Two fingers: index and middle tips at least (from the wrist; hand sizes)', min: 1, max: 1.8, step: 0.01 },
   { key: 'twoFingerGap', label: 'Two fingers: index and middle tips at most apart (hand sizes)', min: 0.15, max: 0.8, step: 0.01 },
   { key: 'twoFingerCurl', label: 'Two fingers: ring and pinky tips at most (from the wrist; hand sizes)', min: 0.8, max: 1.6, step: 0.01 },
+  { key: 'twoFingerMargin', label: 'Two fingers: ring and pinky at least this much nearer the wrist than index and middle (hand sizes)', min: 0.2, max: 1, step: 0.01 },
   { key: 'twoFingerHoldMs', label: 'Two fingers: held before the pan starts (ms)', min: 0, max: 400, step: 10 },
   { key: 'fistMax', label: 'Fist at or below (openness)', min: 0.5, max: 1.4, step: 0.01 },
   { key: 'spreadMin', label: 'Spread hand at or above (openness)', min: 1.1, max: 2.1, step: 0.01 },
@@ -410,7 +411,7 @@ function gestureLines(now: number): string[] {
     lines.push(
       `  ${h.key} ${h.id.padEnd(10)} ${h.shape.toUpperCase().padEnd(5)} doing ${(h.doing || '-').padEnd(8)} size ${h.size.toFixed(2)} ${free}${h.inFrame ? '' : ', at the edge'}${h.held ? ', HELD (no frame)' : ''} ${pinch}`,
       `     ${h.world ? '3D' : 'image'} pinch ${h.pinchDist.toFixed(2)} reach ${h.reach.toFixed(2)} open ${h.open.toFixed(2)} open3D ${h.openW.toFixed(2)} rest ${h.restOpen.toFixed(2)} | last fist<->open ${Math.round(h.lastChangeMs)} ms, ${h.lastChangeRate.toFixed(1)}/s | why: ${why}`,
-      `     two fingers ${h.tfOn ? 'ON' : h.tfRaw ? 'pose (holding...)' : 'no'}: index ${h.reach.toFixed(2)} middle ${h.midReach.toFixed(2)} (>= ${t.twoFingerReach.toFixed(2)}) gap ${h.tipGap.toFixed(2)} (<= ${t.twoFingerGap.toFixed(2)}) ring ${h.ringReach.toFixed(2)} pinky ${h.pinkyReach.toFixed(2)} (<= ${t.twoFingerCurl.toFixed(2)})`,
+      `     two fingers ${h.tfOn ? 'ON' : h.tfRaw ? 'pose (holding...)' : 'no'}: index ${h.reach.toFixed(2)} middle ${h.midReach.toFixed(2)} (>= ${t.twoFingerReach.toFixed(2)}) gap ${h.tipGap.toFixed(2)} (<= ${t.twoFingerGap.toFixed(2)}) ring ${h.ringReach.toFixed(2)} pinky ${h.pinkyReach.toFixed(2)} (<= ${t.twoFingerCurl.toFixed(2)}, ${Math.min(h.reach, h.midReach) - Math.max(h.ringReach, h.pinkyReach) >= t.twoFingerMargin ? 'margin ok' : `margin < ${t.twoFingerMargin.toFixed(2)}`}) size ${h.tfSize.toFixed(2)} (>= ${(TWO_FINGER_SIZE * t.restHandMax).toFixed(2)}${h.tfSize >= TWO_FINGER_SIZE * t.restHandMax ? '' : ': TOO SMALL, far away'})`,
     );
   }
   return lines;

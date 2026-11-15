@@ -125,6 +125,26 @@ export function centreDetail(now = performance.now()): void {
   detailInput.at = now;
 }
 
+/** The target view as plain numbers (a copy): for mirroring it elsewhere, e.g. the projector watch page. */
+export function getDetailView(): DetailViewState {
+  sync();
+  return { yaw: target.yaw, pitch: target.pitch, zoom: target.zoom, panX: target.panX, panY: target.panY };
+}
+
+/**
+ * Set the target view from mirrored numbers (clamped; DetailStage eases to it). Call it after the
+ * store's `detail` is mirrored: a new detail model resets the view.
+ */
+export function applyDetailView(v: Partial<DetailViewState>): void {
+  sync();
+  const ok = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+  if (ok(v.yaw)) target.yaw = v.yaw;
+  if (ok(v.pitch)) target.pitch = clamp(v.pitch, -DETAIL_PITCH_MAX, DETAIL_PITCH_MAX);
+  if (ok(v.zoom)) target.zoom = clamp(v.zoom, DETAIL_ZOOM_MIN, DETAIL_ZOOM_MAX);
+  if (ok(v.panX)) target.panX = clamp(v.panX, -DETAIL_PAN_MAX, DETAIL_PAN_MAX);
+  if (ok(v.panY)) target.panY = clamp(v.panY, -DETAIL_PAN_MAX, DETAIL_PAN_MAX);
+}
+
 /** The rotate_model voice tool on the detail model (as turnLimit.ts voiceTurn): left, up, down, anything else right. true = stopped at a limit. */
 export function voiceTurnDetail(direction: string, rad: number): boolean {
   const dir = direction.toLowerCase();
