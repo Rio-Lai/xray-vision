@@ -8,6 +8,8 @@ import { scan } from './routes/scan';
 import { teardown } from './routes/teardown';
 import { generatePart } from './routes/generate-part';
 import { agentToken } from './routes/agent-token';
+import { sketch } from './routes/sketch';
+import { enrich } from './routes/enrich';
 
 const app = express();
 // The browser reaches us through the Vite proxy (same origin); only allow local pages to call directly.
@@ -32,6 +34,9 @@ app.post('/api/scan', wrap(scan));
 app.post('/api/teardown', wrap(teardown));
 app.post('/api/generate-part', wrap(generatePart));
 app.get('/api/agent-token', wrap(agentToken));
+// #124: a live object as simple solids in seconds, and its details afterwards
+app.post('/api/sketch', wrap(sketch));
+app.post('/api/enrich', wrap(enrich));
 
 app.use(errorHandler);
 

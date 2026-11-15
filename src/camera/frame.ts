@@ -24,6 +24,7 @@ const MOCK_RAW = urlParam('mock');
  * `?mock=1` in the URL: no camera models, a fake laptop and a fake typing hand.
  * `?mock=gesture`: the fake laptop is analysed by itself and scripted hands turn it and pull it apart.
  * `?mock=eye`: a fake face in the middle of the view as well (#94).
+ * `?mock=bottle`: the fake bottle (an object that is not stored, #124) in the middle of the view.
  */
 export const MOCK_MODE: boolean =
   MOCK_RAW === '1' ||
@@ -31,13 +32,15 @@ export const MOCK_MODE: boolean =
   MOCK_RAW === 'laptop' ||
   MOCK_RAW === 'hand' ||
   MOCK_RAW === 'gesture' ||
-  MOCK_RAW === 'eye';
+  MOCK_RAW === 'eye' ||
+  MOCK_RAW === 'bottle';
 
 /** `?mock=gesture`: scripted gesture hands instead of the typing hand (see detect/mockGesture.ts). */
 export const MOCK_GESTURE: boolean = MOCK_RAW === 'gesture';
 
 /** Which mock object sits in the centre of view (is "this"): `?mock=hand` the hand, `?mock=eye` a face's eye, else the laptop. */
-export const MOCK_SCENE: 'laptop' | 'hand' | 'eye' = MOCK_RAW === 'hand' ? 'hand' : MOCK_RAW === 'eye' ? 'eye' : 'laptop';
+export const MOCK_SCENE: 'laptop' | 'hand' | 'eye' | 'bottle' =
+  MOCK_RAW === 'hand' ? 'hand' : MOCK_RAW === 'eye' ? 'eye' : MOCK_RAW === 'bottle' ? 'bottle' : 'laptop';
 
 /** true for `?name=1` or `?name=true`. */
 export function urlFlag(name: string): boolean {

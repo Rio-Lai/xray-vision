@@ -44,7 +44,8 @@ import { FLAT_YAW_LIMIT, faceNear, faceOf, stageYawOffset } from '../stage/turnL
 import { gestureLive } from '../detect/gestureDriver';
 import type { GestureMark } from '../detect/gestures';
 import { HandCueLayer } from './pinchDots';
-import { hasPartMeshes } from './stageState';
+import { hasPartMeshes, isSolidTeardown } from './stageState';
+import { SolidStage, solidStage } from './SolidStage';
 import { ArmStage, armStage } from './ArmStage';
 import { isArmTeardown } from '../stage/armTeardown';
 import { EyeStage, eyeStage } from './EyeStage';
@@ -79,9 +80,13 @@ function teardownSignature(td: Teardown): string {
   ].join('|');
 }
 
-/** Whether the teardown gets the box rig: every non-hand teardown but the eye; a hand only on stage with models (not the arm). */
+/**
+ * Whether the teardown gets the box rig: every non-hand teardown but the eye; a hand only on stage with models (not the arm);
+ * a solid sketch (#124) only in the freeze and follow modes (on stage SolidStage.tsx draws it).
+ */
 function wantsBoxRig(td: Teardown | null, s: AppState): boolean {
   if (!td || isArmTeardown(td) || isEyeTeardown(td)) return false;
+  if (isSolidTeardown(td)) return s.trackingMode !== 'stage';
   if (td.anchor !== 'hand') return true;
   return s.trackingMode === 'stage' && hasPartMeshes(td);
 }
@@ -324,7 +329,7 @@ class OverlayEngine {
    * (mesh_url), or the tracking mode changed (hidden M key). Box teardowns always keep their rig.
    */
   private syncHandRig(td: Teardown | null, s: AppState): void {
-    if (!td || td.anchor !== 'hand') return;
+    if (!td || (td.anchor !== 'hand' && !isSolidTeardown(td))) return;
     const want = wantsBoxRig(td, s);
     if (want && !this.boxRig) {
       this.createRig(td, s);
@@ -389,6 +394,7 @@ class OverlayEngine {
   partAt(x: number, y: number): string | null {
     if (isArmTeardown(this.teardownRef)) return armStage.pickAt(x, y);
     if (isEyeTeardown(this.teardownRef)) return eyeStage.pickAt(x, y);
+    if (isSolidTeardown(this.teardownRef) && !this.boxRig) return solidStage.pickAt(x, y);
     if (this.boxRig) {
       if (this.boxRig.explodeLevel() < 0.3) return null;
       this.ndc.set((x / this.vw) * 2 - 1, -(y / this.vh) * 2 + 1);
@@ -477,7 +483,8 @@ class OverlayEngine {
     }
     const lifting = this.boxRig ? this.boxRig.outline() : null;
     this.outline.update(lifting ? lifting.box : null, lifting ? lifting.drawn : 0, lifting ? lifting.opacity : 0);
-    setStageArrived('box', this.boxRig !== null && td !== null && this.boxRig.arrived());
+    // A solid sketch on stage (#124, SolidStage.tsx) counts as the box model for the title.
+    setStageArrived('box', (this.boxRig !== null && td !== null && this.boxRig.arrived()) || solidStage.arrived());
 
     // Kash's arm on stage (ArmStage.tsx): the real hand keeps the live tendon preview, lit by key presses.
     const armUp = isArmTeardown(td);
@@ -645,6 +652,13 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
         } catch (e) {
           setStatus('eye', 'error', `Eye error: ${errorText(e)}`);
         }
+        // #124: a live object sketched as solids has its own renderer too (SolidStage.tsx); a no-op unless one is up.
+        try {
+          solidStage.tick(now);
+          setStatus('solid', null);
+        } catch (e) {
+          setStatus('solid', 'error', `Solid model error: ${errorText(e)}`);
+        }
         pinchRef.current?.update(gestureLive.out?.marks ?? NO_MARKS, gestureLive.hint, getCoverMap(), now);
       },
       pick: (x: number, y: number) => engineRef.current?.pick(x, y),
@@ -683,6 +697,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
       <div ref={hostRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
       <ArmStage />
       <EyeStage />
+      <SolidStage />
       <div ref={labelRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
     </>
   );

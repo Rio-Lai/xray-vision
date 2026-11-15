@@ -20,6 +20,7 @@ import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
 import { isArmTeardown } from './armTeardown';
 import { isEyeTeardown } from './eyeTeardown';
+import { isSolidTeardown } from '../overlay/stageState';
 
 const DEG = Math.PI / 180;
 /** Furthest a flat model turns from straight on (its front, or its back after "turn it around"). */
@@ -81,9 +82,11 @@ export function limitPitch(pitch: number, dPitch: number): { pitch: number; limi
   return { pitch: p, limited: Math.abs(p - want) > 1e-6 };
 }
 
-/** A flat model is floating on stage: a box-rig model in stage mode (not the eye, not the arm). */
+/** A flat model is floating on stage: a box-rig model in stage mode (not the eye, not the arm, not a solid sketch, #124). */
 export function flatOnStage(s: Pick<AppState, 'trackingMode' | 'teardown'>): boolean {
-  return s.trackingMode === 'stage' && s.teardown !== null && !isArmTeardown(s.teardown) && !isEyeTeardown(s.teardown);
+  return (
+    s.trackingMode === 'stage' && s.teardown !== null && !isArmTeardown(s.teardown) && !isEyeTeardown(s.teardown) && !isSolidTeardown(s.teardown)
+  );
 }
 
 /**

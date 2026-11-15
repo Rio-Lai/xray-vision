@@ -200,6 +200,19 @@ export function keptTeardown(id: string): Teardown | null {
   }
 }
 
+/**
+ * #124: change a kept live parts list in place (a solid sketch's details arriving after it was put away).
+ * No-op when nothing is kept for `id`.
+ */
+export function patchKeptTeardown(id: string, patch: (td: Teardown) => Teardown): void {
+  const kept = keptTeardown(id);
+  if (!kept) return;
+  const next = patch(kept);
+  if (next === kept) return;
+  liveLists.set(id, next);
+  persistParts(next);
+}
+
 /* ---------- the picture taken when an object is analysed ---------- */
 
 let shotSeq = 0;

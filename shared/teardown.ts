@@ -41,6 +41,15 @@ export const TeardownPartSchema = z.object({
    * joined by a thin flex cable". Written by Claude for live parts lists; optional everywhere.
    */
   visual: z.string().optional(),
+  /**
+   * #124, `layout: "solid"` lists only: the part's real size in millimetres, [x, y, z] extents in the
+   * object's own frame (x right, y up, z towards the viewer). Written by POST /api/sketch.
+   */
+  size_mm: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional(),
+  /** #124, solid lists only: the part's centre in millimetres [x, y, z], origin at the object's centre (same frame as size_mm). */
+  position_mm: z.tuple([z.number(), z.number(), z.number()]).optional(),
+  /** #124, solid lists only: the long axis of a cylinder or tube (its round cross-section is across the other two). */
+  axis: z.enum(['x', 'y', 'z']).optional(),
 });
 export type TeardownPart = z.infer<typeof TeardownPartSchema>;
 
@@ -66,6 +75,12 @@ export const TeardownSchema = z.object({
    * the camera angle. Written by hand for stored objects and estimated by Claude for live ones.
    */
   dimensions_mm: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional(),
+  /**
+   * #124: how the parts are laid out. "layers" (or missing) = flat layers seen from above (size / offset / layer);
+   * "solid" = a small 3D assembly of simple solids (size_mm / position_mm / axis on each part), drawn by its own
+   * stage renderer. A solid list still carries the flat fields, derived from its front view.
+   */
+  layout: z.enum(['layers', 'solid']).optional(),
   parts: z.array(TeardownPartSchema).min(1),
   steps: z.array(TeardownStepSchema),
 });

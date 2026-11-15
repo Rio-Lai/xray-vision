@@ -6,6 +6,11 @@ import type { AppState } from '../state/store';
 import type { Teardown } from '../../shared/teardown';
 import { isArmTeardown } from '../stage/armTeardown';
 
+/** #124: a live object sketched as simple solids (POST /api/sketch), drawn on stage by SolidStage.tsx. */
+export function isSolidTeardown(td: Pick<Teardown, 'layout'> | null | undefined): boolean {
+  return !!td && td.layout === 'solid';
+}
+
 /** true when at least one part has a real 3D model (Kash's GLBs). */
 export function hasPartMeshes(td: Teardown): boolean {
   return td.parts.some((p) => typeof p.mesh_url === 'string' && p.mesh_url.length > 0);
