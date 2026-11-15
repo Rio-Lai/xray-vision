@@ -21,7 +21,8 @@ export function partPrompt(
   // Say "internal component removed from inside" and "not a complete device": with plain "isolated X from a laptop"
   // the image model drew consumer products (a Wi-Fi router for "antennas", a hi-fi box for "speakers").
   const framing = `as removed from inside a ${td.name} during a teardown, only that one part, not a complete device or accessory, isolated on a plain white background, studio product photo, high detail`;
-  const looks = part.id ? LOOKS_LIKE[part.id] : undefined;
+  // Only for the MacBook these were written for: a live Bluetooth speaker's "speakers" part must not be drawn as a laptop speaker.
+  const looks = part.id && /macbook/i.test(td.name) ? LOOKS_LIKE[part.id] : undefined;
   // Claude's "visual" phrase (live parts lists, #95) leads, so the image model draws what the part looks like.
   // The hand-written LOOKS_LIKE entries still win (the MacBook's speakers and ports).
   const visual = looks ? '' : (part.visual ?? '').trim().replace(/[.\s]+$/, '');
