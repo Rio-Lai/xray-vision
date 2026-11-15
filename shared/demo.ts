@@ -23,12 +23,18 @@ export function kindOf(label: string | undefined, anchor?: AnchorKind): Lens {
   return anchor === 'hand' || anchor === 'face' || HAND.test(label ?? '') || EYE.test(label ?? '') ? 'biology' : 'engineering';
 }
 
-export const DEMO_IDENTIFY: Record<'laptop' | 'hand' | 'eye', IdentifyResponse> = {
+export const DEMO_IDENTIFY: Record<'laptop' | 'hand' | 'eye' | 'phone', IdentifyResponse> = {
   laptop: {
     object_id: 'macbook-air-m3-13',
     name: 'MacBook Air 13-inch (M3, 2024)',
     confidence: 0.6,
     summary: 'A fanless 13-inch Apple laptop built around the M3 chip.',
+  },
+  phone: {
+    object_id: 'iphone-17-pro',
+    name: 'iPhone 17 Pro (Cosmic Orange)',
+    confidence: 0.6,
+    summary: "Apple's 2025 Pro phone: aluminium unibody, full-width camera plateau, A19 Pro chip.",
   },
   hand: {
     object_id: 'hand-finger-muscles',
@@ -70,6 +76,8 @@ export function mockIdentify(hint: string | undefined, kind?: Lens): IdentifyRes
   if (h.includes('laptop') || h.includes('macbook') || h.includes('computer') || h.includes('keyboard')) {
     return DEMO_IDENTIFY.laptop;
   }
+  // MediaPipe's COCO label for a phone is "cell phone"
+  if (h.includes('phone') || h.includes('iphone') || h.includes('mobile')) return DEMO_IDENTIFY.phone;
   if (!h) return kind === 'biology' ? DEMO_IDENTIFY.hand : DEMO_IDENTIFY.laptop;
   return {
     object_id: slugify(h),

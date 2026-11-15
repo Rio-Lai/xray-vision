@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>eye demo render</title>
+    <style>
+      html, body { margin: 0; background: transparent; overflow: hidden; }
+      canvas { display: block; }
+      #labels { position: fixed; inset: 0; pointer-events: none; font: 600 30px/1.25 -apple-system, Helvetica, sans-serif; }
+      .lab { position: absolute; padding: 6px 16px; border-radius: 10px; color: #e6f7ff; background: rgba(8, 20, 32, 0.78);
+             border: 1px solid rgba(110, 220, 255, 0.55); white-space: nowrap; transform: translateY(-50%); }
+      svg { position: fixed; inset: 0; }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }
+    </script>
+  </head>
+  <body>
+    <svg id="lines"></svg>
+    <div id="labels"></div>
+    <script type="module">
+      // Deterministic frames of the procedural eye for the demo video, on a transparent background.
+      //   ?w=1080&h=1920&ex=..&ey=..&er=..   (eye position / radius in px on the video frame)
+      // window.renderAt(t) draws time t (seconds) and resolves when done.
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+      const q = new URLSearchParams(location.search);
+      const W = Number(q.get('w') || 1080), H = Number(q.get('h') || 1920);
+      const EX = Number(q.get('ex') || W / 2), EY = Number(q.get('ey') || H / 2), ER = Number(q.get('er') || 60);
+      const PARTS = ['cornea', 'aqueous', 'iris', 'lens', 'ciliary-body', 'vitreous', 'retina', 'choroid', 'sclera', 'optic-nerve'];
+      const NAMES = { cornea: 'Cornea', iris: 'Iris & pupil', lens: 'Crystalline lens', 'ciliary-body': 'Ciliary body', vitreous: 'Vitreous humour',
+        retina: 'Retina', choroid: 'Choroid', sclera: 'Sclera', 'optic-nerve': 'Optic nerve', aqueous: 'Aqueous humour' };
+      const LAYER = { cornea: 1, aqueous: 2, iris: 3, lens: 4, 'ciliary-body': 4, vitreous: 5, retina: 6, choroid: 7, sclera: 8, 'optic-nerve': 9 };
+      const LABELLED = ['cornea', 'iris', 'lens', 'ciliary-body', 'retina', 'sclera', 'optic-nerve'];
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true, premultipliedAlpha: false });
+      renderer.setPixelRatio(1);
+      renderer.setSize(W, H);
+      renderer.setClearColor(0x000000, 0);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.localClippingEnabled = true;
+      document.body.prepend(renderer.domElement);
+      const scene = new THREE.Scene();
+      scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+      const key = new THREE.DirectionalLight(0xffffff, 2.0);
+      key.position.set(-2, 3, 3);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0x9fdcff, 1.4);
+      rim.position.set(3, 1, -2);
+      scene.add(rim);
+
+      // Orthographic-ish framing via a long-lens perspective camera; pixels <-> world through `px`.
+      const camera = new THREE.PerspectiveCamera(20, W / H, 0.1, 100);
+      camera.position.set(0, 0, 10);
+      const pxPerUnit = H / 2 / (10 * Math.tan(THREE.MathUtils.degToRad(10))); // at z=0
+      const toWorld = (px, py) => new THREE.Vector3((px - W / 2) / pxPerUnit, (H / 2 - py) / pxPerUnit, 0);
+
+      const root = new THREE.Group(); // positioned/scaled over time
+      const spin = new THREE.Group(); // rotation
+      root.add(spin);
+      scene.add(root);
+      const clip = [new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)];
+      const objs = {};
+      const mats = [];
+      const loader = new GLTFLoader();
+      const loaded = await Promise.all(PARTS.map((id) => loader.loadAsync(`/public/cache/meshes/eye/${id}.glb`).then((g) => [id, g.scene])));
+      for (const [id, obj] of loaded) {
+        obj.traverse((o) => {
+          if (!o.isMesh) return;
+          for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+            if (o.geometry.attributes.color) m.vertexColors = true;
+            m.transparent = true;
+            // the clear fluids read as grey shells on a transparent background: keep them faint
+            m.userData.k = id === 'vitreous' ? 0.18 : id === 'aqueous' ? 0.25 : 1;
+            if (m.userData.k < 1) { m.depthWrite = false; m.transmission = 0; m.color.set(0xdff4ff); }
+            mats.push(m);
+          }
+        });
+        const g = new THREE.Group();
+        g.add(obj);
+        spin.add(g);
+        objs[id] = g;
+      }
+
+      const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+      const seg = (t, a, b) => ease((t - a) / (b - a));
+      const labelsEl = document.getElementById('labels');
+      const linesEl = document.getElementById('lines');
+      linesEl.setAttribute('width', W);
+      linesEl.setAttribute('height', H);
+
+      // Timeline (seconds):
+      // 0.0-0.6  eye materialises over the real eye (same size and place), cyan glow
+      // 0.6-1.8  lifts out towards the viewer, moves to centre, grows; turns to a 3/4 view
+      // 1.8-3.6  explodes into layers along the visual axis; cutaway opens (upper half removed)
+      // 3.6-6.5  labels in, slow turn
+      window.renderAt = async (t) => {
+        const a = seg(t, 0, 0.6);
+        const lift = seg(t, 0.6, 1.8);
+        const ex = seg(t, 1.8, 3.6);
+        const lab = seg(t, 3.3, 3.9);
+        // position: from the real eye to centre (slightly above middle)
+        const p0 = toWorld(EX, EY), p1 = toWorld(W / 2, H * 0.46);
+        root.position.copy(p0).lerp(p1, lift);
+        const s0 = (2 * ER) / pxPerUnit; // eyeball = 1.0 across -> matches the real eye's width
+        const s1 = (W * 0.36) / pxPerUnit;
+        root.scale.setScalar(s0 + (s1 - s0) * lift);
+        // mirror=1: a LEFT eye (optic nerve on the other side, still on the nasal side)
+        if (q.get('mirror') === '1') root.scale.x *= -1;
+        spin.rotation.set(0.62 * lift, -0.85 * lift - 0.1 * Math.max(0, t - 3.6), 0);
+        for (const id of PARTS) objs[id].position.z = (5 - LAYER[id]) * 0.2 * ex;
+        const cut = ex > 0.02;
+        for (const m of mats) {
+          m.opacity = a * m.userData.k;
+          if (m.userData.cut !== cut) {
+            // recompile only when the cutaway switches (recompiling every frame crashed headless Chrome)
+            m.userData.cut = cut;
+            m.clippingPlanes = cut ? clip : [];
+            m.side = cut ? THREE.DoubleSide : THREE.FrontSide;
+            m.needsUpdate = true;
+          }
+          m.emissive?.set(0x31c7ff);
+          if (m.emissive) m.emissiveIntensity = 0.5 * (1 - seg(t, 0.4, 1.4)) * a;
+        }
+        clip[0].constant = 0;
+        root.updateMatrixWorld(true);
+        clip[0].applyMatrix4; // plane in spin's local space: transform each frame
+        const planeWorld = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0).applyMatrix4(spin.matrixWorld);
+        clip[0].copy(planeWorld);
+        renderer.render(scene, camera);
+
+        // labels: right side column, leader lines to each part
+        labelsEl.innerHTML = '';
+        linesEl.innerHTML = '';
+        if (lab > 0) {
+          const pts = LABELLED.map((id) => {
+            const b = new THREE.Box3().setFromObject(objs[id]);
+            const c = b.getCenter(new THREE.Vector3());
+            const v = c.project(camera);
+            return { id, x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
+          }).sort((p, q) => p.y - q.y);
+          const top = H * 0.62, gap = 64;
+          pts.forEach((p, i) => {
+            const lx = i % 2 ? W * 0.56 : W * 0.06;
+            const ly = top + Math.floor(i / 1) * gap * 0.0 + i * gap;
+            const lxAnchor = i % 2 ? lx : lx + 300;
+            linesEl.innerHTML += `<line x1="${p.x}" y1="${p.y}" x2="${lxAnchor}" y2="${ly}" stroke="rgba(110,220,255,${0.8 * lab})" stroke-width="2"/><circle cx="${p.x}" cy="${p.y}" r="5" fill="rgba(110,220,255,${lab})"/>`;
+            labelsEl.innerHTML += `<div class="lab" style="left:${lx}px;top:${ly}px;opacity:${lab}">${NAMES[p.id]}</div>`;
+          });
+        }
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      };
+      document.title = 'ready';
+    </script>
+  </body>
+</html>

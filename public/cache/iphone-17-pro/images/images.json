@@ -1,0 +1,37 @@
+{
+  "face-id": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single isolated electronic component on a plain white background: the Face ID TrueDepth camera module removed from inside a smartphone: a slim black rectangular bar about 3 cm long holding a small infrared camera, a dot projector and a flood illuminator, with a short gold flex ribbon cable. Teardown photo, the whole part in frame and filling most of the image, sharp, realistic, nothing else in the image, no text, no logo.",
+    "request_id": "01a1de19-59b5-7c62-bd55-c2d3e9fa5339"
+  },
+  "vapour-chamber": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single isolated electronic component on a plain white background: a thin flat copper vapour chamber cooling plate from a smartphone: one rectangular sheet of brushed copper with rounded corners and a slightly raised sealed edge, about 6 cm wide. Teardown photo, the whole part in frame and filling most of the image, sharp, realistic, nothing else in the image, no text, no logo.",
+    "request_id": "01a1de19-59b7-7440-a2a7-185bbe1ee152"
+  },
+  "logic-board": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single isolated electronic component on a plain white background: a compact smartphone logic board removed from a phone: a dense dark green multi-layer circuit board, wide and short, crowded with a large square processor chip with a metal lid, memory chips, tiny black components, gold board-to-board connectors. Teardown photo, the whole part in frame and filling most of the image, sharp, realistic, nothing else in the image, no text, no logo.",
+    "request_id": "01a1de19-59b7-7612-92f7-8f9021e27f20"
+  },
+  "battery": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single isolated electronic component on a plain white background: a flat rectangular lithium-ion smartphone battery cell inside a thin brushed stainless steel metal tray, with a short black flex connector at one end. Teardown photo, the whole part in frame and filling most of the image, sharp, realistic, nothing else in the image, no text, no logo.",
+    "request_id": "01a1de19-59ba-7062-9c12-ce4130fc2cac"
+  },
+  "taptic-engine": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single isolated electronic component on a plain white background: a smartphone haptic Taptic Engine vibration motor: a small elongated dark grey metal box about 3 cm long with mounting tabs and a short flex cable. Teardown photo, the whole part in frame and filling most of the image, sharp, realistic, nothing else in the image, no text, no logo.",
+    "request_id": "01a1de19-7533-74c3-bd35-b9ad66053326"
+  },
+  "usb-c": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single isolated electronic component on a plain white background: a smartphone USB-C charging port assembly: a small metal USB-C socket mounted on a thin black flex circuit with a few tiny components. Teardown photo, the whole part in frame and filling most of the image, sharp, realistic, nothing else in the image, no text, no logo.",
+    "request_id": "01a1de19-7a4f-7160-8f6b-61fc64cffbb6"
+  },
+  "speaker": {
+    "model": "fal-ai/flux-pro/v1.1",
+    "prompt": "Studio product photograph of one single isolated electronic component on a plain white background: a small smartphone loudspeaker module: a black plastic rectangular enclosure about 2 cm long with a fine metal mesh grille at one end and two gold contact pads. Teardown photo, the whole part in frame and filling most of the image, sharp, realistic, nothing else in the image, no text, no logo.",
+    "request_id": "01a1de19-862d-7e62-8f26-d554b1d7896c"
+  }
+}

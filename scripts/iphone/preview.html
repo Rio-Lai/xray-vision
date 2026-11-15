@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>iphone preview</title>
+    <style>html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d12; } canvas { display: block; }</style>
+    <script type="importmap">
+      { "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      // /scripts/iphone/preview.html?parts=frame,back,display,cameras&view=back|front|side&explode=0..1&yaw=..&pitch=..
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      const q = new URLSearchParams(location.search);
+      const parts = (q.get('parts') || 'display,frame,back,cameras').split(',');
+      // explode order along z (front -> back) for parts present
+      const ORDER = ['display', 'face-id', 'frame', 'logic-board', 'vapour-chamber', 'battery', 'taptic-engine', 'usb-c', 'speaker', 'cameras', 'back'];
+      const explode = Number(q.get('explode') || 0);
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      document.body.appendChild(renderer.domElement);
+      const scene = new THREE.Scene();
+      scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.02).texture;
+      const bg = document.createElement('canvas'); bg.width = 2; bg.height = 512;
+      const g = bg.getContext('2d'); const gr = g.createLinearGradient(0, 0, 0, 512);
+      gr.addColorStop(0, '#20232b'); gr.addColorStop(1, '#07080b'); g.fillStyle = gr; g.fillRect(0, 0, 2, 512);
+      scene.background = new THREE.CanvasTexture(bg); scene.background.colorSpace = THREE.SRGBColorSpace;
+      const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(-1.5, 2, -2); scene.add(key);
+      const fill = new THREE.DirectionalLight(0xffe2cc, 0.9); fill.position.set(2, 1, 2); scene.add(fill);
+      const rim = new THREE.DirectionalLight(0x9fc4ff, 1.2); rim.position.set(2, -1, -1); scene.add(rim);
+      const camera = new THREE.PerspectiveCamera(24, innerWidth / innerHeight, 0.01, 50);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      const loader = new GLTFLoader();
+      const loaded = await Promise.all(parts.map((id) => loader.loadAsync(`/public/cache/meshes/iphone-17-pro/${id}.glb`).then((x) => [id, x.scene], () => [id, null])));
+      const present = ORDER.filter((id) => parts.includes(id));
+      for (const [id, obj] of loaded) {
+        if (!obj) continue;
+        const k = present.indexOf(id);
+        obj.position.z = explode * (present.length / 2 - k) * 0.16;
+        scene.add(obj);
+      }
+      const view = q.get('view') || 'back';
+      const yaw = Number(q.get('yaw') ?? (view === 'back' ? 2.55 : view === 'front' ? 0.45 : 1.45));
+      const pitch = Number(q.get('pitch') ?? 0.18);
+      const dist = Number(q.get('dist') || (explode > 0 ? 3.6 : 2.9));
+      camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
+      controls.target.set(0, 0, 0);
+      controls.update();
+      renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+      setTimeout(() => (document.title = 'ready'), 1200);
+    </script>
+  </body>
+</html>
