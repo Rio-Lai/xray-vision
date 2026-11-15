@@ -4,8 +4,11 @@
  * While the store's parts list is the arm (src/stage/armTeardown.ts), this mounts his renderer
  * (src/biology/arm/ArmXrayView) over the live camera and drives it every frame from the app store,
  * so everything that works on the MacBook model works on the arm:
- *  - it lifts out of the hand, glides to the middle of the view and is sized like the MacBook
- *    model (boxRig.ts stage constants); "put it away" glides it back into the hand and fades it;
+ *  - it lifts out of the hand (liftOut.ts, #109: an outline draws round the hand, the arm appears
+ *    over it at the hand's size, opaque, once his models are loaded, then rises and grows to the
+ *    middle of the view on one ease-out curve) and is sized like the MacBook model (boxRig.ts stage
+ *    constants); "put it away" closes it and glides it back into the hand (or the saved pill) and
+ *    fades it; a saved arm brought back with no hand in view lifts out of its pill;
  *  - store.explodeAmount -> his explode (0.12, the "analyse" amount, = assembled with the skin
  *    sleeve; 1 = every layer fanned out), modelYaw / modelPitch (+ the idle drift) -> his view,
  *    modelZoom (eased) -> his camera's zoom (sharp at any size; moved to zoom about the stage centre),
@@ -33,9 +36,12 @@ import { boxToView, getCoverMap } from '../camera/frame';
 import { live } from '../detect/live';
 import { FINGERS } from '../detect/handTracker';
 import { smoothstep } from './explodeAnimator';
-import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_LIFT_OMEGA, STAGE_SIZE, STAGE_TURN_OMEGA, TOP_MARGIN } from './boxRig';
+import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_SIZE, STAGE_TURN_OMEGA, TOP_MARGIN } from './boxRig';
 import type { ScreenBox } from './boxRig';
 import { LabelLayer, inView } from './labels';
+import { Lift, LiftOutline, pillBox } from './liftOut';
+import { reopenedSavedId } from '../lib/flow';
+import { setStageArrived } from '../hud/hudStore';
 import type { LabelItem } from './labels';
 import { springStep } from './stageLayout';
 
@@ -50,8 +56,8 @@ const TYPING_MS = 2000;
 /** A click picks the part whose label point is this close (px). */
 const PICK_PX = 60;
 /**
- * The arm waits for its models (26 GLBs, parsed on each mount) before it lifts out of the hand, so
- * they do not pop in during the glide; at most this long (ms).
+ * The arm waits for its models (26 GLBs, parsed on each mount) before it appears over the hand (the
+ * outline stays drawn meanwhile), so they do not pop in during the lift; at most this long (ms).
  */
 const MAX_WAIT_MS = 1500;
 /** ArmXrayView eases the zoom it is given by this much per frame (its userZoom); mirrored here. */
@@ -84,17 +90,22 @@ class ArmStageCtl {
   onDone: () => void = () => undefined;
   private wrap: HTMLDivElement | null = null;
   private labels: LabelLayer | null = null;
+  private outline: LiftOutline | null = null;
   private td: ArmTeardown | null = null;
   private done = false;
   private ready = false;
   private mountAt = 0;
   private lastNow = 0;
-  // glide (like BoxRig.updateStage)
-  private lift = 0;
-  private liftV = 0;
-  private presence = 0;
+  // the lift-out / put-away (liftOut.ts, as BoxRig.updateStage)
+  private readonly lift = new Lift();
   private from: ScreenBox | null = null;
+  /** it lifts out of a saved pill (no hand in view): the start does not follow a hand */
+  private fromPill = false;
   private objectId: string | null = null;
+  /** the parts list it came from (its saved pill, if it is put away with no hand in view) */
+  private savedId: string | null = null;
+  /** the explode amount asked for while it was open (closes with the put-away) */
+  private rawExplode = 0;
   // glide transform of the arm canvas, about the stage centre (ox, oy)
   private xf = { ox: 0, oy: 0, s: 1, tx: 0, ty: 0 };
   // fixed pose for the current canvas size
@@ -124,6 +135,7 @@ class ArmStageCtl {
   attach(wrap: HTMLDivElement, labelHost: HTMLDivElement): void {
     this.wrap = wrap;
     this.labels = new LabelLayer(labelHost);
+    this.outline = new LiftOutline(labelHost);
     this.lastInput = performance.now();
     this.mountAt = performance.now();
     loadArmTeardown()
@@ -134,6 +146,9 @@ class ArmStageCtl {
 
   detach(): void {
     armStage.pickAt = () => null;
+    setStageArrived('arm', false);
+    this.outline?.dispose();
+    this.outline = null;
     this.labels?.dispose();
     this.labels = null;
     this.wrap = null;
@@ -198,24 +213,33 @@ class ArmStageCtl {
     const s = useStore.getState();
     const on = isArmTeardown(s.teardown);
     // the hand it came out of (kept while it is put away, so it goes back into the same hand)
-    if (on) this.objectId = s.selectedObjectId ?? s.focusedObjectId ?? this.objectId;
-
-    // Glide: out of the hand to the middle of the view, and back into it when put away.
-    const box = this.objectBox();
-    if (!this.from) this.from = box ?? { cx: w / 2, cy: h * 0.75, w: w * 0.15, h: w * 0.15 };
-    else if (box) {
-      const k = 1 - Math.exp(-dt * 12);
-      this.from.cx += (box.cx - this.from.cx) * k;
-      this.from.cy += (box.cy - this.from.cy) * k;
-      this.from.w += (box.w - this.from.w) * k;
-      this.from.h += (box.h - this.from.h) * k;
+    if (on) {
+      this.objectId = s.selectedObjectId ?? s.focusedObjectId ?? this.objectId;
+      this.savedId = s.teardown?.object_id ?? this.savedId;
     }
-    const go = on && (this.ready || now - this.mountAt > MAX_WAIT_MS);
-    [this.lift, this.liftV] = springStep(this.lift, this.liftV, go ? 1 : 0, STAGE_LIFT_OMEGA, dt);
-    const L = clamp01(this.lift);
-    const presTarget = go ? 1 : smoothstep(0.03, 0.35, L);
-    this.presence += (presTarget - this.presence) * (1 - Math.exp(-dt * (go ? 9 : 14)));
-    if (!on && L < 0.02 && this.presence < 0.02 && !this.done) {
+
+    // Lift: out of the hand (or its saved pill) to the middle of the view, and back when put away.
+    const box = this.objectBox();
+    if (!this.from) {
+      const saved = on ? reopenedSavedId(this.objectId) : null;
+      this.fromPill = saved !== null;
+      const start = saved !== null ? pillBox(saved) : box ?? { cx: w / 2, cy: h * 0.75, w: w * 0.15, h: w * 0.15 };
+      this.from = { cx: start.cx, cy: start.cy, w: start.w, h: start.h };
+    }
+    this.lift.update(dt, on, this.ready || now - this.mountAt > MAX_WAIT_MS);
+    // the start follows the hand for the first third of the lift; put away, the hand (or the pill)
+    const goal = !on ? box ?? pillBox(this.savedId) : this.lift.follow && !this.fromPill ? box : null;
+    if (goal) {
+      const k = 1 - Math.exp(-dt * 12);
+      this.from.cx += (goal.cx - this.from.cx) * k;
+      this.from.cy += (goal.cy - this.from.cy) * k;
+      this.from.w += (goal.w - this.from.w) * k;
+      this.from.h += (goal.h - this.from.h) * k;
+    }
+    const L = this.lift.pos;
+    setStageArrived('arm', on && this.lift.arrived);
+    this.outline?.update(this.from, this.lift.outlineDrawn, this.lift.outlineOpacity);
+    if (!on && this.lift.done && !this.done) {
       this.done = true;
       setTimeout(() => this.onDone(), 0);
     }
@@ -250,14 +274,17 @@ class ArmStageCtl {
       const st = this.wrap.style;
       st.transformOrigin = `${this.xf.ox.toFixed(1)}px ${this.xf.oy.toFixed(1)}px`;
       st.transform = `translate(${this.xf.tx.toFixed(1)}px, ${this.xf.ty.toFixed(1)}px) scale(${this.xf.s.toFixed(4)})`;
-      st.opacity = this.presence.toFixed(3);
+      st.opacity = this.lift.opacity.toFixed(3);
     }
 
     // Store -> his inputs. Put away: collapse, no focus, no glow, keep the last view.
     const td = this.td;
     const step: ArmStep | undefined = on && td && s.activeStep !== null ? td.steps.find((x) => x.n === s.activeStep) : undefined;
     const hlPart = on && td && s.highlightedPartId ? td.parts.find((p) => p.id === s.highlightedPartId) : undefined;
-    this.explodeTarget = on ? clamp01((s.explodeAmount - STAGE_MIN_EXPLODE) / (1 - STAGE_MIN_EXPLODE)) : 0;
+    // his explode (0 = analysed, assembled in the skin): it opens only once the arm is up, and
+    // closes as it is put away (spreadK)
+    if (on) this.rawExplode = clamp01((s.explodeAmount - STAGE_MIN_EXPLODE) / (1 - STAGE_MIN_EXPLODE));
+    this.explodeTarget = (this.lift.phase === 'out' ? 0 : this.rawExplode) * this.lift.spreadK;
     // as his tour: a step focuses its layer, a highlighted part its own layer
     this.focus = step ? step.layer_focus : hlPart ? hlPart.layer : null;
     this.hlIds = new Set([...(step?.part_ids ?? []), ...(hlPart ? [hlPart.id] : [])]);
@@ -300,7 +327,7 @@ class ArmStageCtl {
     const st = useStore.getState();
     const names = new Map<string, string>();
     if (isArmTeardown(st.teardown)) for (const p of st.teardown!.parts) names.set(p.id, p.name);
-    const base = this.presence * smoothstep(0.75, 1, clamp01(this.lift));
+    const base = this.lift.opacity * this.lift.labels;
     const items: LabelItem[] = [];
     if (this.focus !== null) {
       // the focused layer's parts (a step, or a highlighted part)
@@ -350,7 +377,7 @@ class ArmStageCtl {
 
   /** Part under a viewport point: the nearest label point within PICK_PX (the focused layer only, if any). */
   pickAt = (x: number, y: number): string | null => {
-    if (this.presence < 0.5 || clamp01(this.lift) < 0.9) return null;
+    if (this.lift.opacity < 0.5 || this.lift.pos < 0.9) return null;
     if (this.focus === null && this.eShown < 0.3) return null;
     let best: string | null = null;
     let bestD = PICK_PX;

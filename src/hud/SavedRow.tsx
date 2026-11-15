@@ -3,9 +3,13 @@
  * pill's, the middle is the model's), one per saved model with its picture (or a glyph for an eye,
  * a hand / the arm, or no picture) and its short name. Only while the overlay is on and nothing is
  * open or loading. A click brings it back (developer convenience: the wearer uses voice).
+ * Each pill notes where its picture is (liftOut.ts, #109): a model brought back while its object is
+ * not in view lifts out of its pill, and one put away with its object gone settles into it.
  * Kit look: the kit's quiet label pill and tokens; classic look: the classic pill classes.
  */
+import { useLayoutEffect, useRef } from 'react';
 import { useStore } from '../state/store';
+import { notePillBox } from '../overlay/liftOut';
 import { bringBack } from '../lib/flow';
 import { useSaved } from '../lib/saved';
 import type { SavedGlyph, SavedItem } from '../lib/saved';
@@ -51,8 +55,15 @@ function Glyph({ kind }: { kind: SavedGlyph }) {
 
 function Pill({ item }: { item: SavedItem }) {
   const name = shortName(item.name);
+  const ref = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const r = ref.current?.getBoundingClientRect();
+    // the round picture at the pill's left (4 px in, 28 px across)
+    if (r && r.width > 0) notePillBox(item.id, { cx: r.left + 4 + 14, cy: r.top + r.height / 2, w: 28, h: 28 });
+  });
   return (
     <button
+      ref={ref}
       type="button"
       className={`bf-saved__pill ${KIT_LOOK ? 'bf-label-pill' : 'bf-pill bf-glass'}`}
       title={item.kind === 'live' ? `${item.name} (AI-estimated)` : item.name}

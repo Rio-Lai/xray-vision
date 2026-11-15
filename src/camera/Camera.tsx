@@ -136,6 +136,9 @@ const BACKDROP_OFF = 'brightness(1) saturate(1) blur(0px)';
 /** Live video behind the floating model (stage mode): a light dim and blur, tuned for 30 fps. */
 const LIVE_BLUR_PX = Math.min(12, Math.max(0, urlNumber('blur', 4)));
 const LIVE_BACKDROP_ON = `brightness(0.62) saturate(0.85) blur(${LIVE_BLUR_PX}px)`;
+/** #109: the live dim comes up over the model's ~1 s lift-out (src/overlay/liftOut.ts) and goes with its 0.6 s put-away. */
+const LIVE_DIM_IN = 'filter 1000ms cubic-bezier(0.22, 0.8, 0.3, 1)';
+const LIVE_DIM_OUT = 'filter 600ms ease-in-out';
 
 const fill: CSSProperties = {
   position: 'absolute',
@@ -312,7 +315,7 @@ export function Camera() {
           visibility: showSnapshot ? 'hidden' : 'visible',
           // No zoom against the blur's soft edge: the live hand overlay must stay aligned with the video.
           filter: liveBackdrop ? LIVE_BACKDROP_ON : BACKDROP_OFF,
-          transition: 'filter 500ms ease',
+          transition: liveBackdrop ? LIVE_DIM_IN : LIVE_DIM_OUT,
         }}
       />
       <canvas

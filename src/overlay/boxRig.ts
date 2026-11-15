@@ -21,13 +21,16 @@
  * broken model keeps its placeholder (and says why in the debug panel).
  *
  * Stage mode (trackingMode 'stage', the default): the same parts form a real 3D model that lifts
- * out of the object's box (seen from above, exactly over the real object), tilts to a three-quarter
- * view and glides to the middle of the view in ~0.6 s, where it turns with store.modelYaw /
+ * out of the object's box (liftOut.ts, #109: an accent outline draws round the box, the model
+ * appears exactly over the real object, seen from above as the camera sees it, fully opaque, then
+ * rises, tilts to a three-quarter view and grows to the middle of the view on one ease-out curve in
+ * ~1 s, its parts separating only as it arrives; a model already loaded is there from the start, a
+ * late one cross-fades in place), where it turns with store.modelYaw /
  * modelPitch (critically damped springs; a very slow idle drift is added by the caller) and is drawn
  * store.modelZoom times its stage size (eased by the same kind of spring, about its middle). Explode
  * lifts the layers apart along the object's own up axis (see stageLayout.ts): at ~0.12 the parts
  * are just apart, at 1 they are spread out with labels. One soft ground shadow sits under it.
- * "Put it away" glides it back into the object and fades it.
+ * "Put it away" closes it and glides it back into the object (or its saved pill) in ~0.6 s, fading at the end.
  * meshOnly (a hand on stage): only parts with a real model are drawn and labelled; the others have
  * no good placeholder shape (a tendon is not a box) and stay visible on the live hand overlay.
  *
@@ -48,6 +51,8 @@ import {
   projectedHalfHeight,
 } from './explodeLayout';
 import { loadGlbTemplate } from './glbCache';
+import { Lift } from './liftOut';
+import { STAGE_MIN_EXPLODE } from '../stage/modelControl';
 import { STAGE_ELEVATION, nearestTurn, springStep, stageFit, stageLayout, stageStack } from './stageLayout';
 import type { StageLayout } from './stageLayout';
 import { inView } from './labels';
@@ -81,8 +86,8 @@ export const BOTTOM_MARGIN = 150;
 export const STAGE_SIZE = 0.56;
 /** Stage: model units across the object's box (its height follows the box's aspect). */
 const STAGE_UNITS = 600;
-/** Stage springs (rad/s): the glide in / out (~0.6 s) and the orientation follow. */
-export const STAGE_LIFT_OMEGA = 8.5;
+/** Stage: the lift waits at most this long for the models still loading (s); the rest cross-fade in place. */
+const STAGE_MODEL_WAIT_S = 0.6;
 /** Stage springs (rad/s): turning and zooming (store.modelYaw / modelPitch / modelZoom). */
 export const STAGE_TURN_OMEGA = 12;
 const STAGE_SHADOW_OPACITY = 0.5;
@@ -122,19 +127,29 @@ export interface StageFrame {
   putAway: boolean;
   /** store.modelZoom: 1 = the normal stage size (ignored while put away) */
   zoom: number;
+  /**
+   * Where it lifts out of instead of the object's box, read when the lift starts (a saved model
+   * brought back while its object is not in view: its pill). The box still gives its shape.
+   */
+  startBox?: ScreenBox | null;
 }
 
 interface StageState {
   layout: StageLayout;
-  lift: number;
-  liftV: number;
+  /** the lift-out / put-away timeline (liftOut.ts) */
+  lift: Lift;
+  /** time spent waiting for models before the lift (s) */
+  waited: number;
+  /** it lifts out of a saved pill: the start point does not follow the object */
+  fromPill: boolean;
+  /** the turn it starts with on the object (a whole number of turns: as the camera sees it) */
+  yaw0: number;
   yaw: number;
   yawV: number;
   pitch: number;
   pitchV: number;
   zoom: number;
   zoomV: number;
-  presence: number;
   /** where the model lifts out of / returns to (viewport px): the object's latest box */
   from: ScreenBox;
 }
@@ -222,6 +237,8 @@ export class BoxRig {
   private lostFor = 0;
   private presence = 1;
   private disposed = false;
+  /** reused by outline() */
+  private readonly outlineOut = { box: { cx: 0, cy: 0, w: 0, h: 0 }, drawn: 0, opacity: 0 };
   private axis: Teardown['explode_axis'];
   private readonly meshOnly: boolean;
   private readonly planeGeo = new THREE.PlaneGeometry(1, 1);
@@ -438,7 +455,26 @@ export class BoxRig {
 
   /** Stage: true once "put it away" has finished (the caller disposes the rig). */
   stageDone(): boolean {
-    return !!this.stage && this.stage.lift < 0.02 && this.stage.presence < 0.02;
+    return !!this.stage && this.stage.lift.done;
+  }
+
+  /** Stage: the object's outline to draw this frame (viewport px; reused object), or null. */
+  outline(): { box: ScreenBox; drawn: number; opacity: number } | null {
+    const st = this.stage;
+    if (!st || !this.stageActive || st.lift.outlineOpacity < 0.01) return null;
+    const o = this.outlineOut;
+    o.box.cx = st.from.cx;
+    o.box.cy = st.from.cy;
+    o.box.w = st.from.w;
+    o.box.h = st.from.h;
+    o.drawn = st.lift.outlineDrawn;
+    o.opacity = st.lift.outlineOpacity;
+    return o;
+  }
+
+  /** Stage: up in the middle of the view (the HUD shows the title then). */
+  arrived(): boolean {
+    return !!this.stage && this.stageActive && this.stage.lift.arrived;
   }
 
   /**
@@ -640,13 +676,13 @@ export class BoxRig {
   /** Stage: the model lifts out of the object, floats in the middle of the view and turns. */
   private updateStage(input: BoxFrameInput, sf: StageFrame): { labels: LabelItem[]; bounds: StackBounds } {
     const { now, dt, vw, vh } = input;
-    this.anim.update(now, dt, sf.putAway ? 0 : input.explodeTarget);
     this.stageActive = true;
 
     if (!this.stage) {
-      const from = input.box ?? { cx: vw / 2, cy: vh * 0.47, w: vw * 0.3, h: vw * 0.3 * 0.68 };
+      const box = input.box ?? { cx: vw / 2, cy: vh * 0.47, w: vw * 0.3, h: vw * 0.3 * 0.68 };
+      const from = sf.startBox ?? box;
       const W = STAGE_UNITS;
-      const H = STAGE_UNITS * Math.min(3, Math.max(0.2, from.h / Math.max(1, from.w)));
+      const H = STAGE_UNITS * Math.min(3, Math.max(0.2, box.h / Math.max(1, box.w)));
       const layout = stageLayout(
         this.parts.map((r) => r.part),
         (layer) => this.anim.rankOf(layer),
@@ -656,44 +692,58 @@ export class BoxRig {
       );
       // Start facing the camera exactly as the real object does (a whole number of turns).
       const yaw0 = nearestTurn(sf.yaw);
-      this.stage = { layout, lift: 0, liftV: 0, yaw: yaw0, yawV: 0, pitch: 0, pitchV: 0, zoom: 1, zoomV: 0, presence: 0, from: { ...from } };
+      const fromPill = !!sf.startBox;
+      this.stage = { layout, lift: new Lift(), waited: 0, fromPill, yaw0, yaw: yaw0, yawV: 0, pitch: 0, pitchV: 0, zoom: 1, zoomV: 0, from: { cx: from.cx, cy: from.cy, w: from.w, h: from.h } };
     }
     const st = this.stage;
-    if (input.box) {
-      // Follow the real object while the model is still close to it (lifting out / going back).
+    // The lift (liftOut.ts): it appears once the models that are loading have arrived (or after
+    // STAGE_MODEL_WAIT_S; later ones cross-fade in place). Models there before it appears show at once.
+    let loading = false;
+    for (const rig of this.parts) if (rig.loadingUrl !== null) loading = true;
+    if (!st.lift.shown) st.waited += dt;
+    st.lift.update(dt, !sf.putAway, !loading || st.waited >= STAGE_MODEL_WAIT_S);
+    if (!st.lift.shown) for (const rig of this.parts) if (rig.glb) rig.glbFade = 1;
+    // Explode: at most the analysed amount until it has arrived (shown only from the last third of
+    // the rise, through spreadK), then what was asked ("explode it" opens once it is up).
+    const asked = sf.putAway ? 0 : input.explodeTarget;
+    this.anim.update(now, dt, st.lift.arrived ? asked : Math.min(asked, STAGE_MIN_EXPLODE));
+    if (input.box && (sf.putAway || (st.lift.follow && !st.fromPill))) {
+      // Follow the real object for the first third of the lift, and all the way back when put away.
       const k = 1 - Math.exp(-dt * 12);
       st.from.cx += (input.box.cx - st.from.cx) * k;
       st.from.cy += (input.box.cy - st.from.cy) * k;
       st.from.w += (input.box.w - st.from.w) * k;
       st.from.h += (input.box.h - st.from.h) * k;
     }
-    [st.lift, st.liftV] = springStep(st.lift, st.liftV, sf.putAway ? 0 : 1, STAGE_LIFT_OMEGA, dt);
-    const L = Math.min(1, Math.max(0, st.lift));
+    // L: 0 on the object, 1 in the middle of the view (a little past it at the overshoot).
+    const L = st.lift.pos;
+    const L01 = Math.min(1, Math.max(0, L));
+    // The parts separate only as it arrives, and close as it is put away.
+    const spreadK = st.lift.spreadK;
     [st.yaw, st.yawV] = springStep(st.yaw, st.yawV, sf.putAway ? nearestTurn(st.yaw) : sf.yaw, STAGE_TURN_OMEGA, dt);
     [st.pitch, st.pitchV] = springStep(st.pitch, st.pitchV, sf.putAway ? 0 : sf.pitch, STAGE_TURN_OMEGA, dt);
     [st.zoom, st.zoomV] = springStep(st.zoom, st.zoomV, sf.putAway || !Number.isFinite(sf.zoom) ? 1 : sf.zoom, STAGE_TURN_OMEGA, dt);
-    const presTarget = sf.putAway ? smoothstep(0.03, 0.35, L) : 1;
-    st.presence += (presTarget - st.presence) * (1 - Math.exp(-dt * (sf.putAway ? 14 : 9)));
-    const p = st.presence;
+    const p = st.lift.opacity;
 
     const lay = st.layout;
     const n = lay.ranks;
     const eByRank: number[] = new Array(n).fill(0);
-    for (const rig of this.parts) eByRank[this.anim.rankOf(rig.part.layer)] = this.anim.get(rig.part.layer);
+    for (const rig of this.parts) eByRank[this.anim.rankOf(rig.part.layer)] = this.anim.get(rig.part.layer) * spreadK;
     const stack = stageStack(lay, (r) => eByRank[r] ?? 0);
 
     // Orientation: top-down (as the camera sees the object) on the object, three-quarter view on stage.
     const elevation = STAGE_ELEVATION + st.pitch;
     this.tiltG.rotation.set(-(Math.PI / 2 - elevation) * L, 0, 0);
-    this.spinG.rotation.set(0, 0, st.yaw);
+    // the turn also travels on the lift's curve: on the object it is the object's own
+    this.spinG.rotation.set(0, 0, st.yaw0 + (st.yaw - st.yaw0) * L01);
     // Seen from below (pitched far up), the deepest layer is the nearest: draw it last.
-    const fromAbove = Math.sin(elevation * L + (Math.PI / 2) * (1 - L)) >= 0;
+    const fromAbove = Math.sin(elevation * L01 + (Math.PI / 2) * (1 - L01)) >= 0;
 
     const anyHl = input.highlighted.size > 0;
     const kHl = 1 - Math.exp(-dt * 10);
     this.parts.forEach((rig, i) => {
       const sp = lay.parts[i];
-      const e = Math.min(1, this.anim.get(rig.part.layer));
+      const e = Math.min(1, this.anim.get(rig.part.layer)) * spreadK;
       rig.body.scale.set(sp.w, sp.h, sp.d);
       rig.edges.scale.copy(rig.body.scale);
       rig.pivot.position.set(sp.ax + (sp.px - sp.ax) * e, sp.ay + (sp.py - sp.ay) * e, stack.z[i]);
@@ -707,10 +757,10 @@ export class BoxRig {
 
     // One soft shadow on the "ground" under the model (not while it still sits on the real object).
     if (this.groundShadow && this.groundMat) {
-      this.groundShadow.visible = p * L > 0.01;
+      this.groundShadow.visible = p * L01 > 0.01;
       this.groundShadow.position.set(0, -0.04 * lay.H, stack.bottom - 6);
       this.groundShadow.scale.set(lay.W * 1.25, lay.H * 1.35, 1);
-      this.groundMat.opacity = STAGE_SHADOW_OPACITY * p * smoothstep(0.3, 1, L);
+      this.groundMat.opacity = STAGE_SHADOW_OPACITY * p * smoothstep(0.3, 1, L01);
     }
 
     // Size and place: on the object's box at L = 0; on stage, fitted (whatever the yaw) between
@@ -739,7 +789,7 @@ export class BoxRig {
     let minY = Infinity;
     let maxY = -Infinity;
     for (const rig of this.parts) {
-      const e = this.anim.get(rig.part.layer);
+      const e = this.anim.get(rig.part.layer) * spreadK;
       const hidden = this.meshOnly && !rig.glb;
       if (hidden) continue; // not drawn on stage: no label, not in the bounds
       const m = rig.pivot.matrixWorld;
@@ -759,7 +809,7 @@ export class BoxRig {
         text: rig.part.name,
         ax,
         ay,
-        opacity: p * L * smoothstep(0.5, 0.85, e) * (rig.dim > 0.5 ? 0.55 : 1) * inView(ax, ay, vw, vh),
+        opacity: p * st.lift.labels * smoothstep(0.5, 0.85, e) * (rig.dim > 0.5 ? 0.55 : 1) * inView(ax, ay, vw, vh),
         highlighted: rig.hl > 0.5,
       });
     }
