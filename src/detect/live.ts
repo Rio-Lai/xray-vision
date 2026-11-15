@@ -12,6 +12,8 @@ export interface LiveStats {
   objMs: number;
   handMs: number;
   faceMs: number;
+  /** Object detector line for the debug panel (#110): which model, its timing, the two thresholds. */
+  detector: string;
   notes: string[];
 }
 
@@ -28,5 +30,5 @@ export const live: LiveData = {
   objects: [],
   hands: [],
   faces: [],
-  stats: { renderFps: 0, objMs: 0, handMs: 0, faceMs: 0, notes: [] },
+  stats: { renderFps: 0, objMs: 0, handMs: 0, faceMs: 0, detector: '', notes: [] },
 };

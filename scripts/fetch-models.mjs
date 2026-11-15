@@ -24,6 +24,11 @@ const MODELS = [
     url: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite',
   },
   {
+    // sharper object labels (#110); the app falls back to Lite0 above without it
+    file: 'efficientdet_lite2.tflite',
+    url: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float16/1/efficientdet_lite2.tflite',
+  },
+  {
     file: 'hand_landmarker.task',
     url: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
   },

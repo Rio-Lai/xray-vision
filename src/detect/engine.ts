@@ -2,7 +2,9 @@
  * Detection engine, ticked once per animation frame by Stage. Runs all the time, whether the
  * overlay is on or off, so "this" (focusedObjectId) is always ready for a voice command.
  *  - hand landmarker on every new video frame
- *  - object detector on every 3rd new video frame, paused while store.frozen
+ *  - object detector on every 3rd new video frame, or every 2nd when its first second shows it is
+ *    quick enough (#110, detectorTiming.ts; a Lite2 too slow here is swapped for Lite0), never on a
+ *    face frame, paused while store.frozen
  *  - face landmarker on every 3rd new video frame too, on the frames between (#94), on a square crop
  *    of the middle of the frame (a face one to two metres away is then big enough to find); its eyes
  *    are scene objects (faceTracker.ts)
@@ -16,9 +18,10 @@ import type { SceneObject } from '../state/store';
 import { errorText, frame, frameSize, MOCK_GESTURE, MOCK_MODE, MOCK_SCENE, urlNumber } from '../camera/frame';
 import type { Box } from '../state/store';
 import { setStatus } from '../hud/hudStore';
-import { loadVisionTasks, USEFUL_CLASSES } from './mediapipe';
+import { DETECTOR_CHOICE, loadVisionTasks, USEFUL_CLASSES } from './mediapipe';
 import type { VisionTasks } from './mediapipe';
-import { ObjectTracker } from './objectTracker';
+import { APPEAR_SCORE, KEEP_SCORE, ObjectTracker } from './objectTracker';
+import { DetectorTiming, LITE2_MAX_MS } from './detectorTiming';
 import type { RawDetection } from './objectTracker';
 import { HandTracker, handTuning } from './handTracker';
 import type { RawHand } from './handTracker';
@@ -34,7 +37,14 @@ import { live } from './live';
 
 
 const PUBLISH_MS = 66;
-const OBJECT_EVERY_N_FRAMES = 3;
+/**
+ * Which of every six new frames run the object detector (#110): every 3rd as before, or every 2nd
+ * when it is quick enough. The face landmarker has frames 1 and 4 of the six, so 4 moves to 5.
+ */
+const OBJECT_SLOTS: Record<2 | 3, readonly boolean[]> = {
+  3: [true, false, false, true, false, false],
+  2: [true, false, true, false, false, true],
+};
 /** The face landmarker runs on every 3rd new frame as well, one frame after the object detector. */
 const FACE_EVERY_N_FRAMES = 3;
 const FACE_PHASE = 1;
@@ -259,6 +269,9 @@ export function createDetectionEngine(): DetectionEngine {
   let disposed = false;
   let tasks: VisionTasks | null = null;
   const objTracker = new ObjectTracker();
+  const objTiming = new DetectorTiming();
+  let timedDetector: unknown = null;
+  let lite0Asked = false;
   const handTracker = new HandTracker();
   const faceTracker = new FaceTracker();
   const focusTracker = new FocusTracker();
@@ -332,6 +345,16 @@ export function createDetectionEngine(): DetectionEngine {
     return { image: faceCanvas, src: { x: sx / fw, y: sy / fh, w: size / fw, h: size / fh, fw, fh } };
   }
 
+  /** Lite2 (not forced) too slow or failing here: swap in Lite0, once (#110). */
+  function fallBackToLite0(t: VisionTasks, why: string): void {
+    if (lite0Asked || t.detector !== 'lite2' || DETECTOR_CHOICE !== 'auto') return;
+    lite0Asked = true;
+    t.detectorNote = `${why}; loading Lite0`;
+    void t.switchDetector('lite0').then((ok) => {
+      t.detectorNote = ok ? why : `${why}, but Lite0 failed to load: kept Lite2`;
+    });
+  }
+
   function runVision(now: number, frozen: boolean, fw: number, fh: number): void {
     const t = tasks;
     const v = frame.video;
@@ -356,17 +379,27 @@ export function createDetectionEngine(): DetectionEngine {
       }
     }
 
-    if (t.objects && !frozen && newFrames % OBJECT_EVERY_N_FRAMES === 0 && now >= objPausedUntil) {
+    if (t.objects && !frozen && OBJECT_SLOTS[objTiming.every][newFrames % 6] && now >= objPausedUntil) {
       try {
+        if (t.objects !== timedDetector) {
+          timedDetector = t.objects; // a new detector (Lite2 swapped in, or Lite0 for it): measure again
+          objTiming.reset();
+        }
         lastObjTs = Math.max(now, lastObjTs + 1);
         const t0 = performance.now();
         const res = t.objects.detectForVideo(v, lastObjTs);
         live.stats.objMs = performance.now() - t0;
+        if (objTiming.record(live.stats.objMs, now) && objTiming.medianMs > LITE2_MAX_MS) {
+          fallBackToLite0(t, `Lite2 too slow here: median ${objTiming.medianMs.toFixed(1)} ms > ${LITE2_MAX_MS} ms`);
+        }
+        const note = t.detectorNote ? ` (${t.detectorNote})` : '';
+        live.stats.detector = `detector ${t.detector ?? '-'}${note} | ${objTiming.describe()} | appear ${APPEAR_SCORE} keep ${KEEP_SCORE} (?detector=lite0|lite2 ?appear= ?keep=)`;
         objTracker.update(parseDetections(res, v.videoWidth, v.videoHeight), now);
         setStatus('objects', null);
       } catch (e) {
         objPausedUntil = now + 1000;
         setStatus('objects', 'error', `Object detection error: ${errorText(e)}`);
+        fallBackToLite0(t, `Lite2 failed to run (${errorText(e)})`);
       }
     }
 

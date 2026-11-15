@@ -387,6 +387,7 @@ function DebugPanel() {
   lines.push(
     `render ${st.renderFps.toFixed(1)} fps | objects ${st.objMs.toFixed(1)} ms | hands ${st.handMs.toFixed(1)} ms | faces ${st.faceMs.toFixed(1)} ms${MOCK_MODE ? ' | MOCK' : ''}`,
   );
+  if (st.detector) lines.push(st.detector);
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
   const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} | input ${modelControl.describe()}`);

@@ -173,6 +173,7 @@ function checkModel(file, use, looksRight, kind) {
   else ok(`${file} ${mb(n)} (${use})`);
 }
 checkModel('efficientdet_lite0.tflite', 'object labels', (b) => b.length >= 8 && b.subarray(4, 8).toString('latin1') === 'TFL3', 'TFLite model');
+if (sizeOf(join(modelsDir, 'efficientdet_lite2.tflite')) > MIN_MODEL_BYTES) checkModel('efficientdet_lite2.tflite', 'sharper object labels (#110)', (b) => b.length >= 8 && b.subarray(4, 8).toString('latin1') === 'TFL3', 'TFLite model'); else warn('efficientdet_lite2.tflite is missing: offline, object labels use the smaller Lite0 (#110); run npm run fetch-models on a working network');
 checkModel('hand_landmarker.task', 'hands, gestures, muscle overlay', (b) => b.length >= 4 && b.readUInt32LE(0) === 0x04034b50, 'MediaPipe task bundle');
 checkModel('face_landmarker.task', 'eyes for "analyse the eye"', (b) => b.length >= 4 && b.readUInt32LE(0) === 0x04034b50, 'MediaPipe task bundle');
 
