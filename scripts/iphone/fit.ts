@@ -19,7 +19,7 @@ type Slot = { c: [number, number, number]; s: [number, number, number]; long: 'x
 /** Positions inside the 17 Pro (mm): centre and size along x, y, z. */
 export const SLOTS: Record<string, Slot> = {
   'face-id': { c: [0, 66.5, 1.6], s: [22, 6, 2.4], long: 'x' },
-  'logic-board': { c: [0, 52, -0.3], s: [62, 27, 1.6], long: 'x' },
+  'logic-board': { c: [-14.5, 52, -0.3], s: [33, 27, 1.6], long: 'x' }, // beside the cameras, under the other half of the plateau
   'vapour-chamber': { c: [0, 22, 2.4], s: [58, 62, 0.5], long: 'y' },
   battery: { c: [0, -20, -0.7], s: [60, 75, 3.9], long: 'y' },
   'taptic-engine': { c: [-17, -62.5, -0.6], s: [27, 8.5, 3.4], long: 'x' },

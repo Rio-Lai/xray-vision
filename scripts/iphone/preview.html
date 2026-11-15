@@ -18,7 +18,7 @@
       const q = new URLSearchParams(location.search);
       const parts = (q.get('parts') || 'display,frame,back,cameras').split(',');
       // explode order along z (front -> back) for parts present
-      const ORDER = ['display', 'face-id', 'frame', 'logic-board', 'vapour-chamber', 'battery', 'taptic-engine', 'usb-c', 'speaker', 'cameras', 'back'];
+      const ORDER = ['display', 'face-id', 'frame', 'logic-board', 'vapour-chamber', 'battery', 'taptic-engine', 'usb-c', 'speaker', 'main-camera-sensor', 'telephoto-camera', 'ultra-wide-camera', 'main-camera-lens', 'cameras', 'back'];
       const explode = Number(q.get('explode') || 0);
       const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
       renderer.setPixelRatio(1);
@@ -50,8 +50,9 @@
       const yaw = Number(q.get('yaw') ?? (view === 'back' ? 2.55 : view === 'front' ? 0.45 : 1.45));
       const pitch = Number(q.get('pitch') ?? 0.18);
       const dist = Number(q.get('dist') || (explode > 0 ? 3.6 : 2.9));
-      camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
-      controls.target.set(0, 0, 0);
+      const tx = Number(q.get('tx') || 0), ty = Number(q.get('ty') || 0);
+      camera.position.set(tx + Math.sin(yaw) * Math.cos(pitch) * dist, ty + Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
+      controls.target.set(tx, ty, 0);
       controls.update();
       renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
       setTimeout(() => (document.title = 'ready'), 1200);

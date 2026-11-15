@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as THREE from 'three';
 import { Document, NodeIO, type Material } from '@gltf-transform/core';
-import { KHRONOS_EXTENSIONS, KHRMaterialsClearcoat, KHRMaterialsIOR, KHRMaterialsTransmission } from '@gltf-transform/extensions';
+import { KHRONOS_EXTENSIONS, KHRMaterialsClearcoat, KHRMaterialsIOR, KHRMaterialsIridescence, KHRMaterialsTransmission } from '@gltf-transform/extensions';
 import { dedup, quantize } from '@gltf-transform/functions';
 
 const W = 71.9, H = 150.0, D = 8.75;
@@ -243,24 +243,84 @@ function display(): Prim[] {
   ];
 }
 
-// 4. Triple camera module on the plateau + flash, LiDAR, mic (seen from the back: lenses top-left in a triangle)
+// 4. Triple camera module on the plateau + flash, LiDAR, mic (seen from the back: lenses top-left in a triangle).
+//    Each lens, from the outside in: raised anodised ring with a polished diamond-cut chamfer, black trim ring,
+//    sapphire crystal cover with an anti-reflective sheen, and the stack of lens elements stepping down the barrel.
 function cameras(): Prim[] {
-  const z0 = BACK_Z - PLATEAU_RISE; // plateau surface
+  const z0 = BACK_Z - PLATEAU_RISE; // plateau surface; "height" h below = outward from the plateau (towards -z)
   const cy = (H / 2 + PLATEAU_BOTTOM) / 2;
-  const lenses: [number, number][] = [
-    [22.5, cy + 7.6], // main (48 MP Fusion), outer column
-    [22.5, cy - 7.6], // ultra wide
-    [9.3, cy], // telephoto (tetraprism), towards the middle
-  ];
+  const at = (g: THREE.BufferGeometry, x: number, y: number) => g.translate(x, y, 0);
+  /** surface of revolution about the lens axis from (r, h) points, h measured outward from the plateau */
+  const lathe = (pts: [number, number][], x: number, y: number, seg = 96) => {
+    const g = new THREE.LatheGeometry(pts.map(([r, h]) => new THREE.Vector2(r, h)), seg);
+    g.rotateX(-Math.PI / 2); // lathe axis (y) -> -z (outward from the back)
+    g.translate(0, 0, z0);
+    return at(g, x, y);
+  };
+  /** flat ring/disc facing outward (-z) at height h */
+  const ring = (rIn: number, rOut: number, h: number, x: number, y: number, seg = 96) => {
+    const g = rIn > 0 ? new THREE.RingGeometry(rIn, rOut, seg) : new THREE.CircleGeometry(rOut, seg);
+    g.rotateY(Math.PI);
+    g.translate(0, 0, z0 - h);
+    return at(g, x, y);
+  };
+  const mats = {
+    ring: (d: Document) => pbr(d, 'lens ring (anodised Cosmic Orange)', '#d65a1f', 0.32, 0.9, 0.2).setDoubleSided(true),
+    chamfer: (d: Document) => pbr(d, 'diamond-cut chamfer (polished)', '#ffb27a', 0.06, 1.0, 0.6).setDoubleSided(true),
+    trim: (d: Document) => pbr(d, 'black trim ring', '#060607', 0.55, 0.2).setDoubleSided(true),
+    barrel: (d: Document) => pbr(d, 'lens barrel', '#030304', 0.7, 0.1).setDoubleSided(true),
+    element: (d: Document, i: number) =>
+      pbr(d, `lens element ${i}`, ['#080e22', '#050a18', '#030712', '#010307'][i], 0.03, 0.6, 0.8)
+        .setExtension('KHR_materials_iridescence', d.createExtension(KHRMaterialsIridescence).createIridescence().setIridescenceFactor(0.4).setIridescenceIOR(1.5).setIridescenceThicknessMinimum(260).setIridescenceThicknessMaximum(420)),
+    cover: (d: Document) =>
+      pbr(d, 'sapphire crystal cover', '#ffffff', 0.0, 0.0, 0)
+        .setExtension('KHR_materials_transmission', d.createExtension(KHRMaterialsTransmission).createTransmission().setTransmissionFactor(1))
+        .setExtension('KHR_materials_ior', d.createExtension(KHRMaterialsIOR).createIOR().setIOR(1.77))
+        .setExtension('KHR_materials_iridescence', d.createExtension(KHRMaterialsIridescence).createIridescence().setIridescenceFactor(0.12).setIridescenceIOR(1.4).setIridescenceThicknessMinimum(300).setIridescenceThicknessMaximum(500)),
+  };
   const prims: Prim[] = [];
-  for (const [x, y] of lenses) {
-    prims.push({ geo: cylinder(7.3, x, y, z0 - 1.6, z0 + 0.1), mat: darkAlu }); // anodised ring
-    prims.push({ geo: cylinder(6.1, x, y, z0 - 1.75, z0 - 1.5), mat: (d) => pbr(d, 'sapphire lens cover', '#0d1220', 0.05, 0.3, 1) });
-    prims.push({ geo: cylinder(3.2, x, y, z0 - 1.8, z0 - 1.74), mat: (d) => pbr(d, 'lens element', '#14203f', 0.05, 0.5, 1) });
+  // [x, y, aperture scale]: main 48 MP Fusion (largest), ultra wide, 4x tetraprism telephoto (smallest pupil)
+  const lenses: [number, number, number][] = [
+    [22.5, cy + 7.6, 1.0],
+    [22.5, cy - 7.6, 0.86],
+    [9.3, cy, 0.72],
+  ];
+  for (const [x, y, k] of lenses) {
+    // raised ring: outer wall, polished chamfer on the top edge, inner wall down to the trim
+    prims.push({ geo: lathe([[7.45, 0], [7.45, 1.22]], x, y), mat: mats.ring });
+    prims.push({ geo: lathe([[7.45, 1.22], [7.32, 1.42], [7.05, 1.55], [6.65, 1.55]], x, y), mat: mats.chamfer });
+    prims.push({ geo: lathe([[6.65, 1.55], [6.5, 1.36]], x, y), mat: mats.ring });
+    prims.push({ geo: ring(6.05, 6.5, 1.36, x, y), mat: mats.trim });
+    // barrel and the lens stack under the cover: each element smaller and deeper, black spacer rings between
+    prims.push({ geo: lathe([[6.05, 1.36], [5.9, 0.2], [5.9, -0.6]], x, y), mat: mats.barrel });
+    const steps: [number, number][] = [[5.3 * k, 1.0], [4.1 * k, 0.55], [2.9 * k, 0.15], [1.7 * k, -0.25]];
+    let prevR = 5.9;
+    steps.forEach(([r, h], i) => {
+      prims.push({ geo: ring(r, prevR, h + 0.04, x, y), mat: mats.barrel }); // spacer
+      prims.push({ geo: lathe([[r, h + 0.04], [r * 0.6, h + 0.1], [0.001, h + 0.12]], x, y, 64), mat: (d) => mats.element(d, i) }); // domed element
+      prevR = r;
+    });
+    // coating reflections: faint violet and green rings around the pupil, as real multi-coated lenses show
+    prims.push({ geo: ring(1.7 * k, 1.95 * k, -0.08, x, y, 96), mat: (d) => pbr(d, 'coating glint violet', '#2a1446', 0.05, 0.3, 1).setEmissiveFactor([0.16, 0.06, 0.32]).setDoubleSided(true) });
+    prims.push({ geo: ring(2.95 * k, 3.1 * k, 0.32, x, y, 96), mat: (d) => pbr(d, 'coating glint green', '#0e2a1e', 0.05, 0.3, 1).setEmissiveFactor([0.03, 0.14, 0.08]).setDoubleSided(true) });
+    // sapphire cover, very slightly domed, sitting in the trim ring
+    prims.push({ geo: lathe([[6.05, 1.36], [4.0, 1.4], [0.001, 1.42]], x, y), mat: mats.cover });
   }
-  prims.push({ geo: cylinder(3.0, -23.5, cy + 7.5, z0 - 0.4, z0 + 0.1), mat: (d) => pbr(d, 'True Tone flash', '#f3e6c8', 0.2, 0.1, 0.6) });
-  prims.push({ geo: cylinder(3.0, -23.5, cy - 7.5, z0 - 0.4, z0 + 0.1), mat: (d) => pbr(d, 'LiDAR scanner', '#121214', 0.15, 0.2, 0.8) });
-  prims.push({ geo: cylinder(0.6, -14.5, cy, z0 - 0.05, z0 + 0.1), mat: black }); // microphone
+  // True Tone flash: bezel + frosted diffuser with Fresnel rings
+  const fx = -23.5, fy = cy + 7.5, ly = cy - 7.5;
+  prims.push({ geo: lathe([[3.4, 0], [3.4, 0.35], [3.05, 0.45]], fx, fy), mat: mats.ring });
+  prims.push({ geo: ring(2.85, 3.05, 0.45, fx, fy), mat: mats.trim });
+  for (let i = 0; i < 6; i++) {
+    const r0 = (2.85 * i) / 6, r1 = (2.85 * (i + 1)) / 6;
+    prims.push({ geo: ring(r0, r1, 0.4 + (i % 2) * 0.03, fx, fy, 64), mat: (d) => pbr(d, 'flash diffuser', i % 2 ? '#f5ecd6' : '#fff7e6', 0.35, 0.0, 0.5).setDoubleSided(true) });
+  }
+  // LiDAR scanner: bezel, black glass, emitter/receiver behind it
+  prims.push({ geo: lathe([[3.4, 0], [3.4, 0.35], [3.05, 0.45]], fx, ly), mat: mats.ring });
+  prims.push({ geo: ring(0, 3.05, 0.42, fx, ly), mat: (d) => pbr(d, 'LiDAR black glass', '#050507', 0.05, 0.2, 1).setDoubleSided(true) });
+  prims.push({ geo: ring(0, 1.25, 0.44, fx - 0.9, ly, 48), mat: (d) => mats.element(d, 2) });
+  prims.push({ geo: ring(0, 0.8, 0.44, fx + 1.1, ly, 48), mat: (d) => mats.element(d, 3) });
+  // microphone
+  prims.push({ geo: cylinder(0.6, -14.5, cy, z0 - 0.05, z0 + 0.1), mat: black });
   return prims;
 }
 

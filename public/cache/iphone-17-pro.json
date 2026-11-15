@@ -91,12 +91,12 @@
       "name": "logic board with A19 Pro chip",
       "layer": 4,
       "size": [
-        0.862,
+        0.459,
         0.18,
         0.022
       ],
       "offset": [
-        0.0,
+        -0.202,
         -0.347
       ],
       "shape": "board",
@@ -187,9 +187,89 @@
       "mesh_url": "/cache/meshes/iphone-17-pro/speaker.glb"
     },
     {
-      "id": "cameras",
-      "name": "triple 48 MP camera module",
+      "id": "main-camera-sensor",
+      "name": "48 MP main sensor with sensor-shift stabiliser",
       "layer": 7,
+      "size": [
+        0.2,
+        0.096,
+        0.035
+      ],
+      "offset": [
+        0.313,
+        -0.421
+      ],
+      "shape": "box",
+      "color": "#3a3b40",
+      "summary": "The large 48 MP sensor that turns light into the photo, on a stage that moves to cancel hand shake.",
+      "details": "Each pixel measures light through a red, green or blue filter; the IR-cut filter above it blocks invisible infrared. Sensor-shift stabilisation floats the whole sensor on magnets and four copper coils, moving it thousands of times a second against your hand movements.",
+      "safety": "The sensor and its stabiliser are delicate; never press on the lens.",
+      "mesh_url": "/cache/meshes/iphone-17-pro/main-camera-sensor.glb"
+    },
+    {
+      "id": "telephoto-camera",
+      "name": "4x tetraprism telephoto camera",
+      "layer": 7,
+      "size": [
+        0.108,
+        0.16,
+        0.111
+      ],
+      "offset": [
+        0.129,
+        -0.31
+      ],
+      "shape": "box",
+      "color": "#20232a",
+      "summary": "Folds the light sideways with a glass prism, so a long zoom lens fits inside a thin phone.",
+      "details": "Light enters the lens, bounces four times inside the tetraprism and travels along a lens group lying flat inside the phone before reaching a sensor standing on its side. That long light path gives 4x optical zoom.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/telephoto-camera.glb"
+    },
+    {
+      "id": "ultra-wide-camera",
+      "name": "48 MP ultra wide camera",
+      "layer": 8,
+      "size": [
+        0.153,
+        0.073,
+        0.09
+      ],
+      "offset": [
+        0.313,
+        -0.319
+      ],
+      "shape": "box",
+      "color": "#20232a",
+      "summary": "A wide-angle lens with a strongly curved front element that sees a 120-degree view; also used for macro shots.",
+      "details": "Six aspheric elements bend light from a very wide field onto its own 48 MP sensor. Autofocus lets it focus as close as 2 cm for macro photos.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/ultra-wide-camera.glb"
+    },
+    {
+      "id": "main-camera-lens",
+      "name": "main camera lens (48 MP Fusion)",
+      "layer": 8,
+      "size": [
+        0.186,
+        0.089,
+        0.089
+      ],
+      "offset": [
+        0.313,
+        -0.421
+      ],
+      "shape": "box",
+      "color": "#0c0c0e",
+      "summary": "Seven precision glass and plastic elements that focus the image onto the main sensor.",
+      "details": "The elements are aspheric (not simple spheres) to keep the picture sharp to the corners. A voice-coil motor, a copper coil between magnets, moves the whole lens a fraction of a millimetre to focus.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/main-camera-lens.glb"
+    },
+    {
+      "id": "cameras",
+      "name": "camera rings, sapphire covers, flash and LiDAR",
+      "layer": 9,
       "size": [
         0.584,
         0.213,
@@ -201,7 +281,7 @@
       ],
       "shape": "box",
       "color": "#222222",
-      "summary": "Three 48 MP Fusion cameras: main, ultra-wide and tetraprism telephoto, plus flash and LiDAR.",
+      "summary": "The outside of the camera system: anodised lens rings, sapphire crystal covers, True Tone flash and the LiDAR scanner.",
       "details": "The telephoto folds light through a tetraprism for 4x optical zoom (8x optical-quality crop). The LiDAR scanner measures depth for portraits, low-light focus and AR.",
       "safety": null,
       "mesh_url": "/cache/meshes/iphone-17-pro/cameras.glb"
@@ -209,7 +289,7 @@
     {
       "id": "back",
       "name": "Ceramic Shield rear glass panel",
-      "layer": 8,
+      "layer": 10,
       "size": [
         0.875,
         0.7,
@@ -269,8 +349,12 @@
     },
     {
       "n": 6,
-      "text": "At the back: the triple 48 MP cameras in the plateau and the glass window for MagSafe charging.",
+      "text": "At the back: three 48 MP cameras. The main one stabilises by moving its sensor, the telephoto folds light through a prism, and the glass back lets MagSafe charge through it.",
       "part_ids": [
+        "main-camera-lens",
+        "main-camera-sensor",
+        "telephoto-camera",
+        "ultra-wide-camera",
         "cameras",
         "back"
       ]
