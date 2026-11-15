@@ -6,9 +6,10 @@
  *   O overlay on/off   A analyse "this" (on stage, parts just apart)   E explode "this"   R reset
  *   D debug panel   F freeze   S next step   M tracking mode   Left/Right or [ ] previous/next part
  * Hidden mouse fallback while a model is on stage: drag turns it (with a little inertia), the
- * wheel opens and closes it; a click without dragging picks a part.
+ * wheel opens and closes it, a trackpad pinch (the wheel with Ctrl, as Chrome sends it) and the
+ * + / = and - keys zoom it (#109); a click without dragging picks a part.
  * Hand gestures (detect/gestures.ts) run every frame after detection: pinch-drag turns the model,
- * two hands pinching and pulling apart open it (tuning in the debug panel).
+ * two hands pinching and pulling apart open it, and pulling further zooms in (tuning in the debug panel).
  * `?overlay=1` starts with the overlay on.
  */
 import { useEffect, useRef } from 'react';
@@ -31,6 +32,11 @@ const MODES: TrackingMode[] = ['freeze', 'follow', 'stage'];
 /** Mouse fallback: radians per pixel dragged, and explode change per wheel pixel. */
 const DRAG_RAD_PER_PX = 0.008;
 const WHEEL_PER_PX = 0.0016;
+/** Trackpad pinch (wheel + Ctrl): zoom factor exp(-ZOOM_PER_PX * deltaY), one event capped at ZOOM_MAX_PX. */
+const ZOOM_PER_PX = 0.01;
+const ZOOM_MAX_PX = 25;
+/** One + or - key press zooms by this factor (held, it repeats). */
+const ZOOM_KEY_STEP = 1.25;
 /** A press that moves less than this is a click (pick a part), not a drag. */
 const CLICK_SLOP_PX = 5;
 
@@ -171,6 +177,12 @@ export function Stage() {
         cyclePart(1);
         return;
       }
+      if (key === '+' || key === '=' || key === '-' || key === '_') {
+        if (!stageInputActive(s)) return;
+        e.preventDefault();
+        modelControl.zoomBy(key === '-' || key === '_' ? 1 / ZOOM_KEY_STEP : ZOOM_KEY_STEP, performance.now());
+        return;
+      }
       if (e.repeat) return;
       switch (key.toLowerCase()) {
         case 'o':
@@ -214,18 +226,24 @@ export function Stage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Mouse wheel opens / closes the model on stage (non-passive, so the page never scrolls or zooms).
+  // Mouse wheel opens / closes the model on stage, a trackpad pinch (Chrome sends the wheel with
+  // Ctrl) zooms it about its middle (non-passive, so the page never scrolls or zooms).
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) return; // pinch-zoom / Cmd+wheel stay the browser's
+      if (e.metaKey) return; // Cmd+wheel stays the browser's
       const t = e.target;
       if (t instanceof Element && t.closest('[data-xr-ui]')) return;
       const s = useStore.getState();
-      if (!stageInputActive(s)) return;
+      if (!stageInputActive(s)) return; // nothing on stage: a pinch zooms the page as usual
       e.preventDefault();
       const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+      if (e.ctrlKey) {
+        const step = Math.min(ZOOM_MAX_PX, Math.max(-ZOOM_MAX_PX, px));
+        modelControl.zoomBy(Math.exp(-step * ZOOM_PER_PX), performance.now());
+        return;
+      }
       modelControl.setExplode(s.explodeAmount - px * WHEEL_PER_PX, performance.now());
     };
     el.addEventListener('wheel', onWheel, { passive: false });

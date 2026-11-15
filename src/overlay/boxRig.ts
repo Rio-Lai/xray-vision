@@ -23,7 +23,8 @@
  * Stage mode (trackingMode 'stage', the default): the same parts form a real 3D model that lifts
  * out of the object's box (seen from above, exactly over the real object), tilts to a three-quarter
  * view and glides to the middle of the view in ~0.6 s, where it turns with store.modelYaw /
- * modelPitch (critically damped springs; a very slow idle drift is added by the caller). Explode
+ * modelPitch (critically damped springs; a very slow idle drift is added by the caller) and is drawn
+ * store.modelZoom times its stage size (eased by the same kind of spring, about its middle). Explode
  * lifts the layers apart along the object's own up axis (see stageLayout.ts): at ~0.12 the parts
  * are just apart, at 1 they are spread out with labels. One soft ground shadow sits under it.
  * "Put it away" glides it back into the object and fades it.
@@ -49,6 +50,7 @@ import {
 import { loadGlbTemplate } from './glbCache';
 import { STAGE_ELEVATION, nearestTurn, springStep, stageFit, stageLayout, stageStack } from './stageLayout';
 import type { StageLayout } from './stageLayout';
+import { inView } from './labels';
 import type { LabelItem, StackBounds } from './labels';
 
 /** The exploded stack may grow up to this much to fill the screen. */
@@ -81,7 +83,8 @@ export const STAGE_SIZE = 0.56;
 const STAGE_UNITS = 600;
 /** Stage springs (rad/s): the glide in / out (~0.6 s) and the orientation follow. */
 export const STAGE_LIFT_OMEGA = 8.5;
-const STAGE_TURN_OMEGA = 12;
+/** Stage springs (rad/s): turning and zooming (store.modelYaw / modelPitch / modelZoom). */
+export const STAGE_TURN_OMEGA = 12;
 const STAGE_SHADOW_OPACITY = 0.5;
 
 export interface ScreenBox {
@@ -117,6 +120,8 @@ export interface StageFrame {
   pitch: number;
   /** "put it away": glide back into the object (or shrink in place) and fade */
   putAway: boolean;
+  /** store.modelZoom: 1 = the normal stage size (ignored while put away) */
+  zoom: number;
 }
 
 interface StageState {
@@ -127,6 +132,8 @@ interface StageState {
   yawV: number;
   pitch: number;
   pitchV: number;
+  zoom: number;
+  zoomV: number;
   presence: number;
   /** where the model lifts out of / returns to (viewport px): the object's latest box */
   from: ScreenBox;
@@ -649,7 +656,7 @@ export class BoxRig {
       );
       // Start facing the camera exactly as the real object does (a whole number of turns).
       const yaw0 = nearestTurn(sf.yaw);
-      this.stage = { layout, lift: 0, liftV: 0, yaw: yaw0, yawV: 0, pitch: 0, pitchV: 0, presence: 0, from: { ...from } };
+      this.stage = { layout, lift: 0, liftV: 0, yaw: yaw0, yawV: 0, pitch: 0, pitchV: 0, zoom: 1, zoomV: 0, presence: 0, from: { ...from } };
     }
     const st = this.stage;
     if (input.box) {
@@ -664,6 +671,7 @@ export class BoxRig {
     const L = Math.min(1, Math.max(0, st.lift));
     [st.yaw, st.yawV] = springStep(st.yaw, st.yawV, sf.putAway ? nearestTurn(st.yaw) : sf.yaw, STAGE_TURN_OMEGA, dt);
     [st.pitch, st.pitchV] = springStep(st.pitch, st.pitchV, sf.putAway ? 0 : sf.pitch, STAGE_TURN_OMEGA, dt);
+    [st.zoom, st.zoomV] = springStep(st.zoom, st.zoomV, sf.putAway || !Number.isFinite(sf.zoom) ? 1 : sf.zoom, STAGE_TURN_OMEGA, dt);
     const presTarget = sf.putAway ? smoothstep(0.03, 0.35, L) : 1;
     st.presence += (presTarget - st.presence) * (1 - Math.exp(-dt * (sf.putAway ? 14 : 9)));
     const p = st.presence;
@@ -712,7 +720,8 @@ export class BoxRig {
     const availH = Math.max(100, vh - TOP_MARGIN - BOTTOM_MARGIN);
     const R = lay.radius;
     const sizeCap = Math.min(STAGE_SIZE * vh, availW) / (2 * R);
-    const sStage = Math.min(sizeCap, stageFit(R, stack.top - stack.bottom, STAGE_ELEVATION, availW, availH));
+    // Zoomed (store.modelZoom), the model grows about its middle and may leave the view.
+    const sStage = Math.min(sizeCap, stageFit(R, stack.top - stack.bottom, STAGE_ELEVATION, availW, availH)) * Math.max(0.05, st.zoom);
     const s0 = Math.max(0.05, st.from.w / lay.W);
     const s = s0 + (sStage - s0) * L;
     const cx = st.from.cx + (vw / 2 - st.from.cx) * L;
@@ -721,7 +730,8 @@ export class BoxRig {
     this.root.scale.setScalar(s);
     this.root.updateMatrixWorld(true);
 
-    // Labels (fade in above ~0.5) and the model's on-screen bounds (for the label columns).
+    // Labels (fade in above ~0.5; hidden when the part is off screen, zoomed in) and the model's
+    // on-screen bounds (for the label columns).
     const labels: LabelItem[] = [];
     const v = new THREE.Vector3();
     let minX = Infinity;
@@ -742,12 +752,14 @@ export class BoxRig {
         maxY = Math.max(maxY, v.y);
       }
       rig.pivot.getWorldPosition(v);
+      const ax = v.x + vw / 2;
+      const ay = vh / 2 - v.y;
       labels.push({
         id: rig.part.id,
         text: rig.part.name,
-        ax: v.x + vw / 2,
-        ay: vh / 2 - v.y,
-        opacity: p * L * smoothstep(0.5, 0.85, e) * (rig.dim > 0.5 ? 0.55 : 1),
+        ax,
+        ay,
+        opacity: p * L * smoothstep(0.5, 0.85, e) * (rig.dim > 0.5 ? 0.55 : 1) * inView(ax, ay, vw, vh),
         highlighted: rig.hl > 0.5,
       });
     }

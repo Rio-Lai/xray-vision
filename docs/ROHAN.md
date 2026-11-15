@@ -24,7 +24,7 @@
 
 1. Create a new agent named **Blowfish**. Pick a clear, warm voice (for example a calm British or American conversational voice; avoid dramatic or "narrator" voices). Turn on **authentication** so the app connects with a signed URL.
 2. Paste the **system prompt** from `docs/agent/system-prompt.md` and the **first message** from `docs/agent/first-message.txt`, or run `npm run agent:prompt` (dry run) then `npm run agent:prompt -- --apply` (see below).
-3. Add exactly the nine **client tools** below (the ninth, `rotate_model`, was added in #58). Names must match exactly. Tick **Wait for response** on every one. There is no `set_lens` (lenses were removed in #32).
+3. Add exactly the ten **client tools** below (the ninth, `rotate_model`, was added in #58; the tenth, `zoom_model`, in #109). Names must match exactly. Tick **Wait for response** on every one. There is no `set_lens` (lenses were removed in #32).
 4. In the agent's **Advanced** settings keep **interruptions** on (the user can talk over Blowfish and it stops), and keep the turn timeout short.
 5. Put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in your local `.env` (never commit it; share with Rio privately for the demo laptop), then restart `npm run dev`. `GET /api/health` should report `keys.elevenlabs: true`.
 
@@ -41,7 +41,7 @@ To put them into the agent:
 
 ## Client tools to enter in the dashboard
 
-All type **Client**, all with **Wait for response** on. Exactly these nine.
+All type **Client**, all with **Wait for response** on. Exactly these ten (`npm run check` only warns while `zoom_model` is missing).
 
 | Name | Description | Parameters |
 | --- | --- | --- |
@@ -54,6 +54,7 @@ All type **Client**, all with **Wait for response** on. Exactly these nine.
 | `reset_view` | Put the model away: collapse everything and clear the selection. | none |
 | `rotate_model` | Turn the floating model. "around" turns it half a turn. | `direction` (string, required: "left", "right", "up", "down" or "around"), `degrees` (number, optional; default 45, "around" 180) |
 | `get_pose` | Which finger is pressing right now and which muscle part ids are working. | none |
+| `zoom_model` | Make the floating model bigger or smaller ("zoom in", "bigger", "closer" / "zoom out", "smaller"), or back to its normal size. | `direction` (string, required: "in", "out" or "reset"), `factor` (number, optional; default 1.5) |
 
 ## Noisy room (judging): "Hey Blowfish" and push-to-talk
 
@@ -73,14 +74,15 @@ Changes apply at once to a running session, and each one is logged in the hidden
 
 ## What the tools reply (#96: short by default)
 
-- Every action tool (`explode`, `set_overlay`, `reset_view`, `rotate_model`, `select_object`) returns JSON with `say`, the exact line to speak, and nothing that asks for more:
+- Every action tool (`explode`, `set_overlay`, `reset_view`, `rotate_model`, `zoom_model`, `select_object`) returns JSON with `say`, the exact line to speak, and nothing that asks for more:
 
   | Tool | `say` |
   | --- | --- |
   | `explode` | "<short name> analysed." (opened below 0.5, e.g. 0.12) or "<short name> exploded." (0.5 and above); a live list adds " Parts are AI-estimated."; "Put back together." when closing an open model; "Closed." for amount 0; on failure the flow's one plain sentence |
   | `set_overlay` | "Labels on." / "Labels off." |
   | `reset_view` | "Put away. Saved <short name>." or "View reset." |
-  | `rotate_model` | "Turned left." / "Turned right." / "Turned up." / "Turned down." / "Turned around."; "Nothing is open yet." |
+  | `rotate_model` | "Turned left." / "Turned right." / "Turned up." / "Turned down." / "Turned around."; "That is as far as it turns." (a flat model at its limit, #107); "Nothing is open yet." |
+  | `zoom_model` | "Zoomed in." / "Zoomed out." / "Back to normal size."; "That is as close as it goes." / "That is as far out as it goes."; "Nothing is open yet." |
   | `select_object` | "Selected <name>." / "I cannot see that." |
 
   The short name drops the bracketed details ("MacBook Air 13-inch", not "MacBook Air 13-inch (M3, 2024)").

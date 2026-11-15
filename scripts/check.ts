@@ -300,7 +300,10 @@ async function checkAgentTools(agentBody: unknown, base: string, headers: Record
   const client = [...tools.values()].filter((t) => t.type === 'client');
   const clientNames = new Set(client.map((t) => t.name));
   const notClient = want.filter((n) => !clientNames.has(n));
-  const missing = notClient.filter((n) => !tools.has(n));
+  // New tools not yet in the dashboard only warn (#109: zoom_model, until Rohan adds it).
+  const SOFT_TOOLS = new Set(['zoom_model']);
+  const missingSoft = notClient.filter((n) => !tools.has(n) && SOFT_TOOLS.has(n));
+  const missing = notClient.filter((n) => !tools.has(n) && !SOFT_TOOLS.has(n));
   const wrongType = notClient.filter((n) => tools.has(n)).map((n) => `${n} is a ${tools.get(n)!.type} tool`);
   const extra = client.map((t) => t.name).filter((n) => !want.includes(n));
   const notWaiting = client.filter((t) => want.includes(t.name) && t.expectsResponse === false).map((t) => t.name);
@@ -327,6 +330,14 @@ async function checkAgentTools(agentBody: unknown, base: string, headers: Record
       ),
     );
   }
+  if (missingSoft.length) {
+    items.push(
+      warn(
+        `client tools not on the agent yet: ${missingSoft.join(', ')}`,
+        'add each as a Client tool with "Wait for response" ticked (docs/ROHAN.md); until then the agent cannot call it.',
+      ),
+    );
+  }
   if (wrongType.length) {
     items.push(fail(`wrong tool type: ${wrongType.join(', ')}`, 'the app answers only Client tools: delete it and add it again as a Client tool.', true));
   }
@@ -339,8 +350,9 @@ async function checkAgentTools(agentBody: unknown, base: string, headers: Record
   if (extra.length) {
     items.push(warn(`extra client tools the app does not answer: ${extra.join(', ')}`, 'remove them, or the agent may call a tool nobody answers.'));
   }
-  if (!notClient.length && !notWaiting.length) {
-    items.push(ok(`all ${present.length} client tools match CLIENT_TOOL_NAMES${unknownWait.length ? '' : ' and wait for a response'}`));
+  if (notClient.length === missingSoft.length && !notWaiting.length) {
+    const of = missingSoft.length ? ` of ${want.length}` : '';
+    items.push(ok(`all ${present.length}${of} client tools match CLIENT_TOOL_NAMES${unknownWait.length ? '' : ' and wait for a response'}`));
   }
   return items;
 }

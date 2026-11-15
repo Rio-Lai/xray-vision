@@ -2,11 +2,11 @@
  * The ElevenLabs client tools (names from CLIENT_TOOL_NAMES in shared/teardown.ts).
  * Each takes the agent's parameters object and returns a short string for the agent.
  * In the ElevenLabs dashboard every tool must be set to "wait for response".
- * #96, short by default: every action tool (select_object, explode, reset_view, set_overlay, rotate_model)
- * returns JSON whose `say` is the exact line to speak, and nothing that asks for more. What to do only when
+ * #96, short by default: every action tool (select_object, explode, reset_view, set_overlay, rotate_model,
+ * zoom_model) returns JSON whose `say` is the exact line to speak, and nothing that asks for more. What to do only when
  * the user asks to be taught or toured is in `if_asked`; highlight_part and show_step are the teaching tools.
  */
-import { useStore, type FingerName, type HandState } from '../state/store';
+import { MODEL_ZOOM_MAX, MODEL_ZOOM_MIN, useStore, type FingerName, type HandState } from '../state/store';
 import type { ClientToolName, Teardown, TeardownPart } from '../../shared/teardown';
 import { explodeObject, resetAll, resolveSavedObjectId } from '../lib/flow';
 // #97: saved models ("put it away" keeps them; explode with a saved id or name brings one back)
@@ -19,6 +19,8 @@ import { ARM_MUSCLE_IDS, armLayerNames, armPartExtras, armStepExtras, isArmTeard
 import { isEyeTeardown, resolveEyeObjectId } from '../stage/eyeTeardown';
 import { describeEyes } from '../detect/faceTracker';
 import { live } from '../detect/live';
+// #107 / #109: voice turns keep a flat model off edge-on, as the hands and the mouse do.
+import { voiceTurn } from '../stage/turnLimit';
 
 // Kash's X-ray arm (public/cache/arm-hand) is the floating model for a hand on stage: flow.ts loads it as the hand's
 // parts list, so these tools work on it through the store like on any other object (src/stage/armTeardown.ts), and
@@ -262,12 +264,30 @@ const tools: Record<ClientToolName, Tool> = {
     const dir = (str(p, 'direction') ?? 'right').toLowerCase();
     const deg = Math.min(360, Math.max(5, num(p, 'degrees') ?? (dir === 'around' || dir === 'flip' ? 180 : 45)));
     const rad = (deg * Math.PI) / 180;
-    if (dir === 'left') s.rotateModel(-rad, 0);
-    else if (dir === 'up') s.rotateModel(0, -rad);
-    else if (dir === 'down') s.rotateModel(0, rad);
-    else s.rotateModel(rad, 0); // right, around, flip
+    // left / up / down; anything else (right, around, flip) turns right. A flat model stops at its limit.
+    const limited = voiceTurn(dir, rad);
     const way = dir === 'around' || dir === 'flip' ? 'around' : ['left', 'up', 'down'].includes(dir) ? dir : 'right';
-    return json({ ok: true, say: `Turned ${way}.`, degrees: Math.round(deg) });
+    return json({ ok: true, say: limited ? 'That is as far as it turns.' : `Turned ${way}.`, degrees: Math.round(deg) });
+  },
+
+  // #109: "zoom in", "bigger", "closer" / "zoom out", "smaller" / "normal size".
+  async zoom_model(p) {
+    const s = useStore.getState();
+    if (!s.teardown) return json({ ok: false, say: 'Nothing is open yet.' });
+    const dir = (str(p, 'direction') ?? 'in').toLowerCase();
+    if (/^(reset|normal|back|default|original)/.test(dir)) {
+      s.setModelZoom(1);
+      return json({ ok: true, say: 'Back to normal size.', zoom: 1 });
+    }
+    const out = /^(out|smaller|further|away|less)/.test(dir);
+    const raw = num(p, 'factor') ?? 1.5;
+    // A factor below 1 means the same step the other way ("in" by 0.5 = twice as big).
+    const f = Math.min(8, Math.max(1.05, raw >= 1 ? raw : raw > 0 ? 1 / raw : 1.5));
+    const before = s.modelZoom;
+    if (!out && before >= MODEL_ZOOM_MAX - 1e-3) return json({ ok: true, say: 'That is as close as it goes.', zoom: round(before) });
+    if (out && before <= MODEL_ZOOM_MIN + 1e-3) return json({ ok: true, say: 'That is as far out as it goes.', zoom: round(before) });
+    s.zoomModel(out ? 1 / f : f);
+    return json({ ok: true, say: out ? 'Zoomed out.' : 'Zoomed in.', zoom: round(useStore.getState().modelZoom) });
   },
 
   async get_pose() {

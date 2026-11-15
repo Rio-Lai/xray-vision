@@ -3,7 +3,8 @@
  * the back by the head camera, fingers pointing up the image, posed by a few numbers (wrist
  * position, size, curl, pinch), and a scripted loop that analyses nothing by itself but plays:
  *   right hand comes up, pinches, drags right (turns the model) and lets go with a flick (coasts);
- *   both hands come up, pinch, pull apart (explodes to 1), hold, come together (back to 0.12), let go;
+ *   both hands come up, pinch, pull apart (explodes to 1, then zooms in to about 1.8, #109), hold,
+ *   come together (zoom back to 1, then back to 0.12), let go;
  *   right hand makes a fist and opens it quickly (the burst gesture: only does something with burst on).
  */
 import type { Landmark, RawHand } from './handTracker';

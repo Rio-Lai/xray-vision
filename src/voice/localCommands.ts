@@ -19,6 +19,10 @@ export async function runLocalCommand(input: string): Promise<string | null> {
       return out;
     }
   }
+  // #109: zoom (before "reset": "reset zoom" is a zoom)
+  if (/\b(normal size|reset zoom|zoom reset)\b/.test(t)) return sayOf(await clientTools.zoom_model({ direction: 'reset' }));
+  if (/\b(zoom in|bigger|closer)\b/.test(t)) return sayOf(await clientTools.zoom_model({ direction: 'in' }));
+  if (/\b(zoom out|smaller)\b/.test(t)) return sayOf(await clientTools.zoom_model({ direction: 'out' }));
   if (/\b(explode|x-?ray|open it|inside)\b/.test(t)) return (await explodeObject()).message;
   if (/\b(collapse|close it)\b/.test(t)) {
     s.setExplode(0);

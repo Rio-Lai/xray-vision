@@ -8,8 +8,11 @@
  *    group and never stretched per part (the box rig would); the whole eye is scaled uniformly to the
  *    stage size by the camera, so every part keeps its true proportion.
  *  - Explode (store.explodeAmount; 0.12, the "analyse" amount, = assembled, 1 = fully apart): each
- *    part slides along the visual axis (z) by (5 - layer) * 0.3 eyeball widths, his preview's spacing:
- *    the cornea forwards, the optic nerve backwards, the vitreous stays. As it opens, the view turns
+ *    part slides along the visual axis (z). Fully apart, the layers lie in a row in their order (the
+ *    cornea in front, the optic nerve at the back), each placed by its real depth (its model's
+ *    bounds along z) with ROW_GAP between neighbours, so the back shells (vitreous, retina,
+ *    choroid, sclera) no longer nest inside one another (#109); parts of one layer (the lens and
+ *    the ciliary body) stay together. In between, each part slides in proportion. As it opens, the view turns
  *    from his "assembled" camera to his "exploded" one, and the upper half is cut away (his cutaway,
  *    a clipping plane sliding down from above the eye), so the inside shows. A step or a highlighted
  *    part brings the cutaway in too, on the assembled eye, so the path of light can be seen.
@@ -19,7 +22,8 @@
  *  - It lifts out of the eye it came from (facing the wearer, as the real eye does; a left eye is
  *    mirrored, so the optic nerve leaves on the nasal side), glides to the middle of the view and
  *    turns to his three-quarter view; modelYaw / modelPitch (hands, mouse, voice) and the idle drift
- *    turn it; "put it away" glides it back into the eye and fades it (as the box rig and the arm do).
+ *    turn it, modelZoom (eased) scales it about its middle; "put it away" glides it back into the
+ *    eye and fades it (as the box rig and the arm do).
  *  - Part labels are the Blowfish pills (labels.ts) on each part once it is apart, and on the parts of
  *    a step or a highlight; the overlay asks `eyeStage.pickAt` which part a click is on.
  *  - It is mounted from the start and draws nothing until the eye opens: a few seconds after the
@@ -39,15 +43,15 @@ import { isEyeTeardown } from '../stage/eyeTeardown';
 import { sentenceCase } from '../stage/armTeardown';
 import { STAGE_MIN_EXPLODE, modelControl } from '../stage/modelControl';
 import { smoothstep } from './explodeAnimator';
-import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_LIFT_OMEGA, STAGE_SIZE, TOP_MARGIN } from './boxRig';
+import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_LIFT_OMEGA, STAGE_SIZE, STAGE_TURN_OMEGA, TOP_MARGIN } from './boxRig';
 import type { ScreenBox } from './boxRig';
 import { loadGlbTemplate } from './glbCache';
-import { LabelLayer } from './labels';
+import { LabelLayer, inView } from './labels';
 import type { LabelItem } from './labels';
 import { springStep } from './stageLayout';
 
-/** His preview's explode: each layer moves this many eyeball widths per layer away from the middle one. */
-const SPACING = 0.3;
+/** Fully apart: the clear gap along the visual axis between neighbouring layers (eyeball widths). */
+export const ROW_GAP = 0.1;
 /** His preview's two cameras (eye frame), as views of the model: assembled, and exploded. */
 const VIEW_ASSEMBLED = { eye: new THREE.Vector3(0.95, 0.55, 2.1), target: new THREE.Vector3(0.02, 0, 0.1) };
 const VIEW_EXPLODED = { eye: new THREE.Vector3(2.6, 2.6, 2.2), target: new THREE.Vector3(0, -0.1, 0) };
@@ -61,7 +65,7 @@ const SPHERE_SLACK = 1.35;
 /** Idle drift, as for the box model and the arm. */
 const IDLE_MS = 4000;
 const IDLE_SPIN = 0.1;
-const TURN_OMEGA = 12;
+const TURN_OMEGA = STAGE_TURN_OMEGA;
 /** The eye waits this long at most for its models before it lifts (they are preloaded). */
 const MAX_WAIT_MS = 1500;
 /** The eye is built and its shaders compiled this long after the page starts (after the laptop's models). */
@@ -84,6 +88,32 @@ export const eyeStage: { tick: (now: number) => void; pickAt: (x: number, y: num
   tick: () => undefined,
   pickAt: () => null,
 };
+
+/**
+ * Each part's slide along the visual axis (eye frame z, + = anterior) when fully apart: the layers
+ * in order (lowest first, in front), each layer's parts together, every layer placed just behind the
+ * one before it by its real depth (its parts' z extent) with `gap` between them. The middle layer
+ * stays put (the stage centres the row on its pivot anyway). Pure, so it can be checked on its own.
+ */
+export function rowSlides(parts: { layer: number; zMin: number; zMax: number }[], gap: number): number[] {
+  const layers = [...new Set(parts.map((p) => p.layer))].sort((a, b) => a - b);
+  const off = new Map<number, number>();
+  let back = Infinity; // the back of the layer before, where it lies once apart
+  for (const l of layers) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const p of parts) {
+      if (p.layer !== l) continue;
+      lo = Math.min(lo, p.zMin);
+      hi = Math.max(hi, p.zMax);
+    }
+    const o = back === Infinity ? 0 : back - gap - hi;
+    off.set(l, o);
+    back = lo + o;
+  }
+  const mid = layers.length > 0 ? off.get(layers[Math.floor((layers.length - 1) / 2)]) ?? 0 : 0;
+  return parts.map((p) => (off.get(p.layer) ?? 0) - mid);
+}
 
 /** Rotation that shows the model as a camera at `eye` looking at `target` sees it (y up). */
 function viewQuat(v: { eye: THREE.Vector3; target: THREE.Vector3 }): THREE.Quaternion {
@@ -176,6 +206,8 @@ interface EyePart {
   bounds: Bounds;
   /** label point in the eye frame: on the part, in the half that the cutaway keeps */
   anchor: THREE.Vector3;
+  /** its slide along z when fully apart (eye frame; see rowSlides) */
+  rowZ: number;
   mats: EyeMat[];
   lining: boolean;
   hl: number;
@@ -193,6 +225,8 @@ class EyeStageCtl {
   private readonly mirror = new THREE.Group();
   private readonly offset = new THREE.Group();
   private parts: EyePart[] = [];
+  /** how many parts the row slides were worked out for (they arrive one by one) */
+  private rowFor = -1;
   private labels: LabelLayer | null = null;
   private readonly cutWorld = new THREE.Plane(new THREE.Vector3(0, -1, 0), CUT_NONE);
   private readonly cutLocal = new THREE.Plane(new THREE.Vector3(0, -1, 0), CUT_NONE);
@@ -220,6 +254,8 @@ class EyeStageCtl {
   private yawV = 0;
   private pitch = 0;
   private pitchV = 0;
+  private zoom = 1;
+  private zoomV = 0;
   private drift = 0;
   private lastInput = 0;
   private seen = { yaw: 0, pitch: 0, explode: 0, step: null as number | null, hl: null as string | null };
@@ -379,6 +415,7 @@ class EyeStageCtl {
               holder,
               bounds,
               anchor: new THREE.Vector3(bounds.centre.x, bounds.centre.y - half * 0.5, bounds.centre.z),
+              rowZ: 0,
               mats,
               lining: LINING.has(p.id),
               hl: 0,
@@ -475,7 +512,15 @@ class EyeStageCtl {
 
   /** Explode slide of a part along the visual axis (eye frame z). */
   private slide(p: EyePart): number {
-    return -p.layer * SPACING * this.eShown;
+    return p.rowZ * this.eShown;
+  }
+
+  /** Work out each part's slide when fully apart (once the parts have arrived; see rowSlides). */
+  private layoutRow(): void {
+    if (this.rowFor === this.parts.length) return;
+    this.rowFor = this.parts.length;
+    const z = rowSlides(this.parts.map((p) => ({ layer: p.layer, zMin: p.bounds.min.z, zMax: p.bounds.max.z })), ROW_GAP);
+    this.parts.forEach((p, i) => (p.rowZ = z[i]));
   }
 
   /** Pivot (centre of all parts' bounds at the current explode, eye frame, before the mirror). */
@@ -566,6 +611,8 @@ class EyeStageCtl {
         this.from = null;
         this.objectId = null;
         this.drift = 0;
+        this.zoom = s.modelZoom;
+        this.zoomV = 0;
         this.yaw = s.modelYaw;
         this.yawV = 0;
         this.pitch = s.modelPitch;
@@ -630,8 +677,10 @@ class EyeStageCtl {
       [this.yaw, this.yawV] = springStep(this.yaw, this.yawV, ty, TURN_OMEGA, dt);
       [this.pitch, this.pitchV] = springStep(this.pitch, this.pitchV, s.modelPitch, TURN_OMEGA, dt);
     }
+    [this.zoom, this.zoomV] = springStep(this.zoom, this.zoomV, on ? s.modelZoom : 1, TURN_OMEGA, dt);
 
     // Pose: explode slides, pivot, orientation (lift: facing the wearer -> his view, plus the wearer's turning).
+    this.layoutRow();
     for (const p of this.parts) p.holder.position.set(0, 0, this.slide(p));
     const pivot = this.pivot();
     this.offset.position.copy(pivot).multiplyScalar(-1);
@@ -644,11 +693,11 @@ class EyeStageCtl {
     this.turn.quaternion.copy(user).multiply(lifted);
 
     // Size and place: the eyeball fills the eye's box at the start of the glide; on stage it fits the
-    // free area between the label columns, the title and the voice area.
+    // free area between the label columns, the title and the voice area, times the zoom.
     const side = Math.min(LABEL_SIDE_MAX_PX, w * LABEL_SIDE_FRAC);
     const availW = Math.max(100, w - 2 * side);
     const availH = Math.max(100, h - TOP_MARGIN - BOTTOM_MARGIN);
-    const fit = this.fitPpu(base, pivot, mirror, availW, availH, h);
+    const fit = this.fitPpu(base, pivot, mirror, availW, availH, h) * Math.max(0.05, this.zoom);
     const fromPpu = Math.max(4, Math.min(this.from.w, this.from.h * 1.6));
     this.ppu = fromPpu + (fit - fromPpu) * L;
     const sx = this.from.cx + (w / 2 - this.from.cx) * L;
@@ -702,9 +751,9 @@ class EyeStageCtl {
       top = Math.min(top, c.y - r);
       bottom = Math.max(bottom, c.y + r);
       const highlighted = hlIds.has(p.id);
-      const opacity = base * (highlighted ? 1 : hlIds.size > 0 ? all * 0.6 : all);
-      if (opacity < 0.02) continue;
       const a = this.toScreen(p.holder.localToWorld(v.copy(p.anchor)), w, h);
+      const opacity = base * (highlighted ? 1 : hlIds.size > 0 ? all * 0.6 : all) * inView(a.x, a.y, w, h);
+      if (opacity < 0.02) continue;
       items.push({ id: p.id, text: names.get(p.id) ?? sentenceCase(p.id.replace(/-/g, ' ')), ax: a.x, ay: a.y, opacity, highlighted });
     }
     if (!Number.isFinite(left)) {

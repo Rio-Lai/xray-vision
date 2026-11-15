@@ -22,7 +22,8 @@
  *    after DRAG_DELAY_MS, so pinching with both hands goes straight to the spread.
  *  - two hands pinching (twoHand): explode = (amount when both pinches began)
  *    + spreadGain * log2(distance between the pinch points / distance at the start), so doubling
- *    the distance adds spreadGain and halving it takes it away; clamped to [minExplode, 1]
+ *    the distance adds spreadGain and halving it takes it away; clamped to [minExplode, 1]. The same
+ *    spread, unclamped, is `spreadDelta`: past fully open it zooms in (spreadExplodeZoom, #109)
  *  - one hand fist -> spread within burstMs (burst): explode to 1; spread -> fist: back to minExplode.
  *    The hand must have been a fist (or spread) for FIST_HOLD_MS first, and the new state must hold
  *    for holdMs, so typing and resting hands (never a full fist) do not fire it.
@@ -161,6 +162,11 @@ export interface GestureOutput {
   dragEnd: 'release' | 'cancel' | null;
   /** explode amount to set this frame, or null */
   explode: number | null;
+  /**
+   * While two hands spread (after the frame it starts): spreadGain * log2(distance / distance at the
+   * start), unclamped; spreadExplodeZoom turns it into the explode amount and the zoom.
+   */
+  spreadDelta: number | null;
   events: GestureEvent[];
   /** active pinch points, for the small on-screen cue */
   dots: GestureDot[];
@@ -253,6 +259,36 @@ export function handFeatures(
   };
 }
 
+/** Past fully open, the zoom doubles for every this much more spread (spreadDelta units, #109). */
+export const SPREAD_ZOOM_GAIN = 0.6;
+
+/**
+ * The two-hand spread as one motion (#109): from the explode amount e0 and zoom z0 at the start of
+ * the spread, a spread of `delta` (spreadDelta) first opens the model up to 1, then zooms in
+ * (doubling per SPREAD_ZOOM_GAIN); bringing the hands together first zooms back to 1, then closes
+ * it (down to minExplode). A zoom below 1 (mouse, voice) is left alone until the model is fully
+ * open. Continuous and monotone in delta; at delta 0 it is (e0, z0). Pure.
+ */
+export function spreadExplodeZoom(
+  e0: number,
+  z0: number,
+  delta: number,
+  minExplode: number,
+  maxZoom: number,
+): { explode: number; zoom: number } {
+  const e = Math.min(1, Math.max(minExplode, e0));
+  if (!Number.isFinite(delta)) return { explode: e, zoom: z0 };
+  if (delta >= 0) {
+    const open = Math.min(delta, 1 - e);
+    const zoom = z0 * Math.pow(2, (delta - open) / SPREAD_ZOOM_GAIN);
+    return { explode: e + open, zoom: Math.min(Math.max(z0, maxZoom), zoom) };
+  }
+  const unzoomRoom = z0 > 1 ? SPREAD_ZOOM_GAIN * Math.log2(z0) : 0;
+  const unzoom = Math.min(-delta, unzoomRoom);
+  const zoom = z0 <= 1 ? z0 : unzoom >= unzoomRoom ? 1 : z0 * Math.pow(2, -unzoom / SPREAD_ZOOM_GAIN);
+  return { explode: Math.max(minExplode, e + delta + unzoom), zoom };
+}
+
 export class GestureRecognizer {
   private tracks = new Map<string, HandTrack>();
   private mode: GestureMode = 'idle';
@@ -277,7 +313,7 @@ export class GestureRecognizer {
   }
 
   update(hands: GestureHandInput[], now: number, fw: number, fh: number, ctx: GestureContext, tu: GestureTuning): GestureOutput {
-    const out: GestureOutput = { mode: 'idle', dYaw: 0, dPitch: 0, dragEnd: null, explode: null, events: [], dots: [], hands: [] };
+    const out: GestureOutput = { mode: 'idle', dYaw: 0, dPitch: 0, dragEnd: null, explode: null, spreadDelta: null, events: [], dots: [], hands: [] };
     const enabled = ctx.enabled && tu.enabled;
     const justEnabled = enabled && !this.wasEnabled;
     this.wasEnabled = enabled;
@@ -432,7 +468,8 @@ export class GestureRecognizer {
         out.events.push('spread-end');
       } else {
         const d = Math.max(1, Math.hypot(a.px - b.px, a.py - b.py));
-        const target = Math.min(1, Math.max(ctx.minExplode, this.spreadE0 + tu.spreadGain * Math.log2(d / this.spreadD0)));
+        out.spreadDelta = tu.spreadGain * Math.log2(d / this.spreadD0);
+        const target = Math.min(1, Math.max(ctx.minExplode, this.spreadE0 + out.spreadDelta));
         if (this.lastExplode === null || Math.abs(target - this.lastExplode) > 0.002) {
           out.explode = target;
           this.lastExplode = target;
