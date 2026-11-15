@@ -49,7 +49,7 @@ Browser --/api--> Local server (Express, 127.0.0.1)
 ```
 
 - **Fast things run on the laptop:** camera, detection, gestures and drawing, every frame. **Slow things run in the background and are cached:** Claude and fal. Turning and exploding the model is three.js moving meshes; nothing is generated per frame.
-- **Voice:** one ElevenLabs Agents session listens to the microphone, decides what to say and which tool to call, and speaks the answer. The agent drives the app through nine client tools that run in the browser: `get_scene`, `set_overlay`, `select_object`, `explode`, `highlight_part`, `show_step`, `reset_view`, `rotate_model`, `get_pose`. After each explode the app sends the agent the parts list as a contextual update, so it knows exactly which parts exist.
+- **Voice:** one ElevenLabs Agents session listens to the microphone, decides what to say and which tool to call, and speaks the answer. The agent drives the app through ten client tools that run in the browser: `get_scene`, `set_overlay`, `select_object`, `explode`, `highlight_part`, `show_step`, `reset_view`, `rotate_model`, `get_pose`. After each explode the app sends the agent the parts list as a contextual update, so it knows exactly which parts exist.
 - **Analyse:** "this" is the thing in the middle of the view. The stored MacBook and the hand open at once from the on-device label, and Claude checks the name in the background; if Claude is confident it is something else, the app says so and switches to that object's parts. Any other detected thing is cropped and sent to Claude, which names it (at most 6 s, then the on-device label is used). If nothing is detected in the middle, the middle of the view itself is sent to Claude, so "analyse this" works on things the detector does not know. Its parts list (parts, layers, sizes, positions, one-line explanations, safety notes, repair steps) comes from the cache or, for a new object, from Claude. The model is shown in **stage mode** (the default): it glides to the middle of the view over the live video and turns slowly when idle. Placeholder glass shapes appear at once and are replaced by 3D models as they arrive.
 - **Gestures:** MediaPipe's Hand Landmarker gives 21 points per hand, for up to two hands, every frame. A pinch must hold briefly, with the other fingers open, before it counts, so a typing or resting hand does not move the model. One pinching hand dragging turns the model; two pinching hands moving apart or together open or close it.
 - **Hands as the subject:** the same 21 landmarks drive the muscle and tendon overlay live on the real hand, and each fingertip's movement relative to its knuckle decides which muscles light up on a key press. The 3D hand and forearm model for the stage is still being made; until it lands, the hand's layers stay on the real hand.
@@ -93,7 +93,7 @@ npm run check          # do the keys and the voice agent really work? (online, n
 npm run predemo        # downloads the vision models if they are missing, then checks everything offline needs
 ```
 
-`npm run check` asks each provider with a free call whether its key works (Claude and `ANTHROPIC_MODEL`, the ElevenLabs key, agent and signed URL, fal), compares the agent's client tools with the nine the app answers (missing, extra, or not set to "Wait for response"), and checks `PORT`, ports 8791 and 5173, the local vision models and the cached objects. It never prints key values, and exits 0 only when the MacBook-and-hand demo with voice would work.
+`npm run check` asks each provider with a free call whether its key works (Claude and `ANTHROPIC_MODEL`, the ElevenLabs key, agent and signed URL, fal), compares the agent's client tools with the ten the app answers (missing, extra, or not set to "Wait for response"), and checks `PORT`, ports 8791 and 5173, the local vision models and the cached objects. It never prints key values, and exits 0 only when the MacBook-and-hand demo with voice would work.
 
 `npm run predemo` prints one ok / WARN / FAIL line per item and ends with PASS or FAIL. It checks the installed packages, the MediaPipe models and wasm in `public/models/`, every checked parts list in `public/cache/` and each of its 3D models (present, valid, no external files), that the app has no other remote URLs (no web fonts), and which keys `.env` sets (yes or no, never the values). Fix every FAIL line before the Wi-Fi goes. `node scripts/predemo.mjs --no-fetch` checks without downloading anything.
 
@@ -135,7 +135,7 @@ Never shown on screen during the demo; voice does all of this. The keys show not
 | `P` | Push-to-talk only on / off: the microphone is muted unless you hold (remembered) |
 | `\` | Next microphone (remembered) |
 
-Mouse, while a model is on stage: drag turns it (with a little inertia), the wheel opens and closes it, and a click without dragging picks a part.
+Mouse, while a model is on stage: drag turns it (with a little inertia), the wheel opens and closes it, and a click without dragging picks a part. A trackpad pinch (or the wheel with Ctrl) zooms, as do the `+` and `-` keys.
 
 URL options:
 
@@ -143,6 +143,9 @@ URL options:
 - `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands turn it and pull it apart
 - `?mock=eye`: a fake face in the middle of the view, to open the eye without a camera
 - `?look=classic`: the interface as it was before the Figma Make kit, to compare or fall back
+- `?lift=0`: the model cross-fades in on the stage instead of lifting out of the real object (a fallback if the transition misbehaves)
+- `?detector=lite0` / `?detector=lite2`: force the small or the large object detector; `?appear=0.45&keep=0.25`: the score a thing needs to get a label, and to keep it
+- `?resthand=0.22&typingms=1500`: a hand smaller than this share of the frame height counts as "on the desk" and is ignored for gestures while it has typed within that many milliseconds or rests on a laptop (0 turns either rule off)
 - `?facecrop=0.45`: the face tracker looks at a tighter square in the middle of the view (finds a face further away; default 0.6, `1` = the whole frame)
 - `?overlay=1`: start with the overlay on
 - `?blur=0`: only dim the video behind the model, no blur (default 4; up to 12)
@@ -167,7 +170,7 @@ URL options:
 ## APIs, models and datasets
 
 - **Anthropic Claude** (Messages API, `@anthropic-ai/sdk`), model from `ANTHROPIC_MODEL`, default `claude-opus-5-5`: names the object from a camera crop (vision) and writes the parts list JSON, which is checked against a zod schema. Each live part comes with a short `visual` phrase (what it looks like on its own), which leads that part's fal image prompt.
-- **ElevenLabs Agents** (`@elevenlabs/react`, signed URL from `GET /v1/convai/conversation/get-signed-url`): speech to text, the tutor conversation, text to speech, and the nine client tools.
+- **ElevenLabs Agents** (`@elevenlabs/react`, signed URL from `GET /v1/convai/conversation/get-signed-url`): speech to text, the tutor conversation, text to speech, and the ten client tools.
 - **fal** (`@fal-ai/client`):
   - `fal-ai/flux/schnell`: text to image, one picture per part (`FAL_IMAGE_MODEL`)
   - `fal-ai/hunyuan3d/v2/turbo`: image to 3D GLB, one model per part, textured by default (`FAL_3D_MODEL`, `FAL_TEXTURED`)
@@ -175,10 +178,10 @@ URL options:
   - `fal-ai/flux-pro/v1.1`: retina (fundus) texture for the procedural eye
   - All twelve MacBook Air parts have a fal model, made ahead with `npm run pregenerate`, reviewed, compressed (each under 1 MB) and committed in `public/cache/meshes/macbook-air-m3-13/`.
 - **Google MediaPipe Tasks Vision** 0.10.14, in the browser:
-  - Object Detector with **EfficientDet-Lite0** (float16), trained on **COCO**: finds laptops, phones, cups, bottles, books and other everyday objects (every third frame)
+  - Object Detector with **EfficientDet-Lite2** (float16; **EfficientDet-Lite0** as the automatic fallback if Lite2 is missing or too slow on this machine), trained on **COCO**: finds laptops, phones, cups, bottles, books and other everyday objects (every second or third frame)
   - **Hand Landmarker** (float16): 21 landmarks per hand, up to two hands, every frame, for the gestures, the muscle overlay and key-press detection
   - **Face Landmarker** (float16): face landmarks with irises, blink and gaze values, every third frame, for the eyes as objects
-- **Dataset:** COCO, through the pre-trained EfficientDet-Lite0 object classes. We trained no models.
+- **Dataset:** COCO, through the pre-trained EfficientDet object classes. We trained no models.
 - **Libraries:** three.js, React 18, Vite, TypeScript, zustand, zod, Express, glTF Transform (compressing the committed 3D models, building the eye), sharp (eye texture preparation).
 - **Hardware:** XREAL Air 2 Pro glasses, a USB webcam or an iPhone as a Continuity Camera, a MacBook Pro.
 - **Design:** Figma Make, for the [concept prototype](https://www.figma.com/make/vIDcMqov0Y85Ru6h4mlbUe/) of the experience and the wider vision.

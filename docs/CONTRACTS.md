@@ -44,6 +44,7 @@ Mock mode: a route with its key missing (or `MOCK=1`) answers from the cache.
 - `resetAll()`: saves what was open first (#97, `src/lib/saved.ts`), then `store.resetView()` and drops any in-flight explode; returns the saved entry or null. Saved: `{ id (parts-list object_id), name, kind: 'stored' | 'live', savedAt, thumb, glyph, anchor, lens, label, box }`, newest first, one per id, at most 12, in memory and `localStorage` (`blowfish.saved.v1`). `thumb` is a ~96 px JPEG data URL of the object's crop taken when it was analysed; never for an eye, a hand or the arm, anything biological or a person (a glyph instead). Live parts lists are kept for the session and in `localStorage` (`blowfish.saved.parts.v1.<id>`) when they fit, oldest dropped first; a reopened live model uses its kept list (no Claude) and asks fal only for the parts it asked for the first time. `?saved=clear` forgets everything.
 - `resolveSavedObjectId(objectId, s)` (#97): a saved id or name (case-insensitive, partial) -> the same thing in view if there is one, else a pinned scene object at the saved box (as for the centre and the eye), so it opens when not in view. The arm reopens as the arm, the eye as the eye. `bringBack(id)` does the same for the saved pills (`src/hud/SavedRow.tsx`: top left, newest 6, only while the overlay is on and nothing is open or loading).
 - `describeTeardown(td)`: the text sent to the agent as a contextual update.
+- `reopenedSavedId(sceneId)` (#109): the saved id when the scene object was pinned to bring a saved model back because its object is not in view, else null.
 
 ## Client tools (`src/voice/clientTools.ts`)
 
@@ -58,10 +59,13 @@ Names match `CLIENT_TOOL_NAMES`. Each takes a parameters object and returns a st
 | `highlight_part` | `part_id` | highlights; accepts an id or a loose name | JSON: part id, name, summary, details, safety (arm: nerve, typing_role, layer), present |
 | `show_step` | `n` | sets `activeStep` | JSON: step, of, text, part_ids, part_names (arm extras), present |
 | `reset_view` | none | `resetAll()` | JSON: ok, say ("Put away. Saved <short name>." / "View reset."), saved? {id, name} |
-| `rotate_model` | `direction` ("left", "right", "up", "down", "around"), `degrees?` (default 45; "around" = 180) | turns the floating model (`store.rotateModel`) | JSON: ok, say ("Turned left/right/up/down/around." / "Nothing is open yet."), degrees |
+| `rotate_model` | `direction` ("left", "right", "up", "down", "around"), `degrees?` (default 45; "around" = 180) | turns the floating model (`store.rotateModel`) | JSON: ok, say ("Turned left/right/up/down/around." / "That is as far as it turns." for a flat model at its limit, via `voiceTurn` / "Nothing is open yet."), degrees |
+| `zoom_model` | `direction` ("in", "out", "reset"), `factor?` (default 1.5) | multiplies `store.modelZoom` (0.5 to 4; reset = 1) | JSON: ok, say ("Zoomed in." / "Zoomed out." / "Back to normal size." / "That is as close as it goes." / "That is as far out as it goes." / "Nothing is open yet."), zoom |
 | `get_pose` | none | reads hands | JSON: per hand: handedness, finger curl and pressing, activeFinger, action, muscles (part ids) |
 
 Action tools (#96): the agent says `say` exactly and stops; `if_asked` is only for when the user asks to be taught, toured or walked through. The agent's system prompt and first message live in `docs/agent/` (`npm run agent:prompt` compares them with the dashboard).
+
+`CLIENT_TOOL_NAMES` has ten names. `npm run check` only warns while `zoom_model` is missing from the dashboard (#109).
 
 There is no `set_lens` tool: Blowfish has no lenses.
 
@@ -87,6 +91,21 @@ Saved models (#97): `get_scene` also returns `saved: [{ id, name, saved_ago }]`.
 - Drawn by `src/overlay/EyeStage.tsx` in the models' shared frame (never stretched), cut away as it opens, driven by the same store fields as any model.
 - `get_pose` adds `eyes` while a face is tracked: per eye `open` and `looking` (left, right, up, down, centre; the person's own left and right) and a `note`.
 - fal is never called for the eye.
+
+### On stage: turning, zoom, lift-out (#107, #109)
+
+- Every stage renderer (box rig, `ArmStage`, `EyeStage`) applies `store.modelYaw` / `modelPitch` / `modelZoom`, eased.
+- Flat (box-rig) models never rest edge-on (`src/stage/turnLimit.ts`): yaw stays within 65 degrees of the face shown (front, or back after "around"); pitch may tip away only 5 degrees past the default view; the idle drift sways 35 degrees either side instead of spinning. Mouse, hands (`turnModel`) and voice (`voiceTurn`) all go through it. The eye and the arm are not limited.
+- Lift-out and put-away come from `src/overlay/liftOut.ts`: an outline draws round the object (0.15 s), the model appears over it fully opaque, holds, then rises to the middle in 1.0 s on one curve (position, size, angle), parts separating in the last third; labels and the title come after arrival (`useHud.stageArrived`). Put-away reverses in 0.6 s into the object's current box, or into its saved pill when the object is out of view. `?lift=0` or the system's reduced-motion setting gives a short cross-fade instead.
+- Zoom: trackpad pinch (wheel with ctrl), `+` / `-`, the two-hand spread past fully exploded, and `zoom_model`.
+
+### Hands that may turn the model (#107)
+
+- A hand counts for gestures only if it has been tracked for 300 ms and is not "on the desk and busy": smaller than `restHandMax` (0.22 of the frame height) **and** either typed within `typingMs` (1500 ms; middle, ring or pinky presses) or with its palm centre inside a detected laptop or keyboard box. An ignored hand starts no pinch, stops a drag dead, cannot join a two-hand spread and gets no pinch dot. `?resthand=`, `?typingms=`; `?gestures=0` turns hand gestures off.
+
+### Object detection (#110)
+
+- EfficientDet-Lite2 on the GPU, Lite0 as the fallback (not loaded, failed, or a median above 30 ms in the first second); `?detector=lite0|lite2`. A thing needs two detections at 0.45 or more to get a label, keeps it at 0.25 or more, and survives 1 s unmatched at its last place (`?appear=`, `?keep=`). Boxes are smoothed with a One Euro filter. Objects and faces never run on the same frame; hands run on every frame.
 
 ## Store rules
 
