@@ -8,6 +8,8 @@
  *    things nearest the centre of the view (hands count like any other thing)
  *  - a pill that would overlap another pill or dot goes below its dot, or further out on a longer hairline
  *  - fade and scale in over ~250 ms (CSS), staggered when the overlay is switched on
+ *  - a face's two eyes (#94) share one "Eye" pill while they are too close on screen for two (a face
+ *    a few metres away); the focused (or nearer) eye keeps it
  *
  * Pure DOM: works even if WebGL is unavailable. Styles: .bf-olabel*, .bf-focusglow and .bf-label-pill
  * in src/hud/kit/hud.ts (Figma Make kit look, #86), or src/hud/styles.ts with ?look=classic.
@@ -30,6 +32,16 @@ const DOT_GAP_PX = KIT_LOOK ? 12 : 4;
 const LIFT_STEP_GAP = 8;
 const REMOVE_AFTER_MS = 400;
 const EDGE_PX = 10;
+/** A face's two eye dots closer than this (px) share one "Eye" pill; they split again beyond EYE_SPLIT_PX. */
+const EYE_MERGE_PX = 110;
+const EYE_SPLIT_PX = 135;
+
+/** "eye-left-2" -> "-2": which face an eye belongs to (null for anything that is not an eye). */
+function eyeFace(o: SceneObject): string | null {
+  if (o.anchor !== 'face') return null;
+  const m = /^eye-(?:left|right)(-\d+)?$/.exec(o.id);
+  return m ? m[1] ?? '' : null;
+}
 
 export interface ObjectLabelInput {
   now: number;
@@ -85,6 +97,8 @@ export class ObjectLabelLayer {
   private visibleSince = -1;
   private glowBox: Rect | null = null;
   private glowOn = false;
+  /** faces (eyeFace keys) whose two eyes share one pill */
+  private readonly mergedEyes = new Set<string>();
 
   constructor(host: HTMLElement) {
     this.root = document.createElement('div');
@@ -141,7 +155,8 @@ export class ObjectLabelLayer {
     const k = 1 - Math.exp(-dt * 16);
 
     // 1. Track every object (also while hidden, so stable ones appear at once when switched on).
-    const candidates: { id: string; o: SceneObject; n: LabelNode; score: number; box: Rect }[] = [];
+    let candidates: { id: string; o: SceneObject; n: LabelNode; score: number; box: Rect }[] = [];
+    const texts = new Map<string, string>();
     for (const o of input.objects) {
       const n = this.node(o.id, now);
       n.lastSeen = now;
@@ -156,7 +171,39 @@ export class ObjectLabelLayer {
         n.x += (tx - n.x) * k;
         n.y += (ty - n.y) * k;
       }
-      const text = displayName({ id: o.id, label: o.label, name: o.name ?? input.names.get(o.id), anchor: o.anchor });
+      texts.set(o.id, displayName({ id: o.id, label: o.label, name: o.name ?? input.names.get(o.id), anchor: o.anchor }));
+      // 0 at the centre of the view, 1 at a corner: nearest the centre ranks first. A label already
+      // showing keeps a small lead, so two things at about the same distance do not swap back and forth.
+      const dist = Math.hypot(tx - vw / 2, ty - vh / 2) / Math.hypot(vw / 2, vh / 2);
+      const focused = o.id === input.focusedId;
+      const score = (focused ? 10 : 0) + (1 - Math.min(1, dist)) + (n.shown ? KEEP_BONUS : 0);
+      const eligible =
+        input.visible && now - n.firstSeen >= STABLE_MS && (input.only === null || input.only.has(o.id));
+      if (eligible) candidates.push({ id: o.id, o, n, score, box: b });
+    }
+
+    // 1b. A face's two eyes too close for two pills: one "Eye" pill on the focused (or nearer) one.
+    const eyesByFace = new Map<string, typeof candidates>();
+    for (const c of candidates) {
+      const key = eyeFace(c.o);
+      if (key !== null) eyesByFace.set(key, [...(eyesByFace.get(key) ?? []), c]);
+    }
+    for (const [key, pair] of eyesByFace) {
+      if (pair.length !== 2) {
+        this.mergedEyes.delete(key);
+        continue;
+      }
+      const d = Math.hypot(pair[0].n.x - pair[1].n.x, pair[0].n.y - pair[1].n.y);
+      if (d < EYE_MERGE_PX) this.mergedEyes.add(key);
+      else if (d > EYE_SPLIT_PX) this.mergedEyes.delete(key);
+      if (!this.mergedEyes.has(key)) continue;
+      const [keep, drop] = pair[0].score >= pair[1].score ? [pair[0], pair[1]] : [pair[1], pair[0]];
+      texts.set(keep.id, 'Eye');
+      candidates = candidates.filter((c) => c !== drop);
+    }
+    for (const [id, text] of texts) {
+      const n = this.nodes.get(id);
+      if (!n) continue;
       if (text !== n.text) {
         n.text = text;
         n.pill.textContent = text;
@@ -166,14 +213,6 @@ export class ObjectLabelLayer {
         n.w = n.pill.offsetWidth || text.length * 9 + 30;
         n.h = n.pill.offsetHeight || 34;
       }
-      // 0 at the centre of the view, 1 at a corner: nearest the centre ranks first. A label already
-      // showing keeps a small lead, so two things at about the same distance do not swap back and forth.
-      const dist = Math.hypot(tx - vw / 2, ty - vh / 2) / Math.hypot(vw / 2, vh / 2);
-      const focused = o.id === input.focusedId;
-      const score = (focused ? 10 : 0) + (1 - Math.min(1, dist)) + (n.shown ? KEEP_BONUS : 0);
-      const eligible =
-        input.visible && now - n.firstSeen >= STABLE_MS && (input.only === null || input.only.has(o.id));
-      if (eligible) candidates.push({ id: o.id, o, n, score, box: b });
     }
 
     // 2. Pick and place: focused first, then nearest the centre; lift pills that would overlap.

@@ -1,6 +1,7 @@
 /**
  * Display names for things in view: sentence case, no detector jargon, no percentages.
- * Hands are always "Left hand" / "Right hand"; an identified object shows its real name
+ * Hands are always "Left hand" / "Right hand", eyes "Left eye" / "Right eye" (the person's own
+ * left and right; src/detect/faceTracker.ts); an identified object shows its real name
  * (without the bracketed details), otherwise a friendly name for the detector class.
  */
 import type { SceneObject } from '../state/store';
@@ -10,6 +11,7 @@ const FRIENDLY: Record<string, string> = {
   laptop: 'Laptop',
   'cell phone': 'Phone',
   hand: 'Hand',
+  eye: 'Eye',
   keyboard: 'Keyboard',
   mouse: 'Mouse',
   remote: 'Remote',
@@ -62,6 +64,11 @@ export function displayName(o: Pick<SceneObject, 'id' | 'label' | 'name' | 'anch
     if (o.id === 'hand-left') return 'Left hand';
     if (o.id === 'hand-right') return 'Right hand';
     return 'Hand';
+  }
+  if (o.anchor === 'face' && o.label === 'eye') {
+    if (/^eye-left(-\d+)?$/.test(o.id)) return 'Left eye';
+    if (/^eye-right(-\d+)?$/.test(o.id)) return 'Right eye';
+    return 'Eye';
   }
   if (o.name && o.name.trim()) return shortName(o.name);
   return friendlyLabel(o.label);

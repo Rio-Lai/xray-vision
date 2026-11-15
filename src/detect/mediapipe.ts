@@ -1,8 +1,11 @@
 /**
  * MediaPipe tasks-vision loading: wasm (local copy first, then jsDelivr), models (local
  * /models/* first, then the official storage.googleapis.com URLs), GPU delegate with CPU fallback.
+ * The face landmarker (#94: eyes, blinks, gaze) loads beside the other two but is not waited for:
+ * the object detector and hand tracker start as soon as they are ready, and a face model that fails
+ * to load leaves them working (VisionTasks.faces stays null, the debug panel says why).
  */
-import { FilesetResolver, HandLandmarker, ObjectDetector } from '@mediapipe/tasks-vision';
+import { FaceLandmarker, FilesetResolver, HandLandmarker, ObjectDetector } from '@mediapipe/tasks-vision';
 import { errorText } from '../camera/frame';
 
 /** Must match the installed @mediapipe/tasks-vision version (pin it in package.json). */
@@ -15,6 +18,9 @@ const OD_REMOTE =
 const HL_LOCAL = '/models/hand_landmarker.task';
 const HL_REMOTE =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const FL_LOCAL = '/models/face_landmarker.task';
+const FL_REMOTE =
+  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 /**
  * COCO classes worth labelling: everyday things that could be on a desk or handed over by a judge
@@ -52,6 +58,10 @@ export const USEFUL_CLASSES = [
 export interface VisionTasks {
   objects: ObjectDetector | null;
   hands: HandLandmarker | null;
+  /** Face landmarker: null until it has loaded (it is not waited for), and for good if it failed. */
+  faces: FaceLandmarker | null;
+  /** Settles once the face landmarker has loaded (true) or failed (false); its error is then in `errors`. */
+  facesReady: Promise<boolean>;
   /** Human-readable notes (where things loaded from, CPU fallbacks). */
   notes: string[];
   /** Errors for a task that failed while the other loaded. */
@@ -113,6 +123,25 @@ export async function loadVisionTasks(): Promise<VisionTasks> {
     );
   }
 
+  // The face landmarker starts now but nothing waits for it (see the header).
+  const flPromise = (async () => {
+    const flBuf = await fetchLocalModel(FL_LOCAL);
+    notes.push(`face model: ${flBuf ? 'local' : 'remote'}`);
+    return withDelegates('face landmarker', notes, (delegate) =>
+      FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: flBuf ? { modelAssetBuffer: flBuf.slice(), delegate } : { modelAssetPath: FL_REMOTE, delegate },
+        runningMode: 'VIDEO',
+        numFaces: 2,
+        minFaceDetectionConfidence: 0.5,
+        minFacePresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+        outputFaceBlendshapes: true,
+        outputFacialTransformationMatrixes: true,
+      }),
+    );
+  })();
+  flPromise.catch(() => undefined); // handled below; this only keeps an early failure from being reported as unhandled
+
   const [odBuf, hlBuf] = await Promise.all([fetchLocalModel(OD_LOCAL), fetchLocalModel(HL_LOCAL)]);
   notes.push(`object model: ${odBuf ? 'local' : 'remote'}; hand model: ${hlBuf ? 'local' : 'remote'}`);
 
@@ -142,24 +171,49 @@ export async function loadVisionTasks(): Promise<VisionTasks> {
   const hands = hlRes.status === 'fulfilled' ? hlRes.value : null;
   if (odRes.status === 'rejected') errors.push(`Object detector failed: ${errorText(odRes.reason)}`);
   if (hlRes.status === 'rejected') errors.push(`Hand landmarker failed: ${errorText(hlRes.reason)}`);
-  if (!objects && !hands) throw new Error(errors.join(' | '));
+  if (!objects && !hands) {
+    // Nothing else works: the face model alone is not worth keeping.
+    flPromise.then((fl) => fl.close()).catch(() => undefined);
+    throw new Error(errors.join(' | '));
+  }
 
-  return {
+  let closed = false;
+  const tasks: VisionTasks = {
     objects,
     hands,
+    faces: null,
+    facesReady: Promise.resolve(false),
     notes,
     errors,
     close: () => {
-      try {
-        objects?.close();
-      } catch {
-        /* ignore */
+      closed = true;
+      for (const t of [objects, hands, tasks.faces]) {
+        try {
+          t?.close();
+        } catch {
+          /* ignore */
+        }
       }
-      try {
-        hands?.close();
-      } catch {
-        /* ignore */
-      }
+      tasks.faces = null;
     },
   };
+  tasks.facesReady = flPromise.then(
+    (fl) => {
+      if (closed) {
+        try {
+          fl.close();
+        } catch {
+          /* ignore */
+        }
+        return false;
+      }
+      tasks.faces = fl;
+      return true;
+    },
+    (e: unknown) => {
+      errors.push(`Face landmarker failed: ${errorText(e)}`);
+      return false;
+    },
+  );
+  return tasks;
 }

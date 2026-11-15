@@ -174,6 +174,7 @@ function checkModel(file, use, looksRight, kind) {
 }
 checkModel('efficientdet_lite0.tflite', 'object labels', (b) => b.length >= 8 && b.subarray(4, 8).toString('latin1') === 'TFL3', 'TFLite model');
 checkModel('hand_landmarker.task', 'hands, gestures, muscle overlay', (b) => b.length >= 4 && b.readUInt32LE(0) === 0x04034b50, 'MediaPipe task bundle');
+checkModel('face_landmarker.task', 'eyes for "analyse the eye"', (b) => b.length >= 4 && b.readUInt32LE(0) === 0x04034b50, 'MediaPipe task bundle');
 
 const wasmDir = join(modelsDir, 'wasm');
 const wasmMagic = (p) => {

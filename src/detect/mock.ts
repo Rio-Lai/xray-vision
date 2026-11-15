@@ -3,12 +3,16 @@
  * fingers pointing up the image) that "types": one finger presses every second, and every
  * fourth beat a finger lifts quickly (extension) so both glows can be tested without a camera.
  * Both are always in view. `?mock=1` puts the laptop in the centre (it is "this");
- * `?mock=hand` puts the hand in the centre and the laptop off to the left.
+ * `?mock=hand` puts the hand in the centre and the laptop off to the left;
+ * `?mock=eye` (#94) puts a face in the centre (its nearer eye is "this"), the laptop off to the left
+ * and the hand off to the right. The face blinks every few seconds and looks around, so get_pose's
+ * `eyes` can be checked too.
  */
 import type { SceneObject } from '../state/store';
 import type { FingerName } from '../state/store';
 import type { Landmark } from './handTracker';
 import { FINGER_CHAINS } from './handTracker';
+import type { FaceMeasure } from './faceTracker';
 
 export function mockLaptop(centred: boolean): SceneObject {
   return {
@@ -99,4 +103,42 @@ export function mockHandLandmarks(now: number, dx = 0): Landmark[] {
     else if (i === chain[1]) dy = d * 0.15;
     return { x: (x + sway) / 1280 + dx, y: (y + dy) / 720, z: 0 };
   });
+}
+
+/** px of a 1280x720 frame -> frame-normalised box */
+const pxBox = (cx: number, cy: number, w: number, h: number) => ({ x: (cx - w / 2) / 1280, y: (cy - h / 2) / 720, w: w / 1280, h: h / 720 });
+
+/** Gaze script for the mock face (ms into a 12 s loop): straight ahead, to the image's right, down (reading), up. */
+function mockGaze(t: number): { gazeX: number; up: number; down: number } {
+  const k = t % 12000;
+  if (k < 4000) return { gazeX: 0, up: 0, down: 0 };
+  if (k < 6500) return { gazeX: 0.12, up: 0, down: 0 };
+  if (k < 9500) return { gazeX: 0, up: 0, down: 0.6 };
+  if (k < 11000) return { gazeX: 0, up: 0.5, down: 0 };
+  return { gazeX: -0.12, up: 0, down: 0 };
+}
+
+/**
+ * ?mock=eye: a face in the middle of the view, a little left of centre so its right eye (on the
+ * image's left) is the nearer one. Blinks for 150 ms every 4 s.
+ */
+export function mockFace(now: number): FaceMeasure {
+  const sway = Math.sin(now / 1900) * 5;
+  const cx = 652 + sway;
+  const cy = 345;
+  const closed = now % 4000 < 150 ? 1 : 0;
+  const g = mockGaze(now);
+  return {
+    outline: pxBox(cx, cy, 230, 300),
+    eyes: {
+      // camera not mirrored: the person's right eye is on the image's left
+      right: { box: pxBox(cx - 40, cy - 28, 62, 40), closed, gazeX: g.gazeX },
+      left: { box: pxBox(cx + 40, cy - 28, 62, 40), closed, gazeX: g.gazeX },
+    },
+    up: g.up,
+    down: g.down,
+    headYaw: 0,
+    headPitch: 0,
+    score: 0.95,
+  };
 }
