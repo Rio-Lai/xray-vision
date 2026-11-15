@@ -1,7 +1,8 @@
 /**
  * The quiet on-screen cue for hand gestures (#121), pure DOM, updated every frame from gestureLive:
- *  - a small soft marker at the palm centre of each free raised hand (gestures.ts GestureMark):
- *    a hollow ring while it is seen, filled while it is doing something; nothing for ignored hands
+ *  - a small soft marker on each free hand (gestures.ts GestureMark), between its thumb and index
+ *    fingertips (where a pinch happens; at the palm for a fist): a hollow ring while it is seen,
+ *    filled as soon as a pinch counts and while it is doing something; nothing for ignored hands
  *    (typing, resting, just come into view); it fades out when the hand leaves;
  *  - while a gesture is doing something, one word ("Turning", "Opening", "Closing", "Zooming",
  *    "Moving") just above the voice zone (the voice pill and its captions), never on top of them.

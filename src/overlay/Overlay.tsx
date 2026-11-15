@@ -489,7 +489,7 @@ class OverlayEngine {
     // A solid sketch on stage (#124, SolidStage.tsx) counts as the box model for the title.
     setStageArrived('box', (this.boxRig !== null && td !== null && this.boxRig.arrived()) || solidStage.arrived());
 
-    // Kash's arm on stage (ArmStage.tsx): the real hand keeps the live tendon preview, lit by key presses.
+    // Kash's arm on stage (ArmStage.tsx): nothing is drawn on the real hand (the model is the hand's view).
     const armUp = isArmTeardown(td);
     const handTd = td && td.anchor === 'hand' && !armUp ? td : null;
     // The hand's model is on stage: the live drawing stays on the real hand, collapsed, without labels.
@@ -505,9 +505,9 @@ class OverlayEngine {
       hands: live.hands,
       preferredId: sel ?? foc,
       teardown: handTd,
-      // Live tendons on a focused hand once the overlay is on (the full layers come with explode),
-      // and on the real hand while the arm floats on stage.
-      preview: armUp || (!td && s.overlayOn && foc !== null),
+      // Live tendons on a focused hand once the overlay is on (the full layers come with explode);
+      // none while a model is up (the arm on stage included), so the hands that move it stay clean.
+      preview: !td && s.overlayOn && foc !== null,
       explodeTarget: handOnStage ? 0 : s.explodeAmount,
       highlighted: hl,
     });
