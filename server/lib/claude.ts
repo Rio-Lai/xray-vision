@@ -1,8 +1,10 @@
 /**
  * Claude calls for /api/identify and /api/teardown.
- * Model from ANTHROPIC_MODEL, effort from ANTHROPIC_EFFORT (default "low": a live parts list must come
- * back in about 20 seconds for a judge's object). Replies must be one JSON object; we validate with zod,
- * clamp sizes and offsets into range, and retry once with the validation errors if the answer is invalid.
+ * Model from ANTHROPIC_MODEL (default claude-opus-5-5). Effort per call (#95): the parts list uses
+ * ANTHROPIC_EFFORT (default medium), naming uses ANTHROPIC_IDENTIFY_EFFORT (default low, to answer inside
+ * the identify limits); see anthropicEffort in env.ts. Each call logs one line (call, model, effort, seconds).
+ * Replies must be one JSON object; we validate with zod, clamp sizes and offsets into range, and retry
+ * once with the validation errors if the answer is invalid.
  *
  * No lenses: a request's `lens` is only a hint. Claude decides whether the thing is a machine
  * ("engineering") or a living thing ("biology") and sets the parts list's `lens` itself.
@@ -18,35 +20,52 @@ import {
   type Teardown,
   type TeardownRequest,
 } from '../../shared/teardown';
-import { anthropicModel } from './env';
+import { anthropicEffort, anthropicModel, type AnthropicEffort } from './env';
 import { listCheckedObjects, safeId } from './cache';
 
 let client: Anthropic | null = null;
 const getClient = () => {
-  // At low effort a parts list takes ~10-20 s; the timeout only stops a stuck call. One SDK retry for
-  // 429/5xx/network; invalid JSON is retried separately in teardownLive. Identify sets its own, shorter limit.
-  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 60_000, maxRetries: 1 });
+  // The timeout only stops a stuck call. Sonnet at low effort wrote a parts list in ~10-20 s; Opus at medium
+  // effort writes more (thinking plus a longer JSON with "visual" phrases) and may pass 60 s, so 120 s (#95).
+  // One SDK retry for 429/5xx/network; invalid JSON is retried separately in teardownLive. Identify sets its
+  // own, shorter limit.
+  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 120_000, maxRetries: 1 });
   return client;
 };
 
 /**
- * Identify answers quickly or not at all, with no retry: "analyse this" stops waiting after 4 s and
- * goes on with the detector's label (IDENTIFY_TIMEOUT_MS in src/lib/flow.ts, #84). A little longer
- * here so the client's limit decides; on a time-out the route answers with the label (fallback).
- * With no label (the middle of the view, nothing detected there, #80) the client waits up to 12 s
- * (CENTRE_IDENTIFY_TIMEOUT_MS), so this stops just before it and the client gets the fallback.
+ * Identify answers quickly or not at all, with no retry: "analyse this" stops waiting after 6 s and
+ * goes on with the detector's label (IDENTIFY_TIMEOUT_MS in src/lib/flow.ts, #84; 6 s rather than 4 s
+ * since Opus, #95). A little longer here (7 s) so the client's limit decides; on a time-out the route
+ * answers with the label (fallback). With no label (the middle of the view, nothing detected there, #80)
+ * the client waits up to 12 s (CENTRE_IDENTIFY_TIMEOUT_MS), so this stops just before it and the client
+ * gets the fallback.
  */
-const identifyRequest = (req: IdentifyRequest) => ({ timeout: req.hint ? 5_000 : 11_000, maxRetries: 0 });
+const identifyRequest = (req: IdentifyRequest) => ({ timeout: req.hint ? 7_000 : 11_000, maxRetries: 0 });
 
-type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** The request's effort field, or nothing for "none" (older models reject effort). */
+function effortConfig(effort: AnthropicEffort | 'none'): { output_config?: { effort: AnthropicEffort } } {
+  return effort === 'none' ? {} : { output_config: { effort } };
+}
 
-/** ANTHROPIC_EFFORT=low|medium|high|xhigh|max (default low), or "none" to send no effort (older models). */
-function effortConfig(): { output_config?: { effort: Effort } } {
-  const raw = (process.env.ANTHROPIC_EFFORT ?? '').trim().toLowerCase();
-  if (raw === 'none') return {};
-  const effort = (EFFORTS as readonly string[]).includes(raw) ? (raw as Effort) : 'low';
-  return { output_config: { effort } };
+/** Runs one Claude call and logs one line: which call, model, effort, seconds (and tokens, or "failed"). */
+async function logged(
+  call: string,
+  model: string,
+  effort: AnthropicEffort | 'none',
+  run: () => Promise<Anthropic.Message>,
+): Promise<Anthropic.Message> {
+  const started = Date.now();
+  const line = (outcome: string) =>
+    console.info(`[claude] ${call}: ${model}, effort ${effort}, ${((Date.now() - started) / 1000).toFixed(1)} s, ${outcome}`);
+  try {
+    const msg = await run();
+    line(`${msg.usage?.input_tokens ?? '?'} in / ${msg.usage?.output_tokens ?? '?'} out tokens, stop ${msg.stop_reason}`);
+    return msg;
+  } catch (err) {
+    line('failed');
+    throw err;
+  }
 }
 
 /** Short sentences the voice tutor can say when a live call fails. */
@@ -68,6 +87,8 @@ function normalisePart(p: Record<string, unknown>): Record<string, unknown> {
     offset: [clamp(offset[0], -0.5, 0.5, 0), clamp(offset[1], -0.5, 0.5, 0)],
     color: typeof p.color === 'string' && /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#9aa4ae',
     safety: typeof p.safety === 'string' && p.safety.trim() ? p.safety : null,
+    // Optional: a missing or empty phrase is dropped (partPrompt then uses the name) rather than failing the list.
+    visual: typeof p.visual === 'string' && p.visual.trim() ? p.visual.trim() : undefined,
     mesh_url: null,
   };
 }
@@ -148,22 +169,26 @@ export async function identifyLive(req: IdentifyRequest): Promise<IdentifyRespon
     .filter(Boolean)
     .join('\n\n');
 
-  const msg = await getClient().messages.create({
-    model: anthropicModel(),
-    // Room for (low-effort) adaptive thinking plus the short JSON reply.
-    max_tokens: 4000,
-    ...effortConfig(),
-    system: IDENTIFY_SYSTEM,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: req.image } },
-          { type: 'text', text: prompt },
-        ],
-      },
-    ],
-  }, identifyRequest(req));
+  const model = anthropicModel();
+  const effort = anthropicEffort('identify');
+  const msg = await logged(req.hint ? 'identify' : 'identify (centre)', model, effort, () =>
+    getClient().messages.create({
+      model,
+      // Room for (low-effort) adaptive thinking plus the short JSON reply.
+      max_tokens: 4000,
+      ...effortConfig(effort),
+      system: IDENTIFY_SYSTEM,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: req.image } },
+            { type: 'text', text: prompt },
+          ],
+        },
+      ],
+    }, identifyRequest(req)),
+  );
 
   const raw = extractJson(textOf(msg)) as Record<string, unknown>;
   const conf = Number(raw.confidence);
@@ -197,6 +222,7 @@ Schema:
     "offset": [x, y],                  // part centre minus box centre, as fractions of the box (-0.5..0.5); +y is DOWN (image convention)
     "shape": "box" | "board" | "cylinder" | "sphere" | "tube",  // board = flat slab (PCBs, panels)
     "color": "#rrggbb",                // a colour that looks like the real part
+    "visual": string,                  // what this part looks like on its own, for an image model (see Rules)
     "summary": string,                 // ONE plain sentence
     "details": string,                 // 2-4 plain sentences for "tell me more"
     "safety": string | null,           // a real safety note, or null
@@ -207,8 +233,24 @@ Schema:
 
 Rules:
 - The request may include a lens hint from the on-device detector; it is only a hint. Decide from the name what the thing is.
-- 8 to 12 parts. Real parts only, named the way a repair technician or an anatomy teacher would.
-- Lay parts out so the placeholder shapes look like the real internal arrangement seen from the camera.
+- 6 to 12 parts: the main parts a person would actually find on opening this object (for a living thing, the structures
+  an anatomy teacher would point to), named the way a repair technician or an anatomy teacher would. No screws, glue,
+  labels or tiny fittings on their own (fold them into the assembly they belong to), no duplicates, and no parts this
+  object does not have: a simple object gets fewer parts, not invented ones.
+- Layout, so the assembled placeholder shapes read as the object seen from the camera:
+  - The bounding box is the object's outline as the camera sees it. The outermost part (layer 0: the case, cover, lid,
+    shell or skin) fills it: size close to [1, 1, d], offset [0, 0].
+  - Every other part lies inside that footprint: |offset x| + w/2 <= 0.5 and |offset y| + h/2 <= 0.5.
+  - Sizes are realistic relative to each other and to the object (a laptop battery covers much of the base; a fan or a
+    chip is small). d is the part's real thickness on the same scale as w.
+  - Layers go from the outside in, in the order you meet the parts taking it apart: 0 = the outer shell, 1 = what you
+    see once that is off, and so on. Parts side by side at the same depth share a layer and do not overlap.
+  - Pick the shape that matches the part: board for circuit boards and flat panels, cylinder for fans, motors, cells and
+    lenses, tube for cables, hoses, tendons and vessels, sphere for round things.
+- visual (every part): one plain phrase saying what that part looks like removed and seen on its own, written for an
+  image model: shape, colour, material and one distinguishing feature, e.g. "a flat grey rectangular lithium-polymer
+  pack of three cells joined by a thin flex cable". No brand or model names, no printed text, labels or logos, and
+  nothing about where it sits in the object.
 - Engineering: steps = a short, safe repair or disassembly walkthrough (5-8 steps). Safety notes must be real:
   lithium batteries (never puncture or bend; disconnect before other work), mains voltage, capacitors, sharp glass, springs.
 - Biology: steps = how the part works in order (e.g. what happens during a movement). Put "Educational, not medical advice."
@@ -217,20 +259,28 @@ Rules:
 
 export async function teardownLive(req: TeardownRequest): Promise<Teardown> {
   const objectId = safeId(req.object_id);
-  const user = `object_id: ${objectId}\nname: ${req.name}\nlens hint (may be wrong): ${req.lens}\n\nWrite the teardown JSON.`;
+  const user =
+    `object_id: ${objectId}\nname: ${req.name}\nlens hint (may be wrong): ${req.lens}\n\n` +
+    'Write the teardown JSON: 6 to 12 parts a person would really find inside, each with its "visual" phrase, ' +
+    "sized and placed inside the object's outline, layered from the outside in.";
 
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: user }];
   let lastError = '';
 
+  const model = anthropicModel();
+  const effort = anthropicEffort('teardown');
   for (let attempt = 0; attempt < 2; attempt++) {
-    const msg = await getClient().messages.create({
-      model: anthropicModel(),
-      // Thinking counts towards max_tokens; the JSON itself is ~3-4k tokens.
-      max_tokens: 16000,
-      ...effortConfig(),
-      system: TEARDOWN_SYSTEM,
-      messages,
-    });
+    const msg = await logged(`teardown ${objectId}${attempt ? ' (retry)' : ''}`, model, effort, () =>
+      getClient().messages.create({
+        model,
+        // Thinking counts towards max_tokens. The JSON is ~4-5k tokens (12 parts with "visual", 8 steps);
+        // 20k leaves ~15k for medium-effort thinking, so a long think still ends in JSON (#95).
+        max_tokens: 20000,
+        ...effortConfig(effort),
+        system: TEARDOWN_SYSTEM,
+        messages,
+      }),
+    );
     const text = textOf(msg);
     try {
       const raw = extractJson(text) as Record<string, unknown>;

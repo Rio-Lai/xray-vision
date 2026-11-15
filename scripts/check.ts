@@ -20,7 +20,7 @@ import { config as loadEnv, parse as parseEnv } from 'dotenv';
 import { CLIENT_TOOL_NAMES } from '../shared/teardown';
 import { DEMO_IDENTIFY } from '../shared/demo';
 import { CHECKED_DIR, ROOT, readCheckedTeardown } from '../server/lib/cache';
-import { DEFAULT_PORT, WEB_PORT, anthropicModel, apiPort, portInUseMessage } from '../server/lib/env';
+import { DEFAULT_PORT, WEB_PORT, anthropicEffort, anthropicModel, apiPort, portInUseMessage } from '../server/lib/env';
 import { isBlowfish, taken } from '../server/lib/ports';
 
 const ENV_FILE = path.join(ROOT, '.env');
@@ -162,6 +162,7 @@ async function checkClaude(): Promise<Item[]> {
   } else if (one.status === 200) {
     const shown = str(rec(one.body).display_name);
     items.push(ok(`ANTHROPIC_MODEL ${model} exists${shown ? ` (${shown})` : ''}`));
+    items.push(info(`Claude effort: ${anthropicEffort('teardown')} for parts lists (ANTHROPIC_EFFORT), ${anthropicEffort('identify')} for naming (ANTHROPIC_IDENTIFY_EFFORT)`));
   } else if (one.status === 404) {
     items.push(
       fail(

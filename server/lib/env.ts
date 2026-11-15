@@ -6,7 +6,23 @@ export const hasAnthropic = () => !isMock() && has('ANTHROPIC_API_KEY');
 export const hasFal = () => !isMock() && has('FAL_KEY');
 export const hasEleven = () => !isMock() && has('ELEVENLABS_API_KEY') && has('ELEVENLABS_AGENT_ID');
 
-export const anthropicModel = () => process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
+/** Opus at medium effort guesses better parts lists and part pictures than Sonnet (#95). */
+export const anthropicModel = () => process.env.ANTHROPIC_MODEL || 'claude-opus-5-5';
+
+export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+const EFFORTS: readonly AnthropicEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * How hard Claude thinks, per call (#95). The parts list reads ANTHROPIC_EFFORT (default medium: a better
+ * list, and nobody waits on a short limit for it); naming an object reads ANTHROPIC_IDENTIFY_EFFORT
+ * (default low: it must answer inside the identify time limits). "none" sends no effort (older models
+ * reject it); an unknown value means the default.
+ */
+export function anthropicEffort(call: 'identify' | 'teardown'): AnthropicEffort | 'none' {
+  const raw = (process.env[call === 'identify' ? 'ANTHROPIC_IDENTIFY_EFFORT' : 'ANTHROPIC_EFFORT'] ?? '').trim().toLowerCase();
+  if (raw === 'none') return 'none';
+  return (EFFORTS as readonly string[]).includes(raw) ? (raw as AnthropicEffort) : call === 'identify' ? 'low' : 'medium';
+}
 
 /**
  * Ports. This is the ONE place the defaults live: server/index.ts, server/lib/preflight.ts and
