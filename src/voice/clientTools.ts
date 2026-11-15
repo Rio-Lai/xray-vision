@@ -23,6 +23,8 @@ import { live } from '../detect/live';
 import { voiceTurn } from '../stage/turnLimit';
 // ?detail=1 only: show_detail / detail_step / close_detail (without the flag they answer DETAIL_UNAVAILABLE and do nothing)
 import { DETAIL_ON, closeDetail, openDetail, setDetailStep } from '../lib/detail';
+// ...and while a detail model is up, rotate_model and adjust_view turn, zoom and move it instead of the main model
+import { DETAIL_ZOOM_MAX, DETAIL_ZOOM_MIN, centreDetail, detailInputActive, detailViewTarget, panDetail, setDetailZoom, voiceTurnDetail, zoomDetail } from '../stage/detailView';
 
 // Kash's X-ray arm (public/cache/arm-hand) is the floating model for a hand on stage: flow.ts loads it as the hand's
 // parts list, so these tools work on it through the store like on any other object (src/stage/armTeardown.ts), and
@@ -288,12 +290,13 @@ const tools: Record<ClientToolName, Tool> = {
 
   async rotate_model(p) {
     const s = useStore.getState();
-    if (!s.teardown) return json({ ok: false, say: 'Nothing is open yet.' });
+    const det = detailInputActive(s);
+    if (!s.teardown && !det) return json({ ok: false, say: 'Nothing is open yet.' });
     const dir = (str(p, 'direction') ?? 'right').toLowerCase();
     const deg = Math.min(360, Math.max(5, num(p, 'degrees') ?? (dir === 'around' || dir === 'flip' ? 180 : 45)));
     const rad = (deg * Math.PI) / 180;
     // left / up / down; anything else (right, around, flip) turns right. A flat model stops at its limit.
-    const limited = voiceTurn(dir, rad);
+    const limited = det ? voiceTurnDetail(dir, rad) : voiceTurn(dir, rad);
     const way = dir === 'around' || dir === 'flip' ? 'around' : ['left', 'up', 'down'].includes(dir) ? dir : 'right';
     return json({ ok: true, say: limited ? 'That is as far as it turns.' : `Turned ${way}.`, degrees: Math.round(deg) });
   },
@@ -302,14 +305,21 @@ const tools: Record<ClientToolName, Tool> = {
   // "recentre" (middle of the view, normal size, facing the front), "normal size". Replaces zoom_model.
   async adjust_view(p) {
     const s = useStore.getState();
-    if (!s.teardown) return json({ ok: false, say: 'Nothing is open yet.' });
+    // (a detail model up: its view instead, src/stage/detailView.ts)
+    const det = detailInputActive(s);
+    if (!s.teardown && !det) return json({ ok: false, say: 'Nothing is open yet.' });
     const a = (str(p, 'action') ?? str(p, 'direction') ?? 'centre').toLowerCase().replace(/[\s-]+/g, '_');
     const amount = num(p, 'amount') ?? num(p, 'factor');
     if (/^(normal|reset_zoom|zoom_reset|original|default)/.test(a)) {
-      s.setModelZoom(1);
+      if (det) setDetailZoom(1);
+      else s.setModelZoom(1);
       return json({ ok: true, say: 'Back to normal size.', zoom: 1 });
     }
     if (/^(centre|center|recentre|recenter|reset|middle|home|back)/.test(a)) {
+      if (det) {
+        centreDetail();
+        return json({ ok: true, say: 'Back in the middle.' });
+      }
       s.centreModel();
       s.setModelZoom(1);
       // Facing the front again, by the short way round (yaw adds up over many turns).
@@ -324,11 +334,12 @@ const tools: Record<ClientToolName, Tool> = {
       // A factor below 1 means the same step the other way ("in" by 0.5 = twice as big).
       const raw = amount ?? 1.5;
       const f = Math.min(8, Math.max(1.05, raw >= 1 ? raw : raw > 0 ? 1 / raw : 1.5));
-      const before = s.modelZoom;
-      if (zoomIn && before >= MODEL_ZOOM_MAX - 1e-3) return json({ ok: true, say: 'That is as close as it goes.', zoom: round(before) });
-      if (zoomOut && before <= MODEL_ZOOM_MIN + 1e-3) return json({ ok: true, say: 'That is as far out as it goes.', zoom: round(before) });
-      s.zoomModel(zoomOut ? 1 / f : f);
-      return json({ ok: true, say: zoomOut ? 'Zoomed out.' : 'Zoomed in.', zoom: round(useStore.getState().modelZoom) });
+      const before = det ? detailViewTarget().zoom : s.modelZoom;
+      if (zoomIn && before >= (det ? DETAIL_ZOOM_MAX : MODEL_ZOOM_MAX) - 1e-3) return json({ ok: true, say: 'That is as close as it goes.', zoom: round(before) });
+      if (zoomOut && before <= (det ? DETAIL_ZOOM_MIN : MODEL_ZOOM_MIN) + 1e-3) return json({ ok: true, say: 'That is as far out as it goes.', zoom: round(before) });
+      if (det) zoomDetail(zoomOut ? 1 / f : f);
+      else s.zoomModel(zoomOut ? 1 / f : f);
+      return json({ ok: true, say: zoomOut ? 'Zoomed out.' : 'Zoomed in.', zoom: round(det ? detailViewTarget().zoom : useStore.getState().modelZoom) });
     }
     const m = a.match(/(left|right|up|down)/);
     if (m) {
@@ -336,6 +347,7 @@ const tools: Record<ClientToolName, Tool> = {
       const d = Math.min(2, Math.max(0.05, amount ?? 0.5));
       const dx = m[1] === 'left' ? -d : m[1] === 'right' ? d : 0;
       const dy = m[1] === 'up' ? -d : m[1] === 'down' ? d : 0;
+      if (det) return json(panDetail(dx, dy) ? { ok: true, say: `Moved ${m[1]}.` } : { ok: true, say: 'That is as far as it goes.' });
       const x0 = s.modelPanX;
       const y0 = s.modelPanY;
       s.panModel(dx, dy);

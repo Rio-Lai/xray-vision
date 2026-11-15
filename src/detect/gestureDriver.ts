@@ -1,17 +1,22 @@
 /**
  * Runs the gesture recogniser (gestures.ts) once per animation frame on the tracked hands and
- * turns its output into model control (#121, Rio's mapping of 15 Nov, second pass):
- *  - one-hand pinch (drag) and the globe (two open hands) -> modelControl.turn (inertia on release);
- *    with ?pinchturn=0 a pinch moves it instead;
- *  - fist grab -> modelControl.panBy: the model follows the fist on screen (panGain times);
+ * turns its output into model control (#121, Rio's mapping of 15 Nov, third pass):
+ *  - two fingers together (index and middle out, ring and pinky curled) -> modelControl.panBy: the
+ *    model follows the two fingertips on screen (panGain times); ?twofinger=0 off;
+ *  - the globe (two open hands) -> modelControl.turn (inertia on release);
+ *  - a lone one-hand pinch does nothing (?pinchturn=1: a pinch-drag turns it, ?pinchmove=1: moves it);
+ *  - fist grab (?grab=1) -> modelControl.panBy: the model follows the fist on screen (panGain times);
  *  - two-hand pinch apart / together -> setZoom (the zoom follows the distance between the hands);
  *    with ?twoopen=1 it opens first, then zooms (spreadExplodeZoom, #109); moved together the same way
  *    (?pan=1) -> panBy;
  *  - finger snap -> the exploded view opens (fully), or closes (analysed) if it is open;
  *  - sweep (a flat hand from the top of the frame down) -> the model is put away (resetAll, as "put it away");
  *  - burst (?burst=1: fist <-> open hand, quickly) -> burstAction: open one stage further, close one back.
- * The word under each hand's ring ("Rotating", "Panning", "Zooming", and "Exploding" / "Closing" for a
- * snap) comes from the recogniser's marks; the snap's word is set here.
+ * While a detail model is up (`?detail=1`) turning, zooming and moving act on it instead of the main
+ * model (modelControl routes them, src/stage/detailView.ts); the snap still opens / closes the main
+ * model (nothing to explode in a detail) and the sweep still puts everything away.
+ * The fingertip markers and the word under each hand ("Rotating", "Panning", "Zooming", and
+ * "Exploding" / "Closing" for a snap) come from the recogniser's marks; the snap's are set here.
  * It tells the recogniser where the model is on screen (modelBox), so an open hand over it can grab it.
  * Active only while a model is on stage; any free hand can gesture, including one that is itself the
  * subject of the current teardown, but not one that is typing or resting on the laptop (#107: it
@@ -23,11 +28,11 @@ import { MODEL_ZOOM_MAX, MODEL_ZOOM_MIN, useStore } from '../state/store';
 import type { FingerName } from '../state/store';
 import { frameSize, getCoverMap, viewToFrame } from '../camera/frame';
 import { devLog } from '../hud/hudStore';
-import { PAN_UNIT_VH, STAGE_MIN_EXPLODE, modelControl, panPx, stageInputActive } from '../stage/modelControl';
+import { PAN_UNIT_VH, STAGE_MIN_EXPLODE, mainInputActive, modelControl, panPx, stageInputActive } from '../stage/modelControl';
 import { BOTTOM_MARGIN, STAGE_SIZE, TOP_MARGIN } from '../overlay/boxRig';
 import { live } from './live';
 import { resetAll } from '../lib/flow';
-import { GestureRecognizer, burstAction, spreadExplodeZoom } from './gestures';
+import { FINGER_MIDDLE, FINGER_THUMB, GestureRecognizer, burstAction, markFingers, spreadExplodeZoom } from './gestures';
 import type { GestureContext, GestureHandInput, GestureOutput } from './gestures';
 import { gestureTuning } from './gestureTuning';
 import type { TrackedHand } from './handTracker';
@@ -115,9 +120,10 @@ export function tickGestures(now: number): void {
   }
   restBoxes.length = 0;
   for (const o of live.objects) if (REST_LABELS.has(o.label)) restBoxes.push(o.box);
+  // (a detail model up counts too: the hands then turn, zoom and move it)
   ctx.enabled = stageInputActive(s);
   ctx.explode = s.explodeAmount;
-  if (ctx.enabled) {
+  if (ctx.enabled && mainInputActive(s)) {
     updateModelBox(s);
     ctx.modelBox = modelBox;
   } else {
@@ -126,20 +132,22 @@ export function tickGestures(now: number): void {
   const out = recognizer.update(inputs, now, w, h, ctx, gestureTuning);
   gestureLive.out = out;
 
-  // Turning: a pinch dragging with ?pinchturn=1, or two open hands (the globe). Steps come with new camera frames.
+  // Turning: two open hands (the globe), or a pinch dragging with ?pinchturn=1. Steps come with new camera frames.
   const turning = out.moved;
   if (out.moved) modelControl.turn(out.dYaw, out.dPitch, now);
   if (out.dragEnd === 'release') modelControl.release(now);
   else if (out.dragEnd === 'cancel') modelControl.stop();
   if (out.mode !== 'idle') modelControl.touch(now);
 
-  // Two hands pinching: apart / together opens and zooms, the same way moves it. A pinch or a grab
-  // moves it too: every move is measured from the model's pan when that gesture began.
-  if (out.events.includes('two-start') || out.events.includes('drag-start') || out.events.includes('grab-start')) {
+  // Two hands pinching: apart / together zooms (opens first with ?twoopen=1), the same way moves it
+  // with ?pan=1. Two fingers, a pinch-drag (?pinchmove=1) or a grab move it too: every move is measured
+  // from the pan when that gesture began (the detail model's while one is up).
+  if (out.events.includes('two-start') || out.events.includes('twofinger-start') || out.events.includes('drag-start') || out.events.includes('grab-start')) {
+    const v = modelControl.viewNow();
     two.e0 = s.explodeAmount;
-    two.z0 = s.modelZoom;
-    two.px0 = s.modelPanX;
-    two.py0 = s.modelPanY;
+    two.z0 = v.zoom;
+    two.px0 = v.panX;
+    two.py0 = v.panY;
     two.e = two.z = -1;
     two.hint = null;
   }
@@ -171,13 +179,13 @@ export function tickGestures(now: number): void {
     const unit = Math.max(1, PAN_UNIT_VH * map.vh);
     const tx = two.px0 + (out.panX * map.scale) / unit;
     const ty = two.py0 + (out.panY * map.scale) / unit;
-    const cur = useStore.getState();
-    modelControl.panBy(tx - cur.modelPanX, ty - cur.modelPanY, now);
+    const cur = modelControl.viewNow();
+    modelControl.panBy(tx - cur.panX, ty - cur.panY, now);
   }
 
   // Burst: one stage further open, or one stage back.
   if (out.burst) {
-    const a = burstAction(out.burst, s.explodeAmount, s.modelZoom, STAGE_MIN_EXPLODE, MODEL_ZOOM_MAX);
+    const a = burstAction(out.burst, s.explodeAmount, modelControl.viewNow().zoom, STAGE_MIN_EXPLODE, MODEL_ZOOM_MAX);
     if (a.explode !== null) modelControl.setExplode(a.explode, now);
     if (a.zoom !== null) modelControl.setZoom(a.zoom, now);
     modelControl.touch(now);
@@ -186,8 +194,8 @@ export function tickGestures(now: number): void {
     devLog(`Gesture: burst-${out.burst} -> ${a.hint ?? 'nothing (already at the end)'}`);
   }
 
-  // Snap: open the exploded view, or close it if it is open.
-  if (out.snap) {
+  // Snap: open the exploded view, or close it if it is open (the main model's; with only a detail model up, nothing).
+  if (out.snap && mainInputActive(s)) {
     const open = s.explodeAmount >= 0.5;
     modelControl.setExplode(open ? STAGE_MIN_EXPLODE : 1, now);
     modelControl.touch(now);
@@ -197,7 +205,11 @@ export function tickGestures(now: number): void {
     devLog(`Gesture: snap -> ${open ? 'closed' : 'exploded'}`);
   }
   if (now < snapLabel.until) {
-    for (const m of out.marks) if (m.key === snapLabel.key) m.label = snapLabel.text;
+    for (const m of out.marks) {
+      if (m.key !== snapLabel.key) continue;
+      m.label = snapLabel.text;
+      markFingers(m, FINGER_THUMB | FINGER_MIDDLE);
+    }
   }
 
   // Sweep down: put the model away (saved, as "put it away").
@@ -215,7 +227,7 @@ export function tickGestures(now: number): void {
     for (const e of out.events) {
       if (e === 'pinch' || e === 'unpinch') continue;
       shown = true;
-      if (e === 'spread-start' || e === 'pan-start' || e === 'globe-start' || e === 'grab-start' || e === 'drag-start') devLog(`Gesture: ${e}`);
+      if (e === 'spread-start' || e === 'pan-start' || e === 'globe-start' || e === 'grab-start' || e === 'drag-start' || e === 'twofinger-start') devLog(`Gesture: ${e}`);
     }
     if (shown) {
       gestureLive.last = out.events.join(', ');

@@ -75,13 +75,14 @@ export const CLASSIC_HUD_CSS = `
 /* ---- the pinch cue: one tiny soft dot at an active pinch point (hand gestures) ---- */
 /* Hand cue (#121, src/overlay/pinchDots.ts): a small ring at each free raised hand's palm, filled while it
    does something, and one quiet word above the voice zone. */
-.bf-hand-mark { position: absolute; left: 0; top: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px; box-sizing: border-box;
-  border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.75); background: rgba(255, 255, 255, 0);
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.25); opacity: 0; transition: opacity 160ms ease-out, background-color 120ms ease-out;
-  will-change: transform, opacity; }
-.bf-hand-mark.on { opacity: 0.8; }
-.bf-hand-mark.active { background: rgba(255, 255, 255, 0.9); }
-.bf-hand-label { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); padding: 2px 8px; white-space: nowrap;
+/* the hand cue (pinchDots.ts): a dot on each fingertip, filled for the fingers taking part, and one word */
+.bf-hand-mark { position: absolute; left: 0; top: 0; width: 0; height: 0; opacity: 0; transition: opacity 160ms ease-out; }
+.bf-hand-mark.on { opacity: 1; }
+.bf-hand-tip { position: absolute; left: 0; top: 0; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; box-sizing: border-box;
+  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.6); background: rgba(255, 255, 255, 0); opacity: 0.55;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.25); transition: opacity 120ms ease-out, background-color 120ms ease-out; will-change: transform; }
+.bf-hand-tip.on { background: rgba(255, 255, 255, 0.92); border-color: rgba(255, 255, 255, 0.95); opacity: 1; }
+.bf-hand-label { position: absolute; left: 0; top: 0; margin-top: 14px; padding: 2px 8px; white-space: nowrap;
   border-radius: 999px; background: rgba(10, 14, 20, 0.55); color: #fff; font-size: 12px; font-weight: 500; line-height: 1.3;
   opacity: 0; transition: opacity 120ms ease-out; pointer-events: none; }
 .bf-hand-label.on { opacity: 1; }
