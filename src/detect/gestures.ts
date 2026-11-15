@@ -26,6 +26,16 @@
  *  - one hand fist -> spread within burstMs (burst): explode to 1; spread -> fist: back to minExplode.
  *    The hand must have been a fist (or spread) for FIST_HOLD_MS first, and the new state must hold
  *    for holdMs, so typing and resting hands (never a full fist) do not fire it.
+ *
+ * Only a deliberate, free hand gestures (#107): a judge typing on the laptop in full view must not
+ * turn the model. A hand small in the frame (wrist to middle knuckle below restHandMax of the frame
+ * height: on the desk at arm's length, not raised towards the head camera) is blocked (no pinch
+ * starts, a held pinch goes stale, no burst, no dot) while
+ *  - 'typing':  it pressed a key within typingMs (GestureHandInput.lastPressAt, from the hand tracker);
+ *  - 'resting': its palm centre is inside a laptop or keyboard box (GestureContext.restBoxes).
+ * A raised hand is never 'typing' or 'resting': the key-press detector also fires now and then on a
+ * still hand's tracking jitter, and that must never lock out the wearer. Any hand is blocked while
+ *  - 'new':     it has been tracked for less than MIN_TRACKED_MS (just come into view, or re-found).
  */
 
 export interface GestureLandmark {
@@ -40,6 +50,8 @@ export interface GestureHandInput {
   lm: GestureLandmark[];
   /** wrist -> middle MCP in frame px */
   handSize: number;
+  /** when this hand last pressed a key (same clock as `now`): a typing hand does not gesture */
+  lastPressAt?: number;
 }
 
 export interface GestureTuning {
@@ -69,13 +81,20 @@ export interface GestureTuning {
   spreadMin: number;
   /** fist -> spread (or back) must happen within this (ms) */
   burstMs: number;
+  /** a hand that pressed a key this recently is typing and does not gesture (ms; 0 = off) */
+  typingMs: number;
+  /**
+   * a hand smaller than this share of the frame height (wrist -> middle MCP) is on the desk, not raised
+   * towards the camera: it does not gesture while typing or with its palm on a laptop or keyboard
+   */
+  restHandMax: number;
 }
 
 export const GESTURE_TUNING_DEFAULTS: GestureTuning = {
   enabled: true,
   pinchOn: 0.25,
   pinchOff: 0.4,
-  holdMs: 70,
+  holdMs: 100,
   releaseMs: 60,
   restOpenMin: 1.05,
   rotGain: 1.1,
@@ -85,6 +104,8 @@ export const GESTURE_TUNING_DEFAULTS: GestureTuning = {
   fistMax: 1.0,
   spreadMin: 1.5,
   burstMs: 450,
+  typingMs: 1500,
+  restHandMax: 0.22,
 };
 
 /** How long a fist (or a spread hand) must have been held before a burst can start from it. */
@@ -101,10 +122,14 @@ const MAX_STEP_HS = 0.6;
 const DRAG_DELAY_MS = 110;
 /** Palm centre: wrist and the four knuckles (they do not move when the fingers open or close). */
 const PALM = [0, 5, 9, 13, 17];
+/** A hand must have been tracked this long before its first pinch can start (ms). */
+export const MIN_TRACKED_MS = 300;
 
 export type GestureMode = 'idle' | 'drag' | 'spread';
 export type GestureEvent = 'pinch' | 'unpinch' | 'drag-start' | 'drag-end' | 'spread-start' | 'spread-end' | 'burst-open' | 'burst-close';
 type OpenState = 'fist' | 'mid' | 'spread';
+/** Why a hand does not count for gestures right now (null = it does). */
+export type HandBlock = 'typing' | 'resting' | 'new' | null;
 
 export interface HandGestureInfo {
   id: string;
@@ -115,6 +140,9 @@ export interface HandGestureInfo {
   /** pinched but waiting for a fresh pinch (held when gestures began, or left from a spread) */
   stale: boolean;
   openState: OpenState;
+  /** wrist -> middle MCP as a share of the frame height (compare restHandMax) */
+  size: number;
+  blocked: HandBlock;
 }
 
 export interface GestureDot {
@@ -145,11 +173,15 @@ export interface GestureContext {
   explode: number;
   /** lowest explode amount gestures go to (the analyse state) */
   minExplode: number;
+  /** laptop and keyboard boxes in view, normalised frame coords: a small hand resting on one does not gesture */
+  restBoxes?: { x: number; y: number; w: number; h: number }[];
 }
 
 interface HandTrack {
   id: string;
   seen: boolean;
+  /** when this hand was first tracked */
+  bornAt: number;
   pinched: boolean;
   stale: boolean;
   closeSince: number | null;
@@ -180,6 +212,11 @@ const REST_TIPS = [12, 16, 20];
 
 function dist2(a: GestureLandmark, b: GestureLandmark, fw: number, fh: number): number {
   return Math.hypot((a.x - b.x) * fw, (a.y - b.y) * fh);
+}
+
+/** Whether (x, y) (normalised frame coords) is inside any of the boxes. */
+function onBox(x: number, y: number, boxes: GestureContext['restBoxes']): boolean {
+  return !!boxes && boxes.some((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
 }
 
 /** Features of one hand: pinch distance, openness, rest openness (hand sizes), pinch point (frame px). */
@@ -255,6 +292,7 @@ export class GestureRecognizer {
         t = {
           id: h.id,
           seen: true,
+          bornAt: now,
           pinched: false,
           stale: false,
           closeSince: null,
@@ -271,15 +309,26 @@ export class GestureRecognizer {
           lastSpreadAt: -1e9,
           fistHeldSince: null,
           spreadHeldSince: null,
-          info: { id: h.id, pinchDist: f.pinchDist, open: f.open, restOpen: f.restOpen, pinched: false, stale: false, openState: 'mid' },
+          info: { id: h.id, pinchDist: f.pinchDist, open: f.open, restOpen: f.restOpen, pinched: false, stale: false, openState: 'mid', size: 0, blocked: 'new' },
         };
         this.tracks.set(h.id, t);
       }
       t.seen = true;
       t.hs = Math.max(8, h.handSize);
       const wasPinched = t.pinched;
+      // Only a deliberate, free hand: not one on the desk typing or resting on the laptop, not one just come into view.
+      const size = h.handSize / Math.max(1, fh);
+      const onDesk = size < tu.restHandMax;
+      const blocked: HandBlock =
+        onDesk && h.lastPressAt !== undefined && now - h.lastPressAt < tu.typingMs
+          ? 'typing'
+          : onDesk && onBox(f.cx / fw, f.cy / fh, ctx.restBoxes)
+            ? 'resting'
+            : now - t.bornAt < MIN_TRACKED_MS
+              ? 'new'
+              : null;
       // Pinch with hysteresis and hold times.
-      const closeEnough = f.pinchDist < tu.pinchOn && f.restOpen >= tu.restOpenMin;
+      const closeEnough = blocked === null && f.pinchDist < tu.pinchOn && f.restOpen >= tu.restOpenMin;
       if (!t.pinched) {
         t.openSince = null;
         if (closeEnough) {
@@ -306,6 +355,8 @@ export class GestureRecognizer {
       // A pinch held while gestures were off does not count until it is made again.
       if (t.pinched && justEnabled) t.stale = true;
       if (t.pinched && !enabled) t.stale = true;
+      // A held pinch whose hand starts typing or resting stops counting; it must be made again.
+      if (t.pinched && blocked !== null) t.stale = true;
       if (!t.pinched) t.stale = false;
       if (t.pinched && !wasPinched) out.events.push('pinch');
       if (!t.pinched && wasPinched) out.events.push('unpinch');
@@ -338,7 +389,7 @@ export class GestureRecognizer {
       // Remember when a fist / spread was last firmly held (FIST_HOLD_MS), for the burst window.
       if (t.fistHeldSince !== null && now - t.fistHeldSince >= FIST_HOLD_MS) t.lastFistAt = now;
       if (t.spreadHeldSince !== null && now - t.spreadHeldSince >= FIST_HOLD_MS) t.lastSpreadAt = now;
-      if (enabled && tu.burst && this.mode === 'idle' && t.openState !== prevState) {
+      if (enabled && tu.burst && blocked === null && this.mode === 'idle' && t.openState !== prevState) {
         // The confirmed new state started holdMs ago; the old one must have ended within burstMs before that.
         const startedAt = now - tu.holdMs;
         if (t.openState === 'spread' && startedAt - t.lastFistAt <= tu.burstMs) {
@@ -352,7 +403,7 @@ export class GestureRecognizer {
         }
       }
 
-      t.info = { id: h.id, pinchDist: f.pinchDist, open: f.open, restOpen: f.restOpen, pinched: t.pinched, stale: t.stale, openState: t.openState };
+      t.info = { id: h.id, pinchDist: f.pinchDist, open: f.open, restOpen: f.restOpen, pinched: t.pinched, stale: t.stale, openState: t.openState, size, blocked };
     }
     // Hands that left the view: their pinch ends at once.
     for (const [id, t] of this.tracks) {
@@ -405,7 +456,8 @@ export class GestureRecognizer {
       if (!t || !t.pinched || t.stale) {
         this.mode = 'idle';
         this.dragId = null;
-        out.dragEnd = 'release';
+        // Let go: coast. Blocked mid-drag (it started typing or resting): stop dead, no fling.
+        out.dragEnd = t && t.pinched && t.info.blocked !== null ? 'cancel' : 'release';
         out.events.push('drag-end');
       } else {
         const cap = (v: number) => Math.max(-MAX_STEP_HS, Math.min(MAX_STEP_HS, v));

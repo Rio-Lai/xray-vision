@@ -299,6 +299,8 @@ const GESTURE_SLIDERS: { key: NumKey; label: string; min: number; max: number; s
   { key: 'fistMax', label: 'Fist at or below (openness)', min: 0.5, max: 1.4, step: 0.01 },
   { key: 'spreadMin', label: 'Spread at or above (openness)', min: 1.1, max: 2.1, step: 0.01 },
   { key: 'burstMs', label: 'Fist to spread within (ms)', min: 150, max: 1000, step: 10 },
+  { key: 'typingMs', label: 'Typing hand ignored for (ms after a key press; 0 = off)', min: 0, max: 4000, step: 50 },
+  { key: 'restHandMax', label: 'Hand on the desk if smaller than (share of frame height; 0 = off)', min: 0, max: 0.6, step: 0.01 },
 ];
 
 const GESTURE_TOGGLES: { key: BoolKey; label: string }[] = [
@@ -358,6 +360,7 @@ function gestureLines(now: number): string[] {
     const state = h.pinched ? (h.stale ? 'PINCH (let go first)' : 'PINCH') : '     ';
     lines.push(
       `  ${h.id.padEnd(10)} pinch ${h.pinchDist.toFixed(2)}  open ${h.open.toFixed(2)}  rest ${h.restOpen.toFixed(2)}  ${h.openState.padEnd(6)} ${state}`,
+      `  ${''.padEnd(10)} size ${h.size.toFixed(2)}  ${h.blocked ? `ignored: ${h.blocked}` : 'free: can turn the model'}`,
     );
   }
   return lines;
