@@ -143,6 +143,33 @@ export interface ServerFlags {
   error?: string;
 }
 
+/** POST /api/scan (#122): one downscaled picture of the wearer's view, faces blacked out (base64 JPEG, its size in px). */
+export interface ScanRequest {
+  image: string;
+  width: number;
+  height: number;
+}
+
+/** One thing Claude found in the picture. */
+export interface ScanThing {
+  /** short and specific, sentence case: "Casio scientific calculator" */
+  name: string;
+  /** normalised to the picture that was sent (0..1, top-left origin), clamped into it */
+  box: { x: number; y: number; w: number; h: number };
+  /** 0..1: how rewarding it is to look inside or learn about */
+  interest: number;
+  /** the thing at the centre of the picture (at most one) */
+  centre?: true;
+  /** a checked parts list it plausibly is (e.g. "macbook-air-m3-13") */
+  object_id?: string;
+}
+
+/** At most 10 things, most interesting first; `seconds` = how long Claude took. `mock: true` (no key): no things. */
+export interface ScanResponse {
+  things: ScanThing[];
+  seconds: number;
+}
+
 export interface Health {
   ok: boolean;
   mock: boolean;
@@ -158,6 +185,8 @@ export const api = {
   teardown: (req: TeardownRequest) => post<Teardown>('/api/teardown', req),
   generatePart: (req: GeneratePartRequest) =>
     post<GeneratePartResponse & ServerFlags>('/api/generate-part', req),
+  scan: (req: ScanRequest, opts: CallOptions = {}) =>
+    withTimeout('/api/scan', opts.timeoutMs, (signal) => post<ScanResponse & ServerFlags>('/api/scan', req, signal)),
   agentToken: () => request<AgentTokenResponse>('/api/agent-token'),
   /** Rejects with SERVER_DOWN_MESSAGE unless our own server answers. */
   health: async () => {

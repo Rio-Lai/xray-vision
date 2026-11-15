@@ -24,6 +24,7 @@ import { GESTURE_TUNING_DEFAULTS } from '../detect/gestures';
 import type { GestureTuning } from '../detect/gestures';
 import { gestureTuning, gestureTuningUrl, setGestureTuning } from '../detect/gestureTuning';
 import { isPinnedId } from '../detect/centre';
+import { scanDebugLine } from '../detect/scan';
 import { shortName } from './names';
 import { SavedRow } from './SavedRow';
 import { savedAgo, useSaved } from '../lib/saved';
@@ -423,6 +424,7 @@ function DebugPanel() {
     `render ${st.renderFps.toFixed(1)} fps | objects ${st.objMs.toFixed(1)} ms | hands ${st.handMs.toFixed(1)} ms | faces ${st.faceMs.toFixed(1)} ms${MOCK_MODE ? ' | MOCK' : ''}`,
   );
   if (st.detector) lines.push(st.detector);
+  lines.push(scanDebugLine(performance.now()));
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
   const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} zoom ${zoom.toFixed(2)} pan ${panX.toFixed(2)}, ${panY.toFixed(2)} | input ${modelControl.describe()}`);

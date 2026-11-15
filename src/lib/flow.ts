@@ -11,6 +11,7 @@ import { voiceBridge } from '../voice/bridge';
 import { stageTeardownFor } from '../stage/armTeardown';
 import { setBusyText } from '../hud/hudStore';
 import { centreDistance, centreRegion, inCentre, pinObject, pinnedIdent, unpinObject } from '../detect/centre';
+import { scanIdent } from '../detect/scan';
 import { findSaved, keptTeardown, mayKeepPicture, noteAnalysedShot, saveOpened, savedItems, type SavedItem } from './saved';
 
 /**
@@ -173,10 +174,12 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   const guess = mockIdentify(target.label, kind);
   let ident: IdentifyResponse = guess;
   let background: Promise<(IdentifyResponse & ServerFlags) | null> | null = null;
-  // Something Claude has already named (in the middle of the view, #80, or a correction of a
-  // cached guess, #84) is not asked about again.
+  // Something Claude has already named (in the middle of the view, #80, a correction of a cached
+  // guess, #84, or the overlay's whole-view scan, #122) is not asked about again. A detected laptop,
+  // hand or eye still opens its stored model below, whatever the scan called it.
   const fix = corrected.get(target.id);
-  const known = pinnedIdent(target.id) ?? (fix && fix.name === target.name ? fix : null);
+  const known =
+    pinnedIdent(target.id) ?? (fix && fix.name === target.name ? fix : null) ?? scanIdent(target, isDemoObject(guess.object_id));
   if (known) {
     ident = known;
   } else if (isDemoObject(guess.object_id)) {

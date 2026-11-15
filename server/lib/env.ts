@@ -12,16 +12,21 @@ export const anthropicModel = () => process.env.ANTHROPIC_MODEL || 'claude-opus-
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 const EFFORTS: readonly AnthropicEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
+/** The whole-view scan while the overlay is on (#122): ANTHROPIC_SCAN_MODEL, default the main model. */
+export const anthropicScanModel = () => process.env.ANTHROPIC_SCAN_MODEL?.trim() || anthropicModel();
+
 /**
  * How hard Claude thinks, per call (#95). The parts list reads ANTHROPIC_EFFORT (default medium: a better
  * list, and nobody waits on a short limit for it); naming an object reads ANTHROPIC_IDENTIFY_EFFORT
- * (default low: it must answer inside the identify time limits). "none" sends no effort (older models
- * reject it); an unknown value means the default.
+ * (default low: it must answer inside the identify time limits); the whole-view scan reads
+ * ANTHROPIC_SCAN_EFFORT (default low: it runs every few seconds, #122). "none" sends no effort (older
+ * models reject it); an unknown value means the default.
  */
-export function anthropicEffort(call: 'identify' | 'teardown'): AnthropicEffort | 'none' {
-  const raw = (process.env[call === 'identify' ? 'ANTHROPIC_IDENTIFY_EFFORT' : 'ANTHROPIC_EFFORT'] ?? '').trim().toLowerCase();
+export function anthropicEffort(call: 'identify' | 'teardown' | 'scan'): AnthropicEffort | 'none' {
+  const name = call === 'identify' ? 'ANTHROPIC_IDENTIFY_EFFORT' : call === 'scan' ? 'ANTHROPIC_SCAN_EFFORT' : 'ANTHROPIC_EFFORT';
+  const raw = (process.env[name] ?? '').trim().toLowerCase();
   if (raw === 'none') return 'none';
-  return (EFFORTS as readonly string[]).includes(raw) ? (raw as AnthropicEffort) : call === 'identify' ? 'low' : 'medium';
+  return (EFFORTS as readonly string[]).includes(raw) ? (raw as AnthropicEffort) : call === 'teardown' ? 'medium' : 'low';
 }
 
 /**

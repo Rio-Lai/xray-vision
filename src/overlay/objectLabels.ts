@@ -5,7 +5,10 @@
  *
  *  - a label appears only after its object has been tracked for STABLE_MS (no flicker on false hits)
  *  - at most MAX_LABELS (four) at once, so the view stays quiet: the focused thing first, then the
- *    things nearest the centre of the view (hands count like any other thing)
+ *    things nearest the centre of the view (hands count like any other thing). With the whole-view
+ *    scan on (#122, src/detect/scan.ts; off with `?scan=0`): at most SCAN_MAX_LABELS (ten), the focused
+ *    thing first, then the most interesting (Claude's interest; DEFAULT_INTEREST for anything the scan
+ *    has not rated), nearest the centre breaking ties
  *  - a pill that would overlap another pill or dot goes below its dot, or further out on a longer hairline
  *  - fade and scale in over ~250 ms (CSS), staggered when the overlay is switched on
  *  - a face's two eyes (#94) share one "Eye" pill while they are too close on screen for two (a face
@@ -19,11 +22,14 @@ import type { SceneObject } from '../state/store';
 import { boxToView } from '../camera/frame';
 import type { CoverMap } from '../camera/frame';
 import { displayName } from '../hud/names';
+import { DEFAULT_INTEREST, SCAN_MAX_LABELS, interestOf, scanLabelsOn, scanNameOf } from '../detect/scan';
 
 const STABLE_MS = 500;
 const MAX_LABELS = 4;
 /** Ranking lead (fraction of the centre-to-corner distance) for a label that is already showing. */
 const KEEP_BONUS = 0.06;
+/** With the scan on, how much nearness to the centre adds to interest (0..1): enough to break ties. */
+const SCAN_CENTRE_WEIGHT = 0.15;
 const STAGGER_MS = 90;
 /** Stem length from the dot's edge. Kit (#86): 28 px, then an 8 px gap to the pill; classic: 16 px, touching the pill. */
 const STEM_PX = KIT_LOOK ? 28 : 16;
@@ -31,6 +37,12 @@ const STEM_PX = KIT_LOOK ? 28 : 16;
 const DOT_GAP_PX = KIT_LOOK ? 12 : 4;
 const LIFT_STEP_GAP = 8;
 const REMOVE_AFTER_MS = 400;
+/**
+ * A new id whose label reads the same as one that has just gone, this close (px), takes over that
+ * label (#122): a scanned thing the detector loses or finds changes id, and its pill should not fade
+ * out and back in.
+ */
+const ADOPT_PX = 80;
 const EDGE_PX = 10;
 /** A face's two eye dots closer than this (px) share one "Eye" pill; they split again beyond EYE_SPLIT_PX. */
 const EYE_MERGE_PX = 110;
@@ -148,8 +160,20 @@ export class ObjectLabelLayer {
     return n;
   }
 
+  /** A label whose thing has just gone (not in `present`), reading `text`, near (x, y): moved to `id`. */
+  private adopt(id: string, text: string, x: number, y: number, present: Set<string>): LabelNode | null {
+    for (const [oldId, n] of this.nodes) {
+      if (present.has(oldId) || n.text !== text || Math.hypot(n.x - x, n.y - y) > ADOPT_PX) continue;
+      this.nodes.delete(oldId);
+      this.nodes.set(id, n);
+      return n;
+    }
+    return null;
+  }
+
   update(input: ObjectLabelInput): void {
     const { now, dt, vw, vh, map } = input;
+    const scanOn = scanLabelsOn();
     if (input.visible && this.visibleSince < 0) this.visibleSince = now;
     if (!input.visible) this.visibleSince = -1;
     const k = 1 - Math.exp(-dt * 16);
@@ -157,12 +181,16 @@ export class ObjectLabelLayer {
     // 1. Track every object (also while hidden, so stable ones appear at once when switched on).
     let candidates: { id: string; o: SceneObject; n: LabelNode; score: number; box: Rect }[] = [];
     const texts = new Map<string, string>();
+    const present = new Set<string>();
+    for (const o of input.objects) present.add(o.id);
     for (const o of input.objects) {
-      const n = this.node(o.id, now);
-      n.lastSeen = now;
       const b = boxToView(map, o.box);
       const tx = b.x + b.w / 2;
       const ty = b.y + b.h / 2;
+      const name = o.name ?? input.names.get(o.id) ?? (scanOn ? scanNameOf(o.id) : undefined);
+      const text = displayName({ id: o.id, label: o.label, name, anchor: o.anchor });
+      const n = this.nodes.get(o.id) ?? (scanOn ? this.adopt(o.id, text, tx, ty, present) : null) ?? this.node(o.id, now);
+      n.lastSeen = now;
       if (!n.placed) {
         n.x = tx;
         n.y = ty;
@@ -171,12 +199,14 @@ export class ObjectLabelLayer {
         n.x += (tx - n.x) * k;
         n.y += (ty - n.y) * k;
       }
-      texts.set(o.id, displayName({ id: o.id, label: o.label, name: o.name ?? input.names.get(o.id), anchor: o.anchor }));
+      texts.set(o.id, text);
       // 0 at the centre of the view, 1 at a corner: nearest the centre ranks first. A label already
       // showing keeps a small lead, so two things at about the same distance do not swap back and forth.
       const dist = Math.hypot(tx - vw / 2, ty - vh / 2) / Math.hypot(vw / 2, vh / 2);
       const focused = o.id === input.focusedId;
-      const score = (focused ? 10 : 0) + (1 - Math.min(1, dist)) + (n.shown ? KEEP_BONUS : 0);
+      const near = 1 - Math.min(1, dist);
+      const rank = scanOn ? (interestOf(o.id) ?? DEFAULT_INTEREST) + SCAN_CENTRE_WEIGHT * near : near;
+      const score = (focused ? 10 : 0) + rank + (n.shown ? KEEP_BONUS : 0);
       const eligible =
         input.visible && now - n.firstSeen >= STABLE_MS && (input.only === null || input.only.has(o.id));
       if (eligible) candidates.push({ id: o.id, o, n, score, box: b });
@@ -217,7 +247,7 @@ export class ObjectLabelLayer {
 
     // 2. Pick and place: focused first, then nearest the centre; lift pills that would overlap.
     candidates.sort((a, b) => b.score - a.score);
-    const chosen = candidates.slice(0, MAX_LABELS);
+    const chosen = candidates.slice(0, scanOn ? SCAN_MAX_LABELS : MAX_LABELS);
     // Every chosen label's dot is an obstacle too, so a pill never covers another object's dot.
     const placed: Rect[] = chosen.map((c) => ({ x: c.n.x - 7, y: c.n.y - 7, w: 14, h: 14 }));
     const shownIds = new Set<string>();

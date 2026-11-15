@@ -11,6 +11,8 @@
  *  - focus = the thing of any kind nearest the frame centre (with a short hysteresis); looking at a
  *    face makes its nearer eye "this".
  *  - plus one pinned object for "analyse this" on something undetected (centre.ts), republished while selected
+ *  - plus, while the overlay is on, the things Claude's whole-view scan found that nothing here tracks
+ *    (scan.ts, #122; `?scan=0` turns it off); its names go onto the detector's objects at publish
  *  - store writes throttled to ~15 Hz; per-frame data goes to `live`
  */
 import { useStore } from '../state/store';
@@ -29,6 +31,7 @@ import { mockFace, mockHandLandmarks, mockLaptop, mockPhone } from './mock';
 import { FaceTracker, blendshapeMap, measureFace } from './faceTracker';
 import type { FaceFocus, FaceMeasure } from './faceTracker';
 import { pinnedObjects } from './centre';
+import { scanTick, withScanNames } from './scan';
 import { mockGestureHands } from './mockGesture';
 
 /** ?mock=gesture: the scripted hands start this long after the page (the laptop is analysed first). */
@@ -455,13 +458,25 @@ export function createDetectionEngine(): DetectionEngine {
     live.faces = faceTracker.views();
     // Plus the thing Claude named in the middle of the view, while it is selected (centre.ts, #80).
     live.objects = engObjects.concat(handTracker.sceneObjects(), faceTracker.sceneObjects(), pinnedObjects(st.selectedObjectId, now));
+    // Plus what the whole-view scan found (scan.ts, #122): nothing with ?scan=0, without a key or with the overlay off.
+    const scanned = scanTick(now, {
+      tracked: engObjects,
+      others: live.objects,
+      faces: live.faces.map((f) => f.outline),
+      overlayOn: st.overlayOn,
+      busy: st.teardown !== null || st.teardownStatus === 'loading',
+      frozen,
+      selectedId: st.selectedObjectId,
+      focusedId: st.focusedObjectId,
+    });
+    if (scanned.length > 0) live.objects = live.objects.concat(scanned);
 
     if (now - lastPublish >= PUBLISH_MS) {
       lastPublish = now;
       const focus = focusTracker.update(live.objects, now, fw, fh, faceTracker.focusFaces());
       if (focus !== st.focusedObjectId) st.setFocusedObject(focus);
       const empty = live.objects.length === 0;
-      if (!empty || !publishedEmpty) st.setObjects(withNames(live.objects, st.objects));
+      if (!empty || !publishedEmpty) st.setObjects(withScanNames(withNames(live.objects, st.objects)));
       publishedEmpty = empty;
       if (handTracker.hands.length > 0 || st.hands.length > 0) st.setHands(handTracker.states());
     }
