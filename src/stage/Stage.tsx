@@ -29,6 +29,9 @@ import type { OverlayHandle } from '../overlay/Overlay';
 import { Hud } from '../hud/Hud';
 import { devLog, setStatus, showToast, toggleDebug } from '../hud/hudStore';
 import { PAN_UNIT_VH, STAGE_MIN_EXPLODE, modelControl, stageInputActive } from './modelControl';
+// ?detail=1 only: a schematic model of one mechanism, material or process beside the model (not mounted without it)
+import { DetailStage } from '../overlay/DetailStage';
+import { DETAIL_ON } from '../lib/detail';
 
 const MODES: TrackingMode[] = ['freeze', 'follow', 'stage'];
 /** Mouse fallback: radians per pixel dragged, and explode change per wheel pixel. */
@@ -357,6 +360,7 @@ export function Stage() {
     >
       <Camera />
       <Overlay ref={overlayRef} />
+      {DETAIL_ON && <DetailStage />}
       <Hud />
     </div>
   );

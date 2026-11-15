@@ -17,6 +17,7 @@
     "pregenerate": "tsx scripts/pregenerate.ts",
     "fetch-models": "node scripts/fetch-models.mjs",
     "predemo": "node scripts/predemo.mjs",
+    "predetail": "tsx scripts/predetail.ts",
     "check": "tsx scripts/check.ts",
     "agent:prompt": "tsx scripts/agent-prompt.ts",
     "agent:tools": "tsx scripts/agent-tools.ts",

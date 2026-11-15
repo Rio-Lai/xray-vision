@@ -138,6 +138,7 @@ export type AgentTokenResponse = z.infer<typeof AgentTokenResponseSchema>;
  * The client tools the ElevenLabs agent can call. Names must match the ElevenLabs dashboard exactly.
  * set_overlay turns the labels on or off ("Hey Blowfish, overlay on").
  * rotate_model turns the floating model ("turn it around").
+ * show_detail, detail_step and close_detail: the detail model (shared/detail.ts); they do nothing unless the app has `?detail=1`.
  * There is no set_lens: Blowfish has no lenses.
  */
 export const CLIENT_TOOL_NAMES = [
@@ -151,5 +152,8 @@ export const CLIENT_TOOL_NAMES = [
   'rotate_model',
   'get_pose',
   'adjust_view',
+  'show_detail',
+  'detail_step',
+  'close_detail',
 ] as const;
 export type ClientToolName = (typeof CLIENT_TOOL_NAMES)[number];

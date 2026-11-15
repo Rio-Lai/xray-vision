@@ -8,6 +8,7 @@
  */
 import { create } from 'zustand';
 import type { AnchorKind, Lens, Teardown } from '../../shared/teardown';
+import type { DetailScene } from '../../shared/detail';
 
 /** Normalised to the video frame: 0..1, origin top-left. */
 export interface Box {
@@ -56,6 +57,8 @@ export interface HandState {
  */
 export type TrackingMode = 'stage' | 'freeze' | 'follow';
 export type TeardownStatus = 'idle' | 'loading' | 'ready' | 'error';
+/** The detail model (`?detail=1`): idle = none, loading = being built, ready = shown, error = failed (the card says why for a moment). */
+export type DetailStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type VoiceStatus = 'disconnected' | 'connecting' | 'connected';
 
 export interface TranscriptLine {
@@ -113,6 +116,21 @@ export interface AppState {
   modelPanX: number;
   modelPanY: number;
 
+  /**
+   * `?detail=1` only (always null / idle without it): a schematic model of one mechanism, material or
+   * process (shared/detail.ts), drawn beside the model on stage by src/overlay/DetailStage.tsx while the
+   * tutor explains it. Written only through src/lib/detail.ts (openDetail / closeDetail / setDetailStep),
+   * which also moves the main model aside and back. resetView (put away) clears it too.
+   */
+  detail: DetailScene | null;
+  detailStatus: DetailStatus;
+  /** What is being modelled (for "Building a model of ..."), while loading and after. */
+  detailTopic: string | null;
+  /** One sentence the card shows while detailStatus is "error". */
+  detailError: string | null;
+  /** The step being explained, 1-based (its focus parts light up), or null. */
+  detailStep: number | null;
+
   voiceStatus: VoiceStatus;
   agentSpeaking: boolean;
   transcript: TranscriptLine[];
@@ -147,8 +165,14 @@ export interface AppState {
   panModel: (dx: number, dy: number) => void;
   /** Put the model back in the middle of the view. */
   centreModel: () => void;
-  /** Collapse, clear the selection, unfreeze. */
+  /** Collapse, clear the selection, unfreeze. Also closes the detail model. */
   resetView: () => void;
+
+  setDetailLoading: (topic: string) => void;
+  setDetail: (scene: DetailScene) => void;
+  setDetailError: (message: string) => void;
+  setDetailStep: (n: number | null) => void;
+  clearDetail: () => void;
 
   setVoiceStatus: (status: VoiceStatus) => void;
   setAgentSpeaking: (speaking: boolean) => void;
@@ -167,6 +191,9 @@ const clampZoom = (n: number) => (Number.isFinite(n) ? Math.min(MODEL_ZOOM_MAX, 
 /** Limit for `modelPanX` / `modelPanY`, in stage sizes each way. */
 export const MODEL_PAN_MAX = 2;
 const clampPan = (n: number) => (Number.isFinite(n) ? Math.min(MODEL_PAN_MAX, Math.max(-MODEL_PAN_MAX, n)) : 0);
+
+/** No detail model (the start, resetView and clearDetail). */
+const NO_DETAIL = { detail: null, detailStatus: 'idle', detailTopic: null, detailError: null, detailStep: null } as const satisfies Partial<AppState>;
 
 export const useStore = create<AppState>((set) => ({
   overlayOn: false,
@@ -190,6 +217,12 @@ export const useStore = create<AppState>((set) => ({
   modelZoom: 1,
   modelPanX: 0,
   modelPanY: 0,
+
+  detail: null,
+  detailStatus: 'idle',
+  detailTopic: null,
+  detailError: null,
+  detailStep: null,
 
   voiceStatus: 'disconnected',
   agentSpeaking: false,
@@ -249,7 +282,14 @@ export const useStore = create<AppState>((set) => ({
       modelZoom: 1,
       modelPanX: 0,
       modelPanY: 0,
+      ...NO_DETAIL,
     }),
+
+  setDetailLoading: (detailTopic) => set({ detail: null, detailStatus: 'loading', detailTopic, detailError: null, detailStep: null }),
+  setDetail: (detail) => set({ detail, detailStatus: 'ready', detailError: null, detailStep: null }),
+  setDetailError: (detailError) => set({ detail: null, detailStatus: 'error', detailError, detailStep: null }),
+  setDetailStep: (detailStep) => set({ detailStep }),
+  clearDetail: () => set(NO_DETAIL),
 
   setVoiceStatus: (voiceStatus) => set({ voiceStatus }),
   setAgentSpeaking: (agentSpeaking) => set({ agentSpeaking }),

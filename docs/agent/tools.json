@@ -126,6 +126,42 @@
       },
       "expects_response": true,
       "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "show_detail",
+      "description": "Build and show a simple, animated 3D model of one specific mechanism, material, inner structure or manufacturing process beside the model on stage (also with nothing open): \"show me how the ... works\", \"what is the ... made of\", \"how is this made\", \"zoom into the ...\", \"model the ...\". It is an AI sketch. Takes some seconds; follow its \"present\".",
+      "parameters": {
+        "type": "object",
+        "required": ["topic"],
+        "properties": {
+          "topic": { "type": "string", "description": "what to model, in a few words, e.g. \"battery cell discharging\", \"label wrapping machine\", \"spongy mesophyll in a leaf\"" },
+          "part_id": { "type": "string", "description": "only when it is about a part of the open model: that part's id from the explode reply or get_scene" }
+        }
+      },
+      "expects_response": true,
+      "response_timeout_secs": 60
+    },
+    {
+      "type": "client",
+      "name": "detail_step",
+      "description": "Light up step n of the detail model shown by show_detail and get that step's sentence.",
+      "parameters": {
+        "type": "object",
+        "required": ["n"],
+        "properties": {
+          "n": { "type": "integer", "description": "the step number, from 1" }
+        }
+      },
+      "expects_response": true,
+      "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "close_detail",
+      "description": "Close the detail model and put the main model back where it was (\"close the detail\", \"back to the model\").",
+      "expects_response": true,
+      "response_timeout_secs": 20
     }
   ]
 }

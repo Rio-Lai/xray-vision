@@ -30,6 +30,7 @@ All JSON. The Vite dev server proxies `/api` to the local API server on `127.0.0
 | `POST /api/generate-part` | `GeneratePartRequest` `{ object_id, part_id, prompt }` | `GeneratePartResponse` `{ image_url, mesh_url, cached }`; `mock: true` with empty urls when there is no `FAL_KEY` |
 | `GET /api/agent-token` | none | `{ signed_url }`; 503 `{ error: "voice_not_configured", message }` without ElevenLabs keys |
 | `GET /api/health` | none | `{ ok, mock, keys: { anthropic, fal, elevenlabs }, model }` (booleans only, never key values) |
+| `POST /api/detail` (`?detail=1` only) | `DetailRequest` `{ topic, object?, part?, context? }` (`shared/detail.ts`) | `DetailScene` plus `cached?` (`memory` / `disk` / `premade`) and `seconds`; 400, 502, 503 (`mock: true`, no key and nothing kept) or 504 (too slow), each with one sentence in `message` |
 
 Mock mode: a route with its key missing (or `MOCK=1`) answers from the cache.
 
@@ -64,10 +65,13 @@ Names match `CLIENT_TOOL_NAMES`. Each takes a parameters object and returns a st
 | `rotate_model` | `direction` ("left", "right", "up", "down", "around"), `degrees?` (default 45; "around" = 180) | turns the floating model (`store.rotateModel`) | JSON: ok, say ("Turned left/right/up/down/around." / "That is as far as it turns." for a flat model at its limit, via `voiceTurn` / "Nothing is open yet."), degrees |
 | `adjust_view` | `action` ("zoom_in", "zoom_out", "move_left", "move_right", "move_up", "move_down", "centre", "normal_size"), `amount?` (zoom factor, default 1.5; or distance in stage sizes, default 0.5) | zoom multiplies `store.modelZoom` (0.5 to 4; normal_size = 1); move calls `panModel`; centre = `centreModel`, zoom 1, yaw and pitch back to the front | JSON: ok, say ("Zoomed in." / "Zoomed out." / "Back to normal size." / "Back in the middle." / "Moved left." ... / "That is as close as it goes." / "That is as far out as it goes." / "That is as far as it goes." / "Nothing is open yet."), zoom? |
 | `get_pose` | none | reads hands | JSON: per hand: handedness, finger curl and pressing, activeFinger, action, muscles (part ids) |
+| `show_detail` | `topic`, `part_id?` | `?detail=1` only: builds a detail model of the topic (the open model's short name, and the part's name and summary, go with it) and shows it beside the model | JSON: ok, say ("<Title>. AI sketch."), summary, steps (sentences), caveat?, present; on failure one sentence; without the flag `{ ok: false, say: "I cannot build detail models yet." }` |
+| `detail_step` | `n` | lights up step n's focus parts | JSON: ok, step, of, say (the step's sentence), focus (part names), present |
+| `close_detail` | none | closes it; the main model goes back where it was | JSON: ok, say ("Back to the <short name>." / "Closed." / "Nothing to close.") |
 
 Action tools (#96): the agent says `say` exactly and stops; `if_asked` is only for when the user asks to be taught, toured or walked through. The agent's system prompt and first message live in `docs/agent/` (`npm run agent:prompt` compares them with the dashboard).
 
-`CLIENT_TOOL_NAMES` has ten names, and `docs/agent/tools.json` defines each one (`npm run agent:tools -- --apply` adds the missing ones to the agent). `npm run check` only warns while `adjust_view` is missing. `zoom_model` (#109) is still answered for an agent that has it (`legacyClientTools`), but is not in the list.
+`CLIENT_TOOL_NAMES` has thirteen names, and `docs/agent/tools.json` defines each one (`npm run agent:tools -- --apply` adds the missing ones to the agent). `npm run check` only warns while `adjust_view`, `show_detail`, `detail_step` or `close_detail` is missing. `zoom_model` (#109) is still answered for an agent that has it (`legacyClientTools`), but is not in the list.
 
 Noise gate (`src/voice/voiceGate.ts`, default; `?gate=0` off, `?gatedb=` margin): a second, analysis-only stream of the same microphone is measured every 30 ms; the agent's microphone is open only while it is 12 dB or more above the room's noise floor (20th percentile of the last 5 s; +6 dB while Blowfish thinks, +4 dB while it speaks; the bar stays between -62 and -30 dBFS), and 0.7 s after. It fails open (no gate stream, suspended audio, no signal). Command lock (`src/voice/voiceLock.ts`, `?lock=1`, off by default): from the final user transcript until Blowfish has answered, and while it speaks, the microphone is muted. Holding the talk key always opens it. Agent captions drop audio tags such as "[patient]".
 
@@ -123,6 +127,15 @@ Saved models (#97): `get_scene` also returns `saved: [{ id, name, saved_ago }]`.
 - **Sketch** (`POST /api/sketch`, `src/lib/look.ts`): request `{ image, hint?, object_id?, lens? }`; reply a solid `Teardown` plus `confidence` and `summary`, or `{ checked: true, object_id, name }`, `{ unknown: true }`, `{ mock: true }`, `{ shortcut: true }`, `{ fallback: true, error }`. Anything that is not stored and is a box object (not biology, not a saved model coming back) is sketched first: one low-effort vision call, at most 8 simple solids; the client waits 14 s and the server 12 s; anything unusable goes the old identify-then-teardown way. `ANTHROPIC_SKETCH_MODEL` (default the main model), `ANTHROPIC_SKETCH_EFFORT` (default low). Kept in `.cache-live/<object_id>.sketch.json`. No fal for solid lists. `?sketch=0` turns it off; `?mock=bottle` shows a built-in one.
 - **Enrich** (`POST /api/enrich`): request `{ object_id, name, parts: [{ id, name, summary? }] }`; reply `{ parts: [{ id, details, safety }], steps: [{ n, text, part_ids }] }` (404 `mock` with no key, 502 on failure). Runs in the background at `ANTHROPIC_EFFORT` once the sketch is on stage and is merged into the open list, the kept copy and the disk cache; until then a sketched list has no steps and `show_step` says so.
 
+### The detail model (`?detail=1`)
+
+Off unless the URL has `?detail=1` (read once at load, `src/lib/detail.ts`); `?detail=mock` turns it on with a hand-written test fixture (`SAMPLE_DETAIL`, titled "Sample: ...") for every request and no server call. With the flag off `DetailStage` is not mounted, the three tools answer "I cannot build detail models yet.", `get_scene` has no `detail` field and the typed commands below are not recognised: nothing else changes.
+
+- What it is: a small schematic 3D model of one sub-part, mechanism, material, inner structure or manufacturing process, made by Claude from primitives (`DetailScene` in `shared/detail.ts`: `title`, `summary`, `source: "ai"`, at most 14 `parts` {id, name, shape box / cylinder / sphere / capsule / cone / torus / sheet / tube, size, position, rotation (degrees), color, opacity 0.15..1, note?} in a unit scene about -1..1 (x right, y up, z towards the viewer), at most 4 `paths` {id, points, closed?}, at most 6 `animations` (spin {part, axis, rpm}, slide {part, from, to, seconds, mode loop / yoyo}, flow {path, count, speed, color, size}: dots along a path, pulse {part, seconds}), 2 to 5 `steps` {say, focus: part ids}, `caveat?`). `sanitiseDetail` / `parseDetail` clamp and repair a reply (shape aliases, unique kebab ids, references by id or name, the whole scene recentred and scaled into the unit box) before the schema check; an invalid reply is retried once with the errors.
+- Server (`server/lib/detail.ts`, `server/routes/detail.ts`): memory, then `.cache-live/detail/<key>.json`, then a pre-made topic that matches well (`docs/detail-topics.json`; the request's words found in that topic, `premadeScore`), then Claude (`detailLive` in `server/lib/claude.ts`: `ANTHROPIC_DETAIL_MODEL`, default the main model, at `ANTHROPIC_DETAIL_EFFORT`, default low; 45 s for both tries). The key is the object's and topic's plain words (`detailKey`). Kept scenes open with no key. `npm run predetail` makes the pre-made topics ahead with the same code (they are still AI-made and unreviewed).
+- Client: `openDetail` shows the card at once ("Building a model of ..."), moves the main model to the middle of the left half at 0.62 of its zoom (`modelPanX` / `modelZoom`), and puts it back where it was on `closeDetail`; `resetAll` (put away) closes the detail too (`resetView`). `src/overlay/DetailStage.tsx` draws it on the right half (in the middle with nothing else open) with its own canvas and frames, only while one is up, at most `canvasDpr()`; the card at the top right always shows "AI sketch", the title and the current step's sentence and lit part names.
+- Typed commands (the hidden `/` box, voice off): "detail <topic>", "detail step <n>", "close detail" / "back to the model".
+
 ## Store rules
 
 - `src/state/store.ts` is the only shared state. Read with `useStore(selector)` in React, `useStore.getState()` elsewhere.
@@ -130,6 +143,7 @@ Saved models (#97): `get_scene` also returns `saved: [{ id, name, saved_ago }]`.
 - overlay reads `teardown`, `explodeAmount`, `highlightedPartId`, `activeStep`, `frozen`.
 - `modelPanX` / `modelPanY` (offset from the middle of the view in stage sizes, clamped to 2 each way; `panModel(dx, dy)`, `centreModel()`; back to 0 on reset): every stage renderer applies it.
 - `modelZoom` (1 = the normal stage size, 0.5 to 4; `zoomModel(factor)`, `setModelZoom(z)`; back to 1 on reset): every stage renderer multiplies its size by it.
+- `detail`, `detailStatus` (`idle` / `loading` / `ready` / `error`), `detailTopic`, `detailError`, `detailStep` (1-based): `?detail=1` only, written through `src/lib/detail.ts`; always null / idle without the flag; cleared by `resetView`.
 - voice and flow call the actions. `voiceStatus`, `agentSpeaking`, `transcript` are written only by `src/voice/`.
 
 ## Cache layout
@@ -140,6 +154,7 @@ public/cache/meshes/<object_id>/<part_id>.glb   checked meshes (committed), serv
 .cache-live/<object_id>.json                    live Claude teardowns (gitignored, not reviewed)
 .cache-live/meshes.json                         live fal results (gitignored)
 .cache-live/review/                             output of npm run pregenerate (gitignored)
+.cache-live/detail/<key>.json                   detail models (?detail=1, POST /api/detail, npm run predetail; gitignored, AI-made)
 ```
 
 To promote live output, a human reviews it and copies it into `public/cache/` with `source` set to `cached`.

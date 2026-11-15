@@ -5,12 +5,14 @@
  *   .cache-live/<object_id>.json                     live Claude teardowns (gitignored, unreviewed)
  *   .cache-live/meshes.json                          live fal results keyed "<object_id>/<part_id>"
  *   .cache-live/<object_id>.sketch.json              live solid sketches (#124), details merged in by /api/enrich
+ *   .cache-live/detail/<key>.json                    detail models (?detail=1, POST /api/detail, npm run predetail)
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TeardownSchema, type Teardown } from '../../shared/teardown';
 import { slugify } from '../../shared/demo';
+import { DetailSceneSchema, type DetailScene } from '../../shared/detail';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const CHECKED_DIR = path.join(ROOT, 'public', 'cache');
@@ -57,6 +59,20 @@ export const writeLiveTeardown = (td: Teardown) =>
 export const readLiveSketch = (objectId: string) => readTeardown(path.join(LIVE_DIR, `${safeId(objectId)}.sketch.json`));
 
 export const writeLiveSketch = (td: Teardown) => writeJson(path.join(LIVE_DIR, `${safeId(td.object_id)}.sketch.json`), td);
+
+/** A detail model kept from an earlier request or from npm run predetail (null if none, or if it no longer matches the schema). */
+export function readLiveDetail(key: string): DetailScene | null {
+  const file = path.join(LIVE_DIR, 'detail', `${safeId(key)}.json`);
+  if (!fs.existsSync(file)) return null;
+  const parsed = DetailSceneSchema.safeParse(readJson(file));
+  if (!parsed.success) {
+    console.error(`[cache] ${file} does not match DetailSceneSchema:`, parsed.error.issues.slice(0, 3));
+    return null;
+  }
+  return parsed.data;
+}
+
+export const writeLiveDetail = (key: string, scene: DetailScene) => writeJson(path.join(LIVE_DIR, 'detail', `${safeId(key)}.json`), scene);
 
 /** Checked objects, so identify can steer Claude towards an id we already have. */
 export function listCheckedObjects(): { object_id: string; name: string; lens: string }[] {

@@ -41,7 +41,7 @@ To put them into the agent:
 
 ## Client tools to enter in the dashboard
 
-All type **Client**, all with **Wait for response** on. Exactly these ten, also in `docs/agent/tools.json` (`npm run check` only warns while `adjust_view` is missing).
+All type **Client**, all with **Wait for response** on. Exactly these thirteen, also in `docs/agent/tools.json` (`npm run check` only warns while `adjust_view`, `show_detail`, `detail_step` or `close_detail` is missing). The last three are the detail model: the app answers them only when opened with `?detail=1`; without it they reply "I cannot build detail models yet." and do nothing.
 
 - `npm run agent:tools`: dry run. Reads the agent and its tools and says which are there, missing or set up wrong. Changes nothing.
 - `npm run agent:tools -- --apply`: saves the agent's whole config to `.agent-backup/` (gitignored), adds only the missing client tools (creates each in the workspace and adds its id to the agent), reads the agent back, and puts the prompt settings back if anything else changed. Tools already there are left alone. Untested against the live API so far: read what it prints.
@@ -58,6 +58,9 @@ All type **Client**, all with **Wait for response** on. Exactly these ten, also 
 | `rotate_model` | Turn the floating model. "around" turns it half a turn. | `direction` (string, required: "left", "right", "up", "down" or "around"), `degrees` (number, optional; default 45, "around" 180) |
 | `get_pose` | Which finger is pressing right now and which muscle part ids are working. | none |
 | `adjust_view` | Move the view of the floating model without changing it: zoom in or out, move it left, right, up or down, put it back in the middle (also normal size and facing the front), or back to normal size. | `action` (string, required: "zoom_in", "zoom_out", "move_left", "move_right", "move_up", "move_down", "centre" or "normal_size"), `amount` (number, optional: zoom factor, default 1.5, or distance in model widths, default 0.5) |
+| `show_detail` | Build and show a simple, animated 3D model of one specific mechanism, material, inner structure or manufacturing process beside the model on stage (also with nothing open). It is an AI sketch. Takes some seconds; follow its "present". Response timeout 60 s. | `topic` (string, required: a few words, e.g. "battery cell discharging"), `part_id` (string, optional: a part of the open model) |
+| `detail_step` | Light up step n of the detail model and get that step's sentence. | `n` (integer, required) |
+| `close_detail` | Close the detail model and put the main model back where it was. | none |
 
 ## Noisy room (judging): "Hey Blowfish" and push-to-talk
 
@@ -87,6 +90,9 @@ Changes apply at once to a running session, and each one is logged in the hidden
   | `rotate_model` | "Turned left." / "Turned right." / "Turned up." / "Turned down." / "Turned around."; "That is as far as it turns." (a flat model at its limit, #107); "Nothing is open yet." |
   | `adjust_view` | "Zoomed in." / "Zoomed out." / "Back to normal size." / "Back in the middle." / "Moved left." (right, up, down); "That is as close as it goes." / "That is as far out as it goes." / "That is as far as it goes."; "Nothing is open yet." |
   | `select_object` | "Selected <name>." / "I cannot see that." |
+  | `show_detail` (`?detail=1`) | "<Title>. AI sketch.", then `present`: the summary in one sentence and `detail_step` 1 to N, one short sentence each; on failure one plain sentence ("I could not build a model of that just now. Try again in a moment.", "That model took too long to build. Try again in a moment.", "I cannot build new detail models without a Claude key."); without the flag "I cannot build detail models yet." |
+  | `detail_step` | the step's sentence in `say`, the lit part names in `focus`, and `present` (next step or stop) |
+  | `close_detail` | "Back to the <short name>." / "Closed." / "Nothing to close." |
 
   The short name drops the bracketed details ("MacBook Air 13-inch", not "MacBook Air 13-inch (M3, 2024)").
 - `explode` also keeps the data for when the user asks: `part_ids`, `tour` (three parts: the two outermost, then one with a safety note such as the battery), for the arm `layers` and `steps`, for the eye `steps` (the path of light), and `if_asked`: what to do only if the user asks to be taught, toured or walked through (highlight each tour part; for the arm and the eye, `show_step` 1 to N). It no longer has `message` or `next`.

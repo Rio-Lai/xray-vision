@@ -86,3 +86,14 @@ export function portInUseMessage(port: number, byBlowfish: boolean | null): stri
   lines.push(`To see what is using it (macOS): lsof -nP -iTCP:${port} -sTCP:LISTEN`);
   return lines.join('\n');
 }
+
+/**
+ * POST /api/detail (`?detail=1` in the app): ANTHROPIC_DETAIL_MODEL (default the main model) at
+ * ANTHROPIC_DETAIL_EFFORT (default low: someone is waiting while it builds; "none" sends no effort).
+ */
+export const anthropicDetailModel = () => process.env.ANTHROPIC_DETAIL_MODEL?.trim() || anthropicModel();
+export function anthropicDetailEffort(): AnthropicEffort | 'none' {
+  const raw = (process.env.ANTHROPIC_DETAIL_EFFORT ?? '').trim().toLowerCase();
+  if (raw === 'none') return 'none';
+  return (EFFORTS as readonly string[]).includes(raw) ? (raw as AnthropicEffort) : 'low';
+}

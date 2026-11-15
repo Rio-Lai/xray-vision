@@ -13,6 +13,7 @@ import type {
   TeardownRequest,
 } from '../../shared/teardown';
 import type { EnrichRequest, EnrichResponse, SketchAnswer, SketchRequest } from '../../shared/sketch';
+import type { DetailRequest } from '../../shared/detail';
 
 /** The one message for "the browser is not talking to our server". Shown as-is by the UI and the tutor. */
 export const SERVER_DOWN_MESSAGE =
@@ -194,6 +195,9 @@ export const api = {
     withTimeout('/api/sketch', opts.timeoutMs, (signal) => post<Partial<Teardown> & SketchAnswer>('/api/sketch', req, signal)),
   /** #124: the longer text, safety notes and steps for a sketched parts list (no client limit: it runs in the background). */
   enrich: (req: EnrichRequest) => post<EnrichResponse>('/api/enrich', req),
+  /** `?detail=1` only: a schematic model of one mechanism, material or process (check it with DetailSceneSchema). */
+  detail: (req: DetailRequest, opts: CallOptions = {}) =>
+    withTimeout('/api/detail', opts.timeoutMs, (signal) => post<unknown>('/api/detail', req, signal)),
   /** Rejects with SERVER_DOWN_MESSAGE unless our own server answers. */
   health: async () => {
     const h = await request<unknown>('/api/health');
