@@ -1,7 +1,9 @@
 /**
  * Watch side of the big-screen view (`?watch=1`): follows the phone's snapshots over Server-Sent Events
  * (GET /api/watch/events) and applies each one at once to the store, `live`, the gesture cue, the HUD's
- * busy text, the saved row and the frame size (./snapshot.ts SnapshotApplier). Nothing here calls an API
+ * busy text, the saved row and the frame size (./snapshot.ts SnapshotApplier), after checking it: a teardown
+ * or detail model that fails its zod schema is ignored, lists are capped, entries with non-finite numbers and
+ * mesh URLs that are not same-origin paths or fal's https URLs are dropped. Nothing here calls an API
  * that spends credit or saves anything: it only writes local state that the overlay and the HUD read.
  * `useWatch` says whether the phone is there ("waiting" before the first snapshot, "lost" after LOST_MS
  * without one) and when the MJPEG <img> should reconnect (`streamKey`).
@@ -18,8 +20,10 @@ import type { GestureOutput } from '../detect/gestures';
 import { setBusyText } from '../hud/hudStore';
 import { useSaved } from '../lib/saved';
 import { modelControl } from '../stage/modelControl';
+import { TeardownSchema } from '../../shared/teardown';
+import { DetailSceneSchema } from '../../shared/detail';
 import { SnapshotApplier, isSnapshot } from './snapshot';
-import type { ApplyTarget } from './snapshot';
+import type { ApplyTarget, BigChecks } from './snapshot';
 
 export const LOST_MS = 3000;
 const RETRY_MS = 2000;
@@ -91,9 +95,15 @@ const target: ApplyTarget = {
   },
 };
 
+/** A teardown or detail model that does not match its schema is ignored (the previous one stays). */
+const checks: BigChecks = {
+  teardown: (v) => TeardownSchema.safeParse(v).success,
+  detail: (v) => DetailSceneSchema.safeParse(v).success,
+};
+
 /** Starts following the phone; returns the stop. */
 export function startFollower(): () => void {
-  const applier = new SnapshotApplier();
+  const applier = new SnapshotApplier(checks);
   let es: EventSource | null = null;
   let retry = 0;
   let stopped = false;

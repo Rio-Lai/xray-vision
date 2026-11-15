@@ -256,17 +256,104 @@ export function isSnapshot(v: unknown): v is WatchSnapshot {
   );
 }
 
-const isPlain = (v: unknown): boolean => v === null || typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean';
+const isPlain = (v: unknown): boolean =>
+  v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const NEVER = -1e8;
+
+/** At most this many of each list is applied (more is a broken or hostile snapshot). */
+export const WATCH_CAPS = { objects: 32, hands: 2, marks: 4, transcript: 20, saved: 12 } as const;
+
+/**
+ * Checks for the large fields that the watch page passes in (./follow.ts: the zod schemas of
+ * shared/teardown.ts and shared/detail.ts); true = apply it. A value that fails is ignored and the
+ * previous one kept. Without a check a value is applied as it is (tests).
+ */
+export type BigChecks = Partial<Record<BigKey, (value: unknown) => boolean>>;
+
+/** fal's own domains, as server/lib/fal.ts allows for generated models (https only). */
+const FAL_HOSTS = ['fal.media', 'fal.ai', 'fal.run'];
+const PAGE = 'http://watch.invalid';
+
+/**
+ * A URL from the phone that the watch page may load (a part's mesh_url): a same-origin path ("/cache/...",
+ * never "//host" or "/\host"), or an https URL on fal's domains (what /api/generate-part returns). Else null.
+ */
+export function safeAssetUrl(u: unknown): string | null {
+  if (typeof u !== 'string' || u.length === 0 || u.length > 2048) return null;
+  try {
+    if (u.startsWith('/')) {
+      if (u.startsWith('//') || u.startsWith('/\\')) return null;
+      const r = new URL(u, PAGE);
+      return r.origin === PAGE ? u : null;
+    }
+    const r = new URL(u);
+    return r.protocol === 'https:' && FAL_HOSTS.some((h) => r.hostname === h || r.hostname.endsWith(`.${h}`)) ? r.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A saved pill's picture: only a small inline JPEG / PNG / WebP (what src/lib/saved.ts makes). */
+function safeThumb(u: unknown): string | null {
+  return typeof u === 'string' && u.length < 200_000 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]*$/.test(u) ? u : null;
+}
+
+/** The teardown with every part's mesh_url that is not safeAssetUrl set to null. */
+function withSafeMeshes(td: unknown): unknown {
+  if (!isRecord(td) || !Array.isArray(td.parts)) return td;
+  return {
+    ...td,
+    parts: td.parts.map((p: unknown) => {
+      if (!isRecord(p) || p.mesh_url === undefined || p.mesh_url === null) return p;
+      return { ...p, mesh_url: safeAssetUrl(p.mesh_url) };
+    }),
+  };
+}
+
+function cleanTranscript(v: unknown): unknown[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((l) => isRecord(l) && (l.role === 'user' || l.role === 'agent') && typeof l.text === 'string')
+    .slice(-WATCH_CAPS.transcript);
+}
+
+const GLYPHS = new Set(['eye', 'hand', 'object']);
+function cleanSaved(v: unknown): SavedItem[] {
+  if (!Array.isArray(v)) return [];
+  const out: SavedItem[] = [];
+  for (const it of v) {
+    if (!isRecord(it) || typeof it.id !== 'string' || typeof it.name !== 'string' || !validBox(it.box)) continue;
+    if (!GLYPHS.has(String(it.glyph))) continue;
+    out.push({ ...(it as unknown as SavedItem), thumb: safeThumb(it.thumb) });
+    if (out.length >= WATCH_CAPS.saved) break;
+  }
+  return out;
+}
 
 function newDyn(): FingerDyn {
   return { prevRel: null, vel: 0, signal: 0, pressing: false, pressStart: 0, lastPressAt: -1e9, extending: false, extendStart: 0, peak: 0, flexGlow: 0, extendGlow: 0, curl: 0 };
 }
 
+function validBox(b: unknown): boolean {
+  return isRecord(b) && isNum(b.x) && isNum(b.y) && isNum(b.w) && isNum(b.h);
+}
+
 function validObject(o: unknown): o is SceneObject {
-  if (!isRecord(o) || typeof o.id !== 'string' || typeof o.label !== 'string' || !isRecord(o.box)) return false;
-  const b = o.box;
-  return [b.x, b.y, b.w, b.h].every((n) => typeof n === 'number' && Number.isFinite(n));
+  return isRecord(o) && typeof o.id === 'string' && typeof o.label === 'string' && isNum(o.confidence) && validBox(o.box);
+}
+
+function validMark(m: unknown): m is GestureMark {
+  return isRecord(m) && typeof m.key === 'string' && isNum(m.x) && isNum(m.y) && typeof m.active === 'boolean' && typeof m.label === 'string';
+}
+
+/** A check that throws counts as a failed check. */
+function safeCheck(check: (value: unknown) => boolean, value: unknown): boolean {
+  try {
+    return check(value) === true;
+  } catch {
+    return false;
+  }
 }
 
 /** Applies snapshots in order, on the watch page. Keeps which large-field versions it has and the clock offset. */
@@ -274,6 +361,8 @@ export class SnapshotApplier {
   private readonly applied = new Map<BigKey, string>();
   private offset: number | null = null;
   private sid = '';
+
+  constructor(private readonly checks: BigChecks = {}) {}
 
   /** The phone's time t on this page's clock. */
   private local(t: number): number {
@@ -300,15 +389,22 @@ export class SnapshotApplier {
       const v = snap.ver[k];
       if (typeof v !== 'string' || this.applied.get(k) === v || !(k in big)) continue;
       this.applied.set(k, v);
-      if (k === 'saved') target.setSaved(Array.isArray(big.saved) ? (big.saved as SavedItem[]) : []);
-      else if (k === 'transcript') patch.transcript = Array.isArray(big.transcript) ? big.transcript : [];
-      else patch[k] = big[k] ?? null;
+      const value = big[k] ?? null;
+      if (k === 'saved') target.setSaved(cleanSaved(value));
+      else if (k === 'transcript') patch.transcript = cleanTranscript(value);
+      else {
+        // an invalid teardown / detail is ignored: the previous one stays
+        const check = this.checks[k];
+        if (value !== null && check && !safeCheck(check, value)) continue;
+        patch[k] = k === 'teardown' ? withSafeMeshes(value) : value;
+      }
     }
 
-    const objects = snap.objects.filter(validObject);
+    const objects = snap.objects.filter(validObject).slice(0, WATCH_CAPS.objects);
     const tracked: TrackedHand[] = [];
     const states: HandState[] = [];
     for (const w of snap.hands) {
+      if (tracked.length >= WATCH_CAPS.hands) break;
       const h = this.hand(w, localNow);
       if (!h) continue;
       tracked.push(h);
@@ -318,18 +414,23 @@ export class SnapshotApplier {
     }
     patch.objects = objects;
     patch.hands = states;
+    const marks = Array.isArray(snap.marks) ? snap.marks.filter(validMark).slice(0, WATCH_CAPS.marks) : [];
 
-    if (snap.frame && num(snap.frame.w) > 0 && num(snap.frame.h) > 0) target.setFrame(snap.frame.w, snap.frame.h);
+    if (isRecord(snap.frame) && isNum(snap.frame.w) && isNum(snap.frame.h) && snap.frame.w > 0 && snap.frame.h > 0 && snap.frame.w < 20_000 && snap.frame.h < 20_000) {
+      target.setFrame(snap.frame.w, snap.frame.h);
+    }
     target.setLive(objects, tracked);
     target.setState(patch);
-    target.setGesture(Array.isArray(snap.marks) ? snap.marks : [], typeof snap.hint === 'string' ? snap.hint : null);
+    target.setGesture(marks, typeof snap.hint === 'string' ? snap.hint : null);
     target.setBusy(typeof snap.busy === 'string' ? snap.busy : null);
     target.setInputAt(this.local(num(snap.inputAt, -1e9)));
     target.setMicHold(snap.micHold === true);
   }
 
   private hand(w: unknown, localNow: number): TrackedHand | null {
-    if (!isRecord(w) || !Array.isArray(w.lm) || w.lm.length < 63 || !Array.isArray(w.f)) return null;
+    if (!isRecord(w) || !Array.isArray(w.lm) || w.lm.length !== 63 || !Array.isArray(w.f) || w.f.length !== 20) return null;
+    // every landmark and finger number must be a finite number, else the hand is dropped
+    if (!(w.lm as unknown[]).every(isNum) || !(w.f as unknown[]).every(isNum)) return null;
     const lmIn = w.lm as unknown[];
     const lm: TrackedHand['lm'] = [];
     for (let i = 0; i < 21; i++) lm.push({ x: num(lmIn[i * 3]), y: num(lmIn[i * 3 + 1]), z: num(lmIn[i * 3 + 2]) });

@@ -11,7 +11,8 @@
  *  - GET  /api/watch/events  Server-Sent Events: the latest snapshot at once (with every large field and `age`,
  *                            ms since it came), then each new one; a comment every HEARTBEAT_MS
  *  - GET  /api/watch/frame   the latest frame as one JPEG (204 before the first), for `?mjpeg=0`
- * Watchers = the larger of the open stream and event connections (one watch page opens one of each).
+ * Watchers = the larger of the open stream and event connections (one watch page opens one of each); at most
+ * MAX_STREAMS / MAX_EVENTS of each are kept open (a new one ends the oldest). Every response is `nosniff`.
  * Plain node:http (no Express): server/routes/watch.ts mounts these handlers, and they can be tested
  * on their own. Everything sits behind the access gate (server/lib/phoneAccess.ts) when it runs.
  */
@@ -27,8 +28,16 @@ const STREAM_BACKLOG = 1024 * 1024;
 const EVENTS_BACKLOG = 8 * 1024 * 1024;
 /** At most this many large fields are kept (the phone sends four). */
 const MAX_BIG_KEYS = 16;
+/**
+ * At most this many open streams and event streams each (one watch page opens one of each): a new one ends
+ * the oldest, so pages that were reloaded or reconnected never use up the browser's 6 connections per host.
+ */
+export const MAX_STREAMS = 4;
+export const MAX_EVENTS = 4;
 
 const NO_STORE = 'no-store, no-cache, must-revalidate, private, max-age=0';
+/** On every response here: the browser never guesses another type. */
+const NOSNIFF = { 'X-Content-Type-Options': 'nosniff' } as const;
 
 export class HttpError extends Error {
   constructor(
@@ -133,6 +142,7 @@ export class WatchHub {
   openStream(req: IncomingMessage, res: ServerResponse): void {
     quiet(req, res);
     res.writeHead(200, {
+      ...NOSNIFF,
       'Content-Type': `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
       'Cache-Control': NO_STORE,
       Pragma: 'no-cache',
@@ -142,6 +152,7 @@ export class WatchHub {
     // The boundary goes out ahead of each part (and right after it), so the browser shows a frame at once.
     res.write(`--${BOUNDARY}\r\n`);
     const c: Client = { res };
+    dropOldest(this.streams, MAX_STREAMS - 1);
     this.streams.add(c);
     if (this.frame) res.write(framePart(this.frame.jpeg, this.frame.seq));
     res.on('close', () => this.streams.delete(c));
@@ -151,6 +162,7 @@ export class WatchHub {
   openEvents(req: IncomingMessage, res: ServerResponse): void {
     quiet(req, res);
     res.writeHead(200, {
+      ...NOSNIFF,
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': NO_STORE,
       Connection: 'keep-alive',
@@ -158,6 +170,7 @@ export class WatchHub {
     });
     res.write('retry: 1000\n\n');
     const c: Client = { res };
+    dropOldest(this.events, MAX_EVENTS - 1);
     this.events.add(c);
     const first = this.fullSnapshot();
     if (first) this.writeEvent(c, sseData(first));
@@ -197,6 +210,15 @@ export class WatchHub {
     if (!this.heartbeat) return;
     clearInterval(this.heartbeat);
     this.heartbeat = null;
+  }
+}
+
+/** End the oldest connections until at most `keep` are left (a Set iterates in the order they were added). */
+function dropOldest(set: Set<Client>, keep: number): void {
+  for (const c of set) {
+    if (set.size <= keep) return;
+    set.delete(c);
+    c.res.end();
   }
 }
 
@@ -272,7 +294,7 @@ export function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
 function sendJson(res: ServerResponse, status: number, body: Json): void {
   if (res.headersSent) return;
   const text = JSON.stringify(body);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': NO_STORE, 'Content-Length': Buffer.byteLength(text) });
+  res.writeHead(status, { ...NOSNIFF, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': NO_STORE, 'Content-Length': Buffer.byteLength(text) });
   res.end(text);
 }
 
@@ -305,11 +327,11 @@ export function watchHandlers(hub: WatchHub): { postFrame: Handler; getFrame: Ha
     getFrame: (_req, res) => {
       const jpeg = hub.latestFrame();
       if (!jpeg) {
-        res.writeHead(204, { 'Cache-Control': NO_STORE });
+        res.writeHead(204, { ...NOSNIFF, 'Cache-Control': NO_STORE });
         res.end();
         return;
       }
-      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': jpeg.length, 'Cache-Control': NO_STORE });
+      res.writeHead(200, { ...NOSNIFF, 'Content-Type': 'image/jpeg', 'Content-Length': jpeg.length, 'Cache-Control': NO_STORE });
       res.end(jpeg);
     },
     postState: (req, res) => {

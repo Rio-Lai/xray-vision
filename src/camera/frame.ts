@@ -141,10 +141,24 @@ export function computeCoverMap(fw: number, fh: number, vw: number, vh: number):
   return { scale, ox: (vw - fw * scale) / 2, oy: (vh - fh * scale) / 2, fw, fh, vw, vh };
 }
 
-/** Cover mapping for the current frame size and viewport. */
+/**
+ * `?watch=1` only: cover as usual, but when the frame's shape and the window's differ by more than
+ * WATCH_CONTAIN_RATIO (a phone held upright on a 16:9 projector) contain instead: the whole frame with
+ * black bars, so nothing is cropped away. The watch page places the picture with this map too.
+ */
+export const WATCH_CONTAIN_RATIO = 1.5;
+export function computeWatchMap(fw: number, fh: number, vw: number, vh: number): CoverMap {
+  const r = fw / fh / (vw / vh);
+  if (r <= WATCH_CONTAIN_RATIO && r >= 1 / WATCH_CONTAIN_RATIO) return computeCoverMap(fw, fh, vw, vh);
+  const scale = Math.min(vw / fw, vh / fh);
+  return { scale, ox: (vw - fw * scale) / 2, oy: (vh - fh * scale) / 2, fw, fh, vw, vh };
+}
+
+/** Cover mapping for the current frame size and viewport (the watch page's own fit with `?watch=1`). */
 export function getCoverMap(): CoverMap {
   const f = frameSize();
   const v = viewportSize();
+  if (WATCH_MODE) return computeWatchMap(f.w, f.h, v.w, v.h);
   return computeCoverMap(f.w, f.h, v.w, v.h);
 }
 

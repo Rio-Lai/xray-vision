@@ -8,7 +8,7 @@
  *    frame is skipped, never queued), frames FRAME_W px wide at JPEG QUALITY, only new camera frames
  *    (a frozen picture is sent once, then every STILL_RESEND_MS), nothing while the page is hidden.
  *  - Errors back off (up to MAX_BACKOFF_MS) and never reach the app; frames stop until the state gets through.
- *  - `?publish=0` turns it off. `?watchfps=` (1 to 15, default 8), `?watchw=` (160 to 1280, default 640) and
+ *  - `?publish=0` turns it off. `?watchfps=` (1 to 15, default 6), `?watchw=` (160 to 1280, default 640) and
  *    `?watchq=` (0.2 to 0.9, default 0.5) tune the frames.
  */
 import { useEffect } from 'react';
@@ -27,7 +27,7 @@ const PUBLISH_ON = urlParam('publish') !== '0';
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const IDLE_STATE_MS = 400;
 const WATCHED_STATE_MS = 100;
-const FPS = clamp(urlNumber('watchfps', 8), 1, 15);
+const FPS = clamp(urlNumber('watchfps', 6), 1, 15);
 const FRAME_W = Math.round(clamp(urlNumber('watchw', 640), 160, 1280));
 const QUALITY = clamp(urlNumber('watchq', 0.5), 0.2, 0.9);
 const STILL_RESEND_MS = 2000;

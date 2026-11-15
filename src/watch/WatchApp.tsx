@@ -11,12 +11,14 @@
  *  - One quiet line while the phone is not there ("Waiting for the phone...", "Phone connection lost,
  *    reconnecting..."). No controls: a click or F makes the page full screen (F again or Esc leaves it); a
  *    layer over everything takes every click, so nothing underneath can be pressed. The pointer hides when still.
+ *  - Snapshots are checked before they are applied (./snapshot.ts, ./follow.ts); a render error anyway shows
+ *    "Reconnecting..." and mounts the stage again a second later (StageBoundary).
  *  - `?mjpeg=0`: the picture is fetched one JPEG at a time (GET /api/watch/frame) instead of the MJPEG stream.
  */
-import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { Component, Fragment, useEffect, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useStore } from '../state/store';
-import { computeCoverMap, errorText, urlParam, viewportSize } from '../camera/frame';
+import { computeWatchMap, errorText, urlParam, viewportSize } from '../camera/frame';
 import { BACKDROP_OFF, BACKDROP_ON, LIVE_BACKDROP_ON, LIVE_DIM_IN, LIVE_DIM_OUT } from '../camera/Camera';
 import { live } from '../detect/live';
 import { Overlay } from '../overlay/Overlay';
@@ -49,8 +51,11 @@ function useViewport(): { w: number; h: number } {
 }
 
 /**
- * The phone's picture, placed by the cover map of the PHONE's frame size (the one the overlay maps with),
- * dimmed and blurred as the phone's Camera.tsx does behind a model (the frames come unfiltered).
+ * The phone's picture, placed by the same map of the PHONE's frame size as the overlay (getCoverMap is
+ * computeWatchMap here: cover, or contain with black bars when the shapes differ a lot, e.g. an upright
+ * phone), dimmed and blurred as the phone's Camera.tsx does behind a model (the frames come unfiltered).
+ * A replaced or removed stream <img> gets its src cleared, so its connection closes at once (Chrome keeps
+ * only 6 per host: the event stream and the model files need theirs).
  */
 function WatchPicture() {
   const fw = useWatch((s) => s.fw);
@@ -63,10 +68,20 @@ function WatchPicture() {
   const liveBackdrop = useStore((s) => !s.frozen && modelOnStage(s));
   const [poll, setPoll] = useState(0);
   const retryRef = useRef(0);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => () => window.clearTimeout(retryRef.current), []);
+  // On every new stream key and on unmount: close the old stream's connection.
+  useEffect(() => {
+    const img = imgRef.current;
+    return () => {
+      if (!img) return;
+      img.dataset.closed = '1';
+      img.src = '';
+    };
+  }, [streamKey]);
 
-  const m = computeCoverMap(Math.max(1, fw), Math.max(1, fh), view.w, view.h);
+  const m = computeWatchMap(Math.max(1, fw), Math.max(1, fh), view.w, view.h);
   const still = frozen || held;
   const style: CSSProperties = {
     position: 'absolute',
@@ -87,12 +102,15 @@ function WatchPicture() {
     return (
       <img
         key={streamKey}
+        ref={imgRef}
         src={`/api/watch/stream?k=${streamKey}`}
         alt=""
         draggable={false}
         style={style}
-        // the stream ended or never started (server restarting): try again in a moment
-        onError={() => later(1000, reconnectStream)}
+        // the stream ended or never started (server restarting): try again in a moment (not for one closed on purpose)
+        onError={(e) => {
+          if (!e.currentTarget.dataset.closed) later(1000, reconnectStream);
+        }}
       />
     );
   }
@@ -278,6 +296,34 @@ function WatchStage() {
   );
 }
 
+/**
+ * One bad snapshot must not leave a dead projector screen: a render error shows "Reconnecting..." and the
+ * stage is mounted again (a fresh follower, overlay and stream) a second later.
+ */
+class StageBoundary extends Component<{ children: ReactNode }, { failed: boolean; round: number }> {
+  state = { failed: false, round: 0 };
+  private timer = 0;
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown): void {
+    console.warn('[watch] the stage failed, mounting it again', error);
+    window.clearTimeout(this.timer);
+    this.timer = window.setTimeout(() => this.setState((s) => ({ failed: false, round: s.round + 1 })), 1000);
+  }
+
+  componentWillUnmount(): void {
+    window.clearTimeout(this.timer);
+  }
+
+  render(): ReactNode {
+    if (this.state.failed) return <div style={{ position: 'fixed', inset: 0, background: '#000' }}><div style={STATUS_STYLE}>Reconnecting...</div></div>;
+    return <Fragment key={this.state.round}>{this.props.children}</Fragment>;
+  }
+}
+
 export function WatchApp() {
   useEffect(() => {
     document.title = 'Blowfish: big screen';
@@ -285,8 +331,10 @@ export function WatchApp() {
   }, []);
   return (
     <>
-      <WatchStage />
-      <WatchStatus />
+      <StageBoundary>
+        <WatchStage />
+        <WatchStatus />
+      </StageBoundary>
       <ClickLayer />
     </>
   );
