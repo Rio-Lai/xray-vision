@@ -8,7 +8,8 @@
  *                 without calling the server: for trying the view with no key
  *
  * The flag is read once, when the app loads. Without it DetailStage is not mounted, the tools answer
- * DETAIL_OFF_SAY, and nothing else changes.
+ * `unavailable` with nothing to say (the agent then does what it would have done without them), and
+ * nothing else changes.
  */
 import { MODEL_PAN_MAX, useStore } from '../state/store';
 import { DetailSceneSchema, SAMPLE_DETAIL, type DetailScene } from '../../shared/detail';
@@ -22,7 +23,7 @@ export const DETAIL_ON: boolean = MODE === '1' || MODE === 'true' || MODE === 'm
 /** `?detail=mock`: the test fixture for every request, no server call. */
 export const DETAIL_MOCK: boolean = MODE === 'mock';
 
-/** What the tools answer with the flag off. */
+/** openDetail's answer with the flag off (the voice tools answer DETAIL_UNAVAILABLE in clientTools.ts instead, with nothing to say). */
 export const DETAIL_OFF_SAY = 'I cannot build detail models yet.';
 const FAIL_SAY = 'I could not build a model of that just now. Try again in a moment.';
 const SLOW_SAY = 'That model took too long to build. Try again in a moment.';
@@ -39,7 +40,11 @@ let reqId = 0;
 /** Where the main model was before it was moved aside (restored on close), and which model it was. */
 let aside: { objectId: string; panX: number; panY: number; zoom: number } | null = null;
 
-export type DetailOpen = { ok: true; scene: DetailScene } | { ok: false; say: string };
+/**
+ * ok: the model is up. Not ok: `say` is one sentence to speak, or `superseded` (closed, put away or replaced by
+ * a newer request while it was being built: nothing to say, the newer one answers for itself).
+ */
+export type DetailOpen = { ok: true; scene: DetailScene } | { ok: false; say: string; superseded?: undefined } | { ok: false; superseded: true; say?: undefined };
 
 /** The pan (stage sizes) that puts the main model in the middle of the left half of the view. */
 export function asidePanX(vw: number, vh: number): number {
@@ -99,7 +104,7 @@ export async function openDetail(topic: string, ctx: { object?: string; part?: s
       scene = parsed.data;
     }
     // closed, put away or replaced while it was being built
-    if (!current()) return { ok: false, say: 'Closed.' };
+    if (!current()) return { ok: false, superseded: true };
     useStore.getState().setDetail(scene);
     return { ok: true, scene };
   } catch (err) {
@@ -111,13 +116,12 @@ export async function openDetail(topic: string, ctx: { object?: string; part?: s
           ? err.message
           : FAIL_SAY;
     console.warn('[detail] could not build', t, err);
-    if (current()) {
-      useStore.getState().setDetailError(say);
-      restoreModel();
-      setTimeout(() => {
-        if (id === reqId && useStore.getState().detailStatus === 'error') useStore.getState().clearDetail();
-      }, ERROR_SHOW_MS);
-    }
+    if (!current()) return { ok: false, superseded: true };
+    useStore.getState().setDetailError(say);
+    restoreModel();
+    setTimeout(() => {
+      if (id === reqId && useStore.getState().detailStatus === 'error') useStore.getState().clearDetail();
+    }, ERROR_SHOW_MS);
     return { ok: false, say };
   }
 }

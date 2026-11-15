@@ -6,8 +6,8 @@
  *
  * A DetailScene is made of simple primitives in a unit scene (about -1..1 on each axis, x right, y up,
  * z towards the viewer), optional paths that things flow along, a few animations and 2 to 5 spoken steps,
- * each naming the parts that light up while it is said. It is always AI-made (`source: "ai"`), and the
- * app always shows it as an "AI sketch", never as checked.
+ * each naming the parts that light up while it is said. Every server answer is AI-made (`source: "ai"`) and the
+ * app shows it as an "AI sketch", never as checked; only the hand-written test fixture is `"sample"` ("Sample").
  *
  * sanitiseDetail clamps and repairs a reply before the schema check (as expandSketch does for sketches):
  * unknown shapes become boxes, bad parts are dropped (never the whole scene for one), ids become unique
@@ -82,8 +82,11 @@ export const DetailSceneSchema = z.object({
   title: z.string().min(1),
   /** one sentence */
   summary: z.string().min(1),
-  /** always AI-made: shown as "AI sketch", never as checked */
-  source: z.literal('ai'),
+  /**
+   * ai = made by Claude (every server answer: shown as "AI sketch", never as checked);
+   * sample = the hand-written test fixture below (`?detail=mock`: shown as "Sample", never as generated)
+   */
+  source: z.enum(['ai', 'sample']),
   parts: z.array(DetailPartSchema).min(1).max(DETAIL_LIMITS.parts),
   paths: z.array(DetailPathSchema).max(DETAIL_LIMITS.paths),
   animations: z.array(DetailAnimationSchema).max(DETAIL_LIMITS.animations),
@@ -526,15 +529,23 @@ function words(s: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/** A crude stem, so "wraps", "wrapping" and "wrapped" meet. */
+/** A crude stem, so "wraps", "wrapping" and "wrapped" meet, and "discharge" and "discharging". */
 function stem(w: string): string {
   // "wrapping" -> "wrapp" -> "wrap" (but "falling" stays "fall")
   const undouble = (s: string) => (/([b-df-hj-km-np-rtv-y])\1$/.test(s) ? s.slice(0, -1) : s);
+  const noE = (s: string) => (s.length > 4 && s.endsWith('e') ? s.slice(0, -1) : s);
   if (w.length > 5 && w.endsWith('ing')) return undouble(w.slice(0, -3));
   if (w.length > 4 && w.endsWith('ed')) return undouble(w.slice(0, -2));
   if (w.length > 4 && w.endsWith('es') && !w.endsWith('ses')) return w.slice(0, -2);
-  if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
-  return w;
+  if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return noE(w.slice(0, -1));
+  return noE(w);
+}
+
+/** Two stemmed words are the same word: equal, or one a short extension of the other ("focu" and "focus"). */
+function sameWord(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+  return s.length >= 4 && l.length - s.length <= 2 && l.startsWith(s);
 }
 
 /** The words that carry the meaning, stemmed: "How does the eye's lens focus light?" -> eye, len, focus, light. */
@@ -553,13 +564,15 @@ function shortHash(s: string): string {
 }
 
 /**
- * The cache key for a request: its object and topic in plain words (filler such as "the" and "show me"
- * dropped, word order kept), safe as a file name, at most 80 characters.
+ * The cache key for a request: its object, part and topic in plain words (filler such as "the" and "show me"
+ * dropped, word order kept), safe as a file name, at most 80 characters. The part is marked ("--p-"), so
+ * "how it works" for two parts of one object are two models.
  */
-export function detailKey(topic: string, object?: string): string {
+export function detailKey(topic: string, object?: string, part?: string): string {
   const t = words(topic).filter((w) => !FILLER.has(w)).join('-') || 'topic';
   const ob = words(object).join('-');
-  const full = ob ? `${ob}--${t}` : t;
+  const pt = words(part).join('-');
+  const full = [ob, pt ? `p-${pt}` : '', t].filter(Boolean).join('--');
   return full.length <= 80 ? full : `${full.slice(0, 72).replace(/-+$/, '')}-${shortHash(full)}`;
 }
 
@@ -572,7 +585,9 @@ export interface PremadeTopic {
 /**
  * How well a request matches a pre-made topic, 0..1: the share of the request's words (topic, plus its part)
  * found in the pre-made topic and object. A pre-made topic for an object needs the request to be about
- * the same object (a shared word in the object or the topic). Used only when the exact key misses.
+ * the same object (a shared word in the object or the topic). Used only when the exact key misses, and
+ * only a score of 1 counts (bestPremade): every word that says what is asked must be in the pre-made topic,
+ * so "battery charging" never gets the discharge model and "palisade mesophyll" never the spongy one.
  */
 export function premadeScore(req: Pick<DetailRequest, 'topic' | 'object' | 'part'>, p: PremadeTopic): number {
   const asked = topicWords(`${req.topic} ${req.part ?? ''}`);
@@ -587,14 +602,13 @@ export function premadeScore(req: Pick<DetailRequest, 'topic' | 'object' | 'part
   const reqObj = topicWords(req.object);
   const content = [...asked].filter((w) => !reqObj.has(w) && !pObj.has(w));
   if (content.length === 0) return 0;
-  const shared = content.filter((w) => have.has(w)).length;
-  // one-word requests must match that word; longer ones need at least two words in common
-  if (shared < Math.min(2, content.length)) return 0;
+  const haveList = [...have];
+  const shared = content.filter((w) => haveList.some((h) => sameWord(w, h))).length;
   return shared / content.length;
 }
 
-/** The best pre-made topic for a request (score at least `min`), or null. */
-export function bestPremade(req: Pick<DetailRequest, 'topic' | 'object' | 'part'>, list: PremadeTopic[], min = 0.6): PremadeTopic | null {
+/** The best pre-made topic for a request (score at least `min`; by default every asked word must be in it), or null. */
+export function bestPremade(req: Pick<DetailRequest, 'topic' | 'object' | 'part'>, list: PremadeTopic[], min = 1): PremadeTopic | null {
   let best: PremadeTopic | null = null;
   let bestScore = -1;
   for (const p of list) {
@@ -618,7 +632,7 @@ export function bestPremade(req: Pick<DetailRequest, 'topic' | 'object' | 'part'
 export const SAMPLE_DETAIL: DetailScene = {
   title: 'Sample: lithium-ion cell discharging',
   summary: 'One layer of a lithium-ion cell powering a small load.',
-  source: 'ai',
+  source: 'sample',
   parts: [
     { id: 'anode-collector', name: 'Copper foil', shape: 'sheet', size: [0.04, 1.2, 0.8], position: [-0.78, -0.2, 0], rotation: [0, 0, 0], color: '#c77b4a', opacity: 0.85 },
     { id: 'anode', name: 'Graphite anode', shape: 'box', size: [0.36, 1.2, 0.8], position: [-0.56, -0.2, 0], rotation: [0, 0, 0], color: '#3d4148', opacity: 0.8 },

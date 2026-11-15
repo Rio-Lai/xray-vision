@@ -3,7 +3,8 @@
  * 3D model of one mechanism, material or process (store.detail, a DetailScene from shared/detail.ts), drawn
  * on the right half of the view while the main model sits smaller on the left (src/lib/detail.ts moves it),
  * or in the middle when nothing else is open. A glass card at the top right says what it is, always with
- * an "AI sketch" tag (it is AI-made and never checked), and the sentence of the step being explained.
+ * an "AI sketch" tag (it is AI-made and never checked; "Sample" for the ?detail=mock test fixture), and the
+ * sentence of the step being explained.
  *
  *  - Same look as SolidStage.tsx: soft grey-translucent solids tinted by each part's colour, a fine edge
  *    line on the flat-sided shapes, soft key and fill lights, drawn largest last so what is inside shows.
@@ -23,6 +24,7 @@ import { flowEndScale, flowOffsets, pulseLevel, sceneBounds, slideFraction, spin
 import { canvasDpr, errorText } from '../camera/frame';
 import { perfCount } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
+import { DETAIL_MOCK } from '../lib/detail';
 
 const DEG = Math.PI / 180;
 const FOV = 30;
@@ -506,7 +508,8 @@ function DetailCard() {
   return (
     <section style={CARD} className="bf-enter" data-bf-avoid key={detail?.title ?? `loading-${topic ?? ''}`}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={CHIP}>AI sketch</span>
+        {/* AI-made, never checked; the ?detail=mock fixture is hand-written: "Sample" (while loading, what is coming) */}
+        <span style={CHIP}>{(detail ? detail.source === 'sample' : DETAIL_MOCK) ? 'Sample' : 'AI sketch'}</span>
         {detail && (
           <span style={{ display: 'flex', gap: 4, flex: 1 }} aria-hidden="true">
             {detail.steps.map((_, i) => (

@@ -79,21 +79,20 @@ function kept(key: string): DetailScene | null {
 export async function getDetail(req: DetailRequest, opts: { force?: boolean; timeoutMs?: number } = {}): Promise<DetailHit> {
   const started = Date.now();
   const secs = () => Math.round((Date.now() - started) / 100) / 10;
-  const key = detailKey(req.topic, req.object);
+  const key = detailKey(req.topic, req.object, req.part);
   if (!opts.force) {
     const m = memory.get(key);
     if (m) return { scene: m, key, from: 'memory', seconds: secs() };
     const d = kept(key);
     if (d) return { scene: d, key, from: 'disk', seconds: secs() };
     // A pre-made topic worded a little differently ("the battery" for "battery cell ... during discharge").
+    // Kept only under the pre-made topic's own key, never under this request's: the match is made afresh
+    // each time, so a remade or corrected pre-made model is what the next request gets.
     const p = bestPremade(req, readPremades());
     if (p) {
       const pk = detailKey(p.topic, p.object);
       const ps = kept(pk);
-      if (ps) {
-        memory.set(key, ps);
-        return { scene: ps, key: pk, from: 'premade', seconds: secs() };
-      }
+      if (ps) return { scene: ps, key: pk, from: 'premade', seconds: secs() };
     }
   }
   if (!hasAnthropic()) throw new DetailError('noKey', 'no ANTHROPIC_API_KEY (or MOCK=1)');

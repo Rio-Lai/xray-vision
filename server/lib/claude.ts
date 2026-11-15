@@ -538,6 +538,7 @@ const DETAIL_MAX_TOKENS = 9000;
 /** The format example in the prompt: the sample fixture without its "Sample:" title and test caveat. */
 const DETAIL_EXAMPLE = JSON.stringify({
   ...SAMPLE_DETAIL,
+  source: 'ai',
   title: 'Lithium-ion cell discharging',
   caveat: 'A real cell rolls many thin layers into a spiral or stack; this shows one layer.',
 });
@@ -610,7 +611,7 @@ ${DETAIL_EXAMPLE}`;
 
 /**
  * POST /api/detail (server/lib/detail.ts caches it): one call -> a DetailScene, cleaned and validated by
- * shared/detail.ts (parseDetail). An invalid reply is retried once with the errors if there is time left;
+ * shared/detail.ts (parseDetail, which always sets source "ai"). An invalid reply is retried once with the errors if there is time left;
  * the whole thing stops after `timeoutMs`. One log line per call (logged).
  */
 export async function detailLive(req: DetailRequest, timeoutMs = DETAIL_TIMEOUT_MS): Promise<DetailScene> {

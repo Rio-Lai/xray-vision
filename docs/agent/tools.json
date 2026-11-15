@@ -130,7 +130,7 @@
     {
       "type": "client",
       "name": "show_detail",
-      "description": "Build and show a simple, animated 3D model of one specific mechanism, material, inner structure or manufacturing process beside the model on stage (also with nothing open): \"show me how the ... works\", \"what is the ... made of\", \"how is this made\", \"zoom into the ...\", \"model the ...\". It is an AI sketch. Takes some seconds; follow its \"present\".",
+      "description": "Build and show a simple, animated 3D model of how ONE named part or thing works inside, the inner structure of its material, or how it is made (\"show me how the hinge works\", \"model the battery\", \"how is the label put on\", \"what is inside the battery cell\", \"build a model of ...\"). Not for \"what's this made of\" (explode), \"zoom in\" (adjust_view), \"tell me about ...\" (highlight_part) or \"how does it work\" on the arm or the eye (show_step). It is an AI sketch and takes some seconds; follow its \"present\". If it replies \"unavailable\", do what you would have done without it.",
       "parameters": {
         "type": "object",
         "required": ["topic"],
@@ -145,7 +145,7 @@
     {
       "type": "client",
       "name": "detail_step",
-      "description": "Light up step n of the detail model shown by show_detail and get that step's sentence.",
+      "description": "Light up step n of the detail model shown by show_detail and get that step's sentence. If it replies \"unavailable\", carry on without it.",
       "parameters": {
         "type": "object",
         "required": ["n"],
@@ -159,7 +159,7 @@
     {
       "type": "client",
       "name": "close_detail",
-      "description": "Close the detail model and put the main model back where it was (\"close the detail\", \"back to the model\").",
+      "description": "Close the detail model and put the main model back where it was (\"close the detail\", \"back to the model\"). If it replies \"unavailable\", carry on without it.",
       "expects_response": true,
       "response_timeout_secs": 20
     }
