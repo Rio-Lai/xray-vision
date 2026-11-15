@@ -8,6 +8,7 @@
  *    model (boxRig.ts stage constants); "put it away" glides it back into the hand and fades it;
  *  - store.explodeAmount -> his explode (0.12, the "analyse" amount, = assembled with the skin
  *    sleeve; 1 = every layer fanned out), modelYaw / modelPitch (+ the idle drift) -> his view,
+ *    modelZoom (eased) -> his camera's zoom (sharp at any size; moved to zoom about the stage centre),
  *    highlightedPartId and activeStep -> his layer focus and glow (as his tour did);
  *  - key presses and quick lifts from the app's hand tracker pulse that finger's flexor slip and
  *    tendon (his keystroke pulses);
@@ -32,9 +33,9 @@ import { boxToView, getCoverMap } from '../camera/frame';
 import { live } from '../detect/live';
 import { FINGERS } from '../detect/handTracker';
 import { smoothstep } from './explodeAnimator';
-import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_LIFT_OMEGA, STAGE_SIZE, TOP_MARGIN } from './boxRig';
+import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_LIFT_OMEGA, STAGE_SIZE, STAGE_TURN_OMEGA, TOP_MARGIN } from './boxRig';
 import type { ScreenBox } from './boxRig';
-import { LabelLayer } from './labels';
+import { LabelLayer, inView } from './labels';
 import type { LabelItem } from './labels';
 import { springStep } from './stageLayout';
 
@@ -53,6 +54,8 @@ const PICK_PX = 60;
  * they do not pop in during the glide; at most this long (ms).
  */
 const MAX_WAIT_MS = 1500;
+/** ArmXrayView eases the zoom it is given by this much per frame (its userZoom); mirrored here. */
+const ARM_VIEW_ZOOM_EASE = 0.15;
 
 /** For the overlay: which part of the arm is at a viewport point (null when the arm is not up). */
 export const armStage: { pickAt: (x: number, y: number) => string | null } = { pickAt: () => null };
@@ -103,6 +106,10 @@ class ArmStageCtl {
   private seen = { yaw: 0, pitch: 0, explode: 0, step: null as number | null, hl: null as string | null };
   private yaw = 0;
   private pitch = 0;
+  // zoom (store.modelZoom): eased here, and the value his view is showing (it eases it again)
+  private zoom = 1;
+  private zoomV = 0;
+  private viewZoom = 1;
   // key presses from the app's hand tracker
   private keys: Keystroke[] = [];
   private seenPress = new Map<string, number>();
@@ -227,7 +234,18 @@ class ArmStageCtl {
       this.frame = armStageFrame(w, h, pxPerM, { x: 0, y: h / 2 - oy });
     }
     const s0 = Math.min(1, Math.max(0.08, this.from.w / diameter));
-    this.xf = { ox: w / 2, oy, s: s0 + (1 - s0) * L, tx: (this.from.cx - w / 2) * (1 - L), ty: (this.from.cy - oy) * (1 - L) };
+    // Zoom: his camera zooms about the canvas centre (h / 2); the translate moves that to the stage
+    // centre (oy), using the zoom his view shows this frame (it eases what it is given once more).
+    [this.zoom, this.zoomV] = springStep(this.zoom, this.zoomV, on ? s.modelZoom : 1, STAGE_TURN_OMEGA, dt);
+    this.viewZoom += (this.zoom - this.viewZoom) * ARM_VIEW_ZOOM_EASE;
+    const sc = s0 + (1 - s0) * L;
+    this.xf = {
+      ox: w / 2,
+      oy,
+      s: sc,
+      tx: (this.from.cx - w / 2) * (1 - L),
+      ty: (this.from.cy - oy) * (1 - L) + sc * (1 - this.viewZoom) * (oy - h / 2),
+    };
     if (this.wrap) {
       const st = this.wrap.style;
       st.transformOrigin = `${this.xf.ox.toFixed(1)}px ${this.xf.oy.toFixed(1)}px`;
@@ -262,7 +280,7 @@ class ArmStageCtl {
       highlight,
       keystrokes,
       frozen: false,
-      view: { yaw: this.yaw, pitch: this.pitch, zoom: 1 },
+      view: { yaw: this.yaw, pitch: this.pitch, zoom: this.zoom },
     };
   };
 
@@ -289,7 +307,8 @@ class ArmStageCtl {
       for (const a of anchors) {
         if (a.layer !== this.focus) continue;
         const l = labels.find((x) => x.id === a.id);
-        items.push({ id: a.id, text: names.get(a.id) ?? sentenceCase(l?.name ?? a.id), ax: a.x, ay: a.y, opacity: base, highlighted: this.hlIds.has(a.id) });
+        const opacity = base * inView(a.x, a.y, w, h);
+        items.push({ id: a.id, text: names.get(a.id) ?? sentenceCase(l?.name ?? a.id), ax: a.x, ay: a.y, opacity, highlighted: this.hlIds.has(a.id) });
       }
     } else if (this.td && this.eShown > 0.3) {
       // fanned out, nothing focused: one pill per layer, on its most central part
@@ -305,7 +324,7 @@ class ArmStageCtl {
           text: sentenceCase(legend[String(layer)] ?? `Layer ${layer}`),
           ax: rep.x,
           ay: rep.y,
-          opacity: base * smoothstep(0.35, 0.75, this.eShown),
+          opacity: base * smoothstep(0.35, 0.75, this.eShown) * inView(rep.x, rep.y, w, h),
           highlighted: false,
         });
       }

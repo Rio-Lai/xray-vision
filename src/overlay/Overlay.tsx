@@ -381,7 +381,7 @@ class OverlayEngine {
         box: this.targetBox(s, stage ? this.rigObjectId : undefined),
         explodeTarget: s.explodeAmount,
         highlighted: hl,
-        stage: stage ? { yaw: this.stageYaw(s, now, dt), pitch: s.modelPitch, putAway: false } : null,
+        stage: stage ? { yaw: this.stageYaw(s, now, dt), pitch: s.modelPitch, putAway: false, zoom: s.modelZoom } : null,
       });
       labelItems = out.labels;
       bounds = out.bounds;
@@ -417,7 +417,7 @@ class OverlayEngine {
     if (this.retiring) {
       if (this.retiringStage) {
         const box = this.retiringObjectId ? this.targetBox(s, this.retiringObjectId) : null;
-        const stage = { yaw: 0, pitch: 0, putAway: true };
+        const stage = { yaw: 0, pitch: 0, putAway: true, zoom: 1 };
         this.retiring.update({ now, dt, vw, vh, box, explodeTarget: 0, highlighted: new Set(), stage });
         if (this.retiring.stageDone()) this.endRetire();
       } else {

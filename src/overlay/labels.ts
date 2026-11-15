@@ -62,6 +62,18 @@ const LEADER_GAP = 6;
 
 const f1 = (v: number) => v.toFixed(1);
 
+/** A label's anchor this close to the edge of the view starts to fade; outside it, no label (#109). */
+const EDGE_FADE_PX = 24;
+
+/**
+ * 1 for a label anchor well inside the view, fading to 0 at its edge: a part zoomed off screen
+ * (store.modelZoom) has no label pointing out of the view.
+ */
+export function inView(x: number, y: number, vw: number, vh: number): number {
+  const d = Math.min(x, vw - x, y, vh - y);
+  return d <= 0 ? 0 : d >= EDGE_FADE_PX ? 1 : d / EDGE_FADE_PX;
+}
+
 /** The leader from the pill edge (lx, ly) to the anchor: kit = anchor, elbow, short of the pill; classic = straight. */
 function leaderPath(side: Side, lx: number, ly: number, ax: number, ay: number): string {
   if (!KIT_LOOK) return `M${f1(lx)} ${f1(ly)}L${f1(ax)} ${f1(ay)}`;
