@@ -4,6 +4,7 @@ import cors from 'cors';
 import { errorHandler, wrap } from './lib/http';
 import { WEB_PORT, anthropicModel, apiPort, hasAnthropic, hasEleven, hasFal, isMock, portInUseMessage } from './lib/env';
 import { identify } from './routes/identify';
+import { scan } from './routes/scan';
 import { teardown } from './routes/teardown';
 import { generatePart } from './routes/generate-part';
 import { agentToken } from './routes/agent-token';
@@ -27,6 +28,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/identify', wrap(identify));
+app.post('/api/scan', wrap(scan));
 app.post('/api/teardown', wrap(teardown));
 app.post('/api/generate-part', wrap(generatePart));
 app.get('/api/agent-token', wrap(agentToken));

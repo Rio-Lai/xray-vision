@@ -328,3 +328,60 @@ export async function teardownLive(req: TeardownRequest): Promise<Teardown> {
   }
   throw new Error(`Claude teardown invalid after retry: ${lastError}`);
 }
+
+/* ---------------- scan (#122) ---------------- */
+
+/**
+ * The overlay's whole-view scan: one downscaled picture of the wearer's view (faces blacked out by the
+ * app) -> the raw JSON reply, `{ things: [...] }`. server/routes/scan.ts validates it, clamps the boxes
+ * and keeps at most 10. Model and effort come from the route (ANTHROPIC_SCAN_MODEL / ANTHROPIC_SCAN_EFFORT);
+ * a limit of 8 s and no retry: the app scans again a few seconds later anyway. One log line (logged).
+ */
+export async function scanLive(req: { image: string; width: number; height: number; model: string; effort: AnthropicEffort | 'none' }): Promise<unknown> {
+  const { width: w, height: h } = req;
+  const known = listCheckedObjects()
+    .filter((o) => o.lens !== 'biology')
+    .map((o) => `- ${o.object_id}: ${o.name}`)
+    .join('\n');
+  const system = `You list the things in one picture from a head-mounted camera for Blowfish, an AR "x-ray vision" app: the
+wearer can ask to see inside any of them or to learn about it. Reply with exactly one JSON object and nothing else:
+{"things": [{"name": "Casio scientific calculator", "box": [x0, y0, x1, y1], "interest": 0.9, "centre": true}]}
+Rules:
+- Up to 10 distinct physical things someone might want to look inside or learn about, most interesting first.
+- name: short and specific, in sentence case, 1 to 5 words ("Casio scientific calculator", "Desk lamp", "Potted basil"),
+  never generic ("device", "object", "item", "electronics"). A brand or model only when you can read it or clearly tell it.
+- box: a tight box round the thing, in pixels of this picture (x0, y0 = top-left corner, x1, y1 = bottom-right corner).
+- interest: 0 to 1, how rewarding it would be to look inside it or learn about it. Gadgets, tools, machines,
+  mechanisms, instruments, plants and food score high; plain containers, papers and furniture low.
+- Leave out people and every part of a person (faces, hands, arms, hair, worn clothes), and walls, floors, ceilings,
+  tables, desks, windows, doors and plain surfaces. Never list, name, describe or guess anything about a person.
+  Black areas were blacked out on purpose: ignore them.
+- Each thing once. Do not list parts of something you already listed (a laptop, not also its keyboard and screen).
+- centre: true on the one thing at the centre of the picture (the point x = ${Math.round(w / 2)}, y = ${Math.round(h / 2)}), if a
+  thing is there; leave the field out on every other thing.
+- If a thing plausibly is one of these objects we have checked parts lists for, add "object_id" with its id exactly:
+${known || '- (none)'}
+- Nothing worth listing: {"things": []}.`;
+  const msg = await logged('scan', req.model, req.effort, () =>
+    getClient().messages.create(
+      {
+        model: req.model,
+        // Room for (low-effort) thinking plus ten short things.
+        max_tokens: 4000,
+        ...effortConfig(req.effort),
+        system,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: req.image } },
+              { type: 'text', text: `The picture is ${w} x ${h} pixels. Reply with the JSON object only.` },
+            ],
+          },
+        ],
+      },
+      { timeout: 8_000, maxRetries: 0 },
+    ),
+  );
+  return extractJson(textOf(msg));
+}
