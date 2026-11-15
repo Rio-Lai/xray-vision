@@ -59,6 +59,13 @@ export const TeardownSchema = z.object({
   explode_axis: z.enum(['x', 'y', 'z']),
   /** cached = pre-generated and checked; live = generated just now ("AI-estimated"). */
   source: z.enum(['cached', 'live']),
+  /**
+   * The object's real size in millimetres: [width, depth, height] of the thing as it normally sits
+   * (a closed-flat laptop base is about [304, 215, 11]). Optional. On stage the model takes its
+   * proportions from this instead of from the detector's on-screen box, which is foreshortened by
+   * the camera angle. Written by hand for stored objects and estimated by Claude for live ones.
+   */
+  dimensions_mm: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional(),
   parts: z.array(TeardownPartSchema).min(1),
   steps: z.array(TeardownStepSchema),
 });
