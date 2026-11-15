@@ -19,7 +19,7 @@
  */
 import { useStore } from '../state/store';
 import type { AppState, SceneObject } from '../state/store';
-import { errorText, frame, frameSize, MOCK_GESTURE, MOCK_MODE, MOCK_SCENE, urlNumber } from '../camera/frame';
+import { errorText, frame, frameSize, MOCK_GESTURE, MOCK_MODE, MOCK_SCENE, PERF_BUDGET, urlNumber } from '../camera/frame';
 import type { Box } from '../state/store';
 import { setStatus, useHud } from '../hud/hudStore';
 import { DETECTOR_CHOICE, loadVisionTasks, USEFUL_CLASSES } from './mediapipe';
@@ -68,7 +68,7 @@ const SLOW_BOTH: SlowVision = { objects: true, faces: true };
 
 /** #131: what runs rarely now: nothing (normal), the object detector, and the face landmarker unless the eye is up. */
 export function slowVisionNow(st: Pick<AppState, 'trackingMode' | 'teardown'>): SlowVision {
-  if (st.trackingMode !== 'stage' || st.teardown === null) return NORMAL_VISION;
+  if (!PERF_BUDGET || st.trackingMode !== 'stage' || st.teardown === null) return NORMAL_VISION;
   const a = useHud.getState().stageArrived;
   if (!(a.box || a.arm || a.eye)) return NORMAL_VISION;
   return a.eye ? SLOW_OBJECTS : SLOW_BOTH;

@@ -27,7 +27,7 @@ import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
 import type { Teardown } from '../../shared/teardown';
 import { DEMO_IDENTIFY } from '../../shared/demo';
-import { boxToView, canvasDpr, errorText, getCoverMap, urlFlag } from '../camera/frame';
+import { PERF_BUDGET, boxToView, canvasDpr, errorText, getCoverMap, urlFlag } from '../camera/frame';
 import { live, perfCount, perfDraw } from '../detect/live';
 import { devLog, setHoldFrozen, setStageArrived, setStatus, useHud } from '../hud/hudStore';
 import { pickPart, reopenedSavedId } from '../lib/flow';
@@ -546,7 +546,8 @@ class OverlayEngine {
     // #131: nothing of its own to show (no box model, none going away, no hand drawing): one last
     // draw clears the canvas, then it is hidden and not drawn. A warm-up model is still drawn into
     // it while hidden (#125: that draw shows nothing; its point is the upload before the first open).
-    const content = this.boxRig !== null || this.retiring !== null || this.handRig.root.visible;
+    // `?budget=0`: drawn every frame, as before.
+    const content = !PERF_BUDGET || this.boxRig !== null || this.retiring !== null || this.handRig.root.visible;
     if (content || this.canvasShown || this.warmer.drawing) {
       if (content && !this.canvasShown) {
         this.canvasShown = true;

@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useStore } from '../state/store';
-import { FIT_EVEN, MAX_DPR, MOCK_MODE, canvasDpr } from '../camera/frame';
+import { FIT_EVEN, MAX_DPR, MOCK_MODE, PERF_BUDGET, canvasDpr } from '../camera/frame';
 import { live, perf } from '../detect/live';
 import { FINGERS, HAND_TUNING_DEFAULTS, handTuning, setHandTuning } from '../detect/handTracker';
 import type { HandTuning } from '../detect/handTracker';
@@ -407,7 +407,11 @@ function perfLines(): string[] {
   const r = (k: string) => p.ran[k] ?? 0;
   const arm = r('arm') > 0 ? ` | arm (its own loop) ${(p.armMs / r('arm')).toFixed(1)} ms` : '';
   const sv = live.stats.slowVision;
-  const budget = !sv.objects ? 'normal rates' : `model up: objects${sv.faces ? ' and faces' : ' (faces at the normal rate: the eye is up)'} about 3/s`;
+  const budget = !PERF_BUDGET
+    ? 'normal rates always (?budget=0: #131 off but the dpr cap)'
+    : !sv.objects
+      ? 'normal rates'
+      : `model up: objects${sv.faces ? ' and faces' : ' (faces at the normal rate: the eye is up)'} about 3/s`;
   return [
     `perf (#131, last second): ${p.frames} fps | per frame: vision ${(p.visionMs / n).toFixed(1)} ms (longest ${p.visionMaxMs.toFixed(1)}), drawing ${(p.drawMs / n).toFixed(1)} ms (longest ${p.drawMaxMs.toFixed(1)})${arm}`,
     `  ran: hands ${r('hands')}, objects ${r('objects')}, faces ${r('faces')}${MOCK_MODE ? ' (mock: no models)' : ''} | drew: overlay ${r('overlay')}, eye ${r('eye')}, solid ${r('solid')}, arm ${r('arm')} | vision: ${budget} | dpr ${canvasDpr()} (at most ${MAX_DPR}, ?dpr=)`,

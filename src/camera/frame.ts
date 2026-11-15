@@ -69,6 +69,13 @@ export function urlNumber(name: string, fallback: number): number {
  */
 export const MAX_DPR: number = Math.min(2, Math.max(1, urlNumber('dpr', 1.5)));
 
+/**
+ * #131: `?budget=0` turns the rest of #131 off for a comparison or a fallback: objects and faces at
+ * their normal rates with a model up, the scan sampler running, the overlay's canvas drawn every
+ * frame (`?dpr=2` for the old pixel ratio).
+ */
+export const PERF_BUDGET: boolean = urlParam('budget') !== '0';
+
 /** The pixel ratio for a WebGL canvas: the screen's, at most MAX_DPR. */
 export function canvasDpr(): number {
   return Math.min(MAX_DPR, window.devicePixelRatio || 1);
