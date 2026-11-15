@@ -72,9 +72,15 @@ export function easeInOut(u: number): number {
   return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
 }
 
+/**
+ * True for the short cross-fade instead of the lift-out: the system's reduced-motion setting, or
+ * `?lift=0` in the address (a way back if the transition misbehaves on the real rig).
+ */
 export function prefersReducedMotion(): boolean {
   try {
-    return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (typeof window === 'undefined') return false;
+    if (new URLSearchParams(window.location.search).get('lift') === '0') return true;
+    return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   } catch {
     return false;
   }
