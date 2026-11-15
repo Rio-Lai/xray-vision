@@ -25,6 +25,22 @@ export function mockLaptop(centred: boolean): SceneObject {
   };
 }
 
+/**
+ * #124: a plastic bottle, an object that is not stored, so "analyse this" on it shows a solid sketch.
+ * On the right in `?mock=1` (select it, or say "explode bottle-1"); in the middle with `?mock=bottle`.
+ * Its look is built in (src/lib/look.ts): no camera and no key needed.
+ */
+export function mockBottle(centred: boolean): SceneObject {
+  return {
+    id: 'bottle-1',
+    label: 'bottle',
+    confidence: 0.88,
+    box: centred ? { x: 0.45, y: 0.25, w: 0.1, h: 0.42 } : { x: 0.8, y: 0.3, w: 0.07, h: 0.3 },
+    lens: 'engineering',
+    anchor: 'box',
+  };
+}
+
 /** A small phone at the lower left, so "everything is labelled" can be seen in mock mode. */
 export function mockPhone(): SceneObject {
   return {

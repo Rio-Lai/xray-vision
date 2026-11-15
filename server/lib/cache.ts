@@ -4,6 +4,7 @@
  *   public/cache/meshes/<object_id>/<part_id>.glb    checked meshes (committed)
  *   .cache-live/<object_id>.json                     live Claude teardowns (gitignored, unreviewed)
  *   .cache-live/meshes.json                          live fal results keyed "<object_id>/<part_id>"
+ *   .cache-live/<object_id>.sketch.json              live solid sketches (#124), details merged in by /api/enrich
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -51,6 +52,11 @@ export const readLiveTeardown = (objectId: string) =>
 
 export const writeLiveTeardown = (td: Teardown) =>
   writeJson(path.join(LIVE_DIR, `${safeId(td.object_id)}.json`), td);
+
+/** #124: a solid sketch kept from an earlier look (its own key: never mixed up with a name-only parts list). */
+export const readLiveSketch = (objectId: string) => readTeardown(path.join(LIVE_DIR, `${safeId(objectId)}.sketch.json`));
+
+export const writeLiveSketch = (td: Teardown) => writeJson(path.join(LIVE_DIR, `${safeId(td.object_id)}.sketch.json`), td);
 
 /** Checked objects, so identify can steer Claude towards an id we already have. */
 export function listCheckedObjects(): { object_id: string; name: string; lens: string }[] {

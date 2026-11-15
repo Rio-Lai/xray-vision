@@ -20,7 +20,18 @@ import {
   type Teardown,
   type TeardownRequest,
 } from '../../shared/teardown';
-import { anthropicEffort, anthropicModel, type AnthropicEffort } from './env';
+import { anthropicEffort, anthropicModel, anthropicSketchEffort, anthropicSketchModel, type AnthropicEffort } from './env';
+import {
+  SKETCH_EXAMPLES,
+  SKETCH_MAX_PARTS,
+  cleanEnrichment,
+  expandSketch,
+  salvageJson,
+  type EnrichRequest,
+  type EnrichResponse,
+  type SketchOutcome,
+  type SketchRequest,
+} from '../../shared/sketch';
 import { listCheckedObjects, safeId } from './cache';
 
 let client: Anthropic | null = null;
@@ -384,4 +395,124 @@ ${known || '- (none)'}
     ),
   );
   return extractJson(textOf(msg));
+}
+
+/* ---------------- sketch (#124): one look, simple solids, in seconds ---------------- */
+
+/** The sketch call gives up after this long (no retry): the client then goes the old way. */
+export const SKETCH_TIMEOUT_MS = 12_000;
+/**
+ * Room for low-effort thinking plus the compact reply (~300-500 tokens for 6-8 parts). Output length is
+ * what costs seconds; a reply cut short here still keeps the parts written before the cut (salvageJson).
+ */
+export const SKETCH_MAX_TOKENS = 2000;
+
+const SKETCH_SYSTEM = `You look at a camera crop for Blowfish, an AR "x-ray vision" app, name the object, and lay out its main
+parts as a small 3D assembly of simple solids, so the app can draw a model of it within seconds. Reply with exactly one
+compact JSON object on one line and nothing else (no prose, no code fence):
+{"id":"kebab-case-id","n":"Human readable name","c":0.0-1.0,"bio":0|1,"d":[x,y,z],"p":[[id,name,shape,axis,[sx,sy,sz],[px,py,pz],"#rrggbb","One short sentence."],...]}
+- id: lowercase kebab-case, specific (brand, model, size) when you can tell, generic otherwise. n: the name. c: how sure you are.
+  bio: 1 for a living thing or body part, else 0. d: the whole object's size in millimetres.
+- Frame: millimetres, x to the right, y up, z towards the viewer, origin at the centre of the object's bounding box, the
+  object in its normal upright pose facing the viewer (a bottle stands up, a TV's screen faces +z).
+- Each part: a short kebab-case id, its name, shape (box, board = flat slab such as a circuit board, cyl = cylinder,
+  tube = hollow cylinder or ring, sph = sphere or ellipsoid), axis = the long axis of a cyl or tube ("x", "y" or "z"; ""
+  for others), its size [sx, sy, sz] (extents along x, y, z) and the position of its centre [px, py, pz], a colour taken
+  from what you see in the picture (internal parts: a realistic colour), and one short plain sentence.
+- At most ${SKETCH_MAX_PARTS} parts, main parts first. Simple things get few parts (a mug: body, base, handle); never invent parts.
+  No screws, glue, stickers or tiny fittings on their own.
+- Sizes in real millimetres for this object. Parts touch or nest the way the real ones do and never float: a cap sits on
+  its neck, legs meet the seat, a stand meets the TV.
+- A hollow container is drawn as its wall parts (body, cap) with the contents as their own part if they are visible.
+- Internals that cannot be seen are placed where they really are, inside the outer part (a drum inside the cabinet,
+  boards inside the back cover).
+- If the object is plausibly one of the checked objects listed in the request, reply only {"id":"<that id>","n":"<name>","c":<c>,"known":1}.
+- If there is no clear object, reply {"id":"unknown","n":"Unknown","c":0}.
+
+Worked examples (copy the style, not the numbers):
+${Object.values(SKETCH_EXAMPLES).join('\n')}`;
+
+/**
+ * POST /api/sketch: one vision call on the crop -> its name and a solid parts list (shared/sketch.ts expands,
+ * validates and clamps it). Low effort, a tight token limit, SKETCH_TIMEOUT_MS, no retry, one log line.
+ */
+export async function sketchLive(req: SketchRequest, checkedIds: string[]): Promise<SketchOutcome> {
+  const known = listCheckedObjects()
+    .map((o) => `- ${o.object_id}: ${o.name}`)
+    .join('\n');
+  const prompt = [
+    req.hint ? `It is thought to be: "${req.hint}" (may be wrong; trust the picture).` : 'This is the middle of the wearer\'s view; name the main thing in it.',
+    known ? `Checked objects (reply with the id only if it plausibly is one of these):\n${known}` : '',
+    'Reply with the compact JSON only.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  const model = anthropicSketchModel();
+  const effort = anthropicSketchEffort();
+  const msg = await logged('sketch', model, effort, () =>
+    getClient().messages.create(
+      {
+        model,
+        max_tokens: SKETCH_MAX_TOKENS,
+        ...effortConfig(effort),
+        system: [{ type: 'text', text: SKETCH_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: req.image } },
+              { type: 'text', text: prompt },
+            ],
+          },
+        ],
+      },
+      { timeout: SKETCH_TIMEOUT_MS, maxRetries: 0 },
+    ),
+  );
+  const raw = salvageJson(textOf(msg));
+  if (!raw) throw new Error('sketch reply had no JSON object');
+  return expandSketch(raw, { checkedIds, fallbackName: req.hint });
+}
+
+/* ---------------- enrich (#124): the details afterwards ---------------- */
+
+const ENRICH_SYSTEM = `You write the explanations for an AR "x-ray vision" app that has just drawn a quick model of an object as
+simple solids. The parts are fixed: write text for exactly the part ids given, no others. Reply with exactly one JSON object:
+{"parts":[{"id":string,"details":"2-4 plain sentences for 'tell me more'","safety":string|null}],
+ "steps":[{"text":"one sentence","part_ids":[ids]}]}
+- details: what the part is made of, what it does and how it connects to its neighbours. Only facts you are confident of.
+- safety: a real safety note (lithium batteries, mains voltage, capacitors, sharp glass, springs, hot parts), else null.
+  For a living thing: "Educational, not medical advice." on the first part.
+- steps: 3 to 6 short, safe steps taking it apart (for a living thing: how it works, in order), each naming the ids involved.
+- No marketing language.`;
+
+/** POST /api/enrich: the longer text, safety notes and steps for a sketched parts list, at the normal parts-list effort. */
+export async function enrichLive(req: EnrichRequest): Promise<EnrichResponse> {
+  const ids = req.parts.map((p) => p.id);
+  const user =
+    `Object: ${req.name} (${safeId(req.object_id)})\nParts:\n` +
+    req.parts.map((p) => `- ${p.id}: ${p.name}${p.summary ? `. ${p.summary}` : ''}`).join('\n') +
+    '\n\nWrite the JSON object only.';
+  const model = anthropicModel();
+  const effort = anthropicEffort('teardown');
+  const msg = await logged(`enrich ${safeId(req.object_id)}`, model, effort, () =>
+    getClient().messages.create({
+      model,
+      // ~1-2k tokens of JSON plus medium-effort thinking.
+      max_tokens: 12000,
+      ...effortConfig(effort),
+      system: ENRICH_SYSTEM,
+      messages: [{ role: 'user', content: user }],
+    }),
+  );
+  const text = textOf(msg);
+  let raw: unknown;
+  try {
+    raw = extractJson(text);
+  } catch {
+    raw = salvageJson(text);
+  }
+  const out = cleanEnrichment(raw, ids);
+  if (out.parts.length === 0 && out.steps.length === 0) throw new Error('enrich reply had no usable parts or steps');
+  return out;
 }

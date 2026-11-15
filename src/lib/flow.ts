@@ -12,7 +12,9 @@ import { stageTeardownFor } from '../stage/armTeardown';
 import { setBusyText } from '../hud/hudStore';
 import { centreDistance, centreRegion, inCentre, pinObject, pinnedIdent, unpinObject } from '../detect/centre';
 import { scanIdent } from '../detect/scan';
-import { findSaved, keptTeardown, mayKeepPicture, noteAnalysedShot, saveOpened, savedItems, type SavedItem } from './saved';
+import { findSaved, keptTeardown, mayKeepPicture, noteAnalysedShot, patchKeptTeardown, saveOpened, savedItems, type SavedItem } from './saved';
+import { mergeEnrichment, needsDetails, type EnrichResponse } from '../../shared/sketch';
+import { SKETCH_ON, fetchDetails, isMockBottle, sketchLook, type LookResult } from './look';
 
 /**
  * How long "analyse this" waits for Claude to name a detected object before it goes on with the
@@ -103,6 +105,10 @@ export function describeTeardown(td: Teardown): string {
     }).`,
     `Parts (use these ids with highlight_part):\n${parts}`,
     steps ? `Steps (use show_step with n):\n${steps}` : '',
+    // #124: a solid sketch shows first; its longer text and steps follow (enrichInBackground).
+    needsDetails(td)
+      ? 'The longer explanations and the steps are still being written: answer from the one-sentence summaries, and if asked for more, say more detail is coming in a moment.'
+      : '',
     // #96: short by default; this is background for questions, not a cue to talk.
     'For questions only: do not describe these parts or steps unless the user asks.',
   ]
@@ -170,6 +176,13 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
       : null;
   if (!reopen) noteAnalysedShot(target.id, shot);
 
+  // #124: anything that is not stored gets one look first: its name and a solid model in seconds, the
+  // details afterwards. Nothing usable (off, failed, timed out, no key): the old way below, unchanged.
+  const look = await lookStep(target, kind, shot, reopen !== null);
+  if (stale()) return { ok: false, message: 'Cancelled.' };
+  if (look.kind === 'down') return fail(SERVER_DOWN_MESSAGE);
+  if (look.kind === 'solid' || look.kind === 'checked') return openLook(target, look, kind, myRun, fail);
+
   // 1. Identify. The detector's label gives a first guess (shared/demo.ts).
   const guess = mockIdentify(target.label, kind);
   let ident: IdentifyResponse = guess;
@@ -228,7 +241,9 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   voiceBridge.sendContextualUpdate(describeTeardown(td));
 
   // 4. Real meshes in the background. Not for hands: the hand overlay draws from landmarks and ignores mesh_url.
-  if (td.anchor !== 'hand') void generateMeshes(td, myRun, reopen !== null);
+  // Not for a solid sketch (#124: drawn as solids, no fal); a kept one still without its details gets them now.
+  if (td.anchor !== 'hand' && td.layout !== 'solid') void generateMeshes(td, myRun, reopen !== null);
+  if (needsDetails(td)) void enrichInBackground(td);
 
   // 5. A cached object opened from its label: what Claude says it is, when it answers (#84).
   if (background) {
@@ -274,6 +289,18 @@ async function analyseCentre(): Promise<ExplodeResult> {
   setBusyText(null);
   useStore.getState().setTeardownStatus('loading');
 
+  // #124: one look names it and gives its solid model; anything unusable goes the old way below.
+  centreFellBack = false;
+  if (SKETCH_ON) {
+    const look = await sketchLook(crop, { lens: 'engineering' });
+    if (stale()) return { ok: false, message: 'Cancelled.' };
+    if (look.kind === 'down') return fail(SERVER_DOWN_MESSAGE);
+    if (look.kind === 'mock') return fail(CENTRE_NO_CLAUDE);
+    if (look.kind === 'unknown') return fail(CENTRE_UNKNOWN);
+    if ((look.kind === 'solid' || look.kind === 'checked') && isNamed(look.ident)) return openCentreLook(region, look);
+    centreFellBack = true; // the pinned object below is not sketched again
+  }
+
   let ident: Awaited<ReturnType<typeof api.identify>>;
   try {
     // No hint: there is no detector label. The lens is only a hint too; Claude decides.
@@ -301,6 +328,128 @@ async function analyseCentre(): Promise<ExplodeResult> {
     if (s.selectedObjectId === obj.id) s.selectObject(null);
   }
   return result;
+}
+
+/* ---------- one look (#124) ---------- */
+
+/** A look already taken for a pinned scene object (the centre path), used by its runExplode. */
+const presketched = new Map<string, LookResult>();
+/** Scene objects already sketched, by scene id -> object_id: looked at again, the server answers from its kept sketch. */
+const looked = new Map<string, string>();
+/** The centre path's look gave nothing usable and it went the old way: its pinned object is not sketched again. */
+let centreFellBack = false;
+/** Details being fetched, by object_id (one at a time each). */
+const enriching = new Set<string>();
+
+/** runExplode's look: a box object that is not stored (and not a saved model coming back) is sketched. */
+async function lookStep(target: SceneObject, kind: Lens, shot: string | null, reopened: boolean): Promise<LookResult> {
+  const pre = presketched.get(target.id);
+  if (pre) {
+    presketched.delete(target.id);
+    return pre;
+  }
+  const pinned = pinnedIdent(target.id);
+  if (pinned && centreFellBack) {
+    centreFellBack = false;
+    return { kind: 'none' };
+  }
+  if (!SKETCH_ON || reopened || target.anchor !== 'box' || kind === 'biology') return { kind: 'none' };
+  const storedGuess = isDemoObject(mockIdentify(target.label, kind).object_id);
+  // a name the centre path or the whole-view scan (#122) already gave it: the sketch's hint
+  const named = pinned ?? scanIdent(target, storedGuess);
+  if (storedGuess || (named && isDemoObject(named.object_id))) return { kind: 'none' };
+  const mockBottle = isMockBottle(target);
+  const crop = mockBottle ? null : shot ?? useStore.getState().camera?.captureCrop(target.box) ?? null;
+  return sketchLook(crop, {
+    // a name Claude (or the scan) already gave it, else the detector's label
+    hint: named?.name ?? target.name ?? target.label,
+    objectId: named?.object_id ?? looked.get(target.id),
+    lens: kind,
+    mockBottle,
+  });
+}
+
+/** Show what the look found: the solid sketch at once (details in the background), or a checked object's stored list. */
+async function openLook(
+  target: SceneObject,
+  look: Extract<LookResult, { kind: 'solid' | 'checked' }>,
+  kind: Lens,
+  myRun: number,
+  fail: (message: string) => ExplodeResult,
+): Promise<ExplodeResult> {
+  let td: Teardown;
+  if (look.kind === 'solid') {
+    td = look.td;
+    looked.set(target.id, td.object_id);
+  } else {
+    try {
+      td = await api.teardown({ object_id: look.ident.object_id, name: look.ident.name, lens: kind });
+    } catch (err) {
+      console.warn(`[flow] teardown for ${look.ident.object_id} failed`, err);
+      return fail(teardownFailMessage(err, look.ident.name));
+    }
+    if (myRun !== runId) return { ok: false, message: 'Cancelled.' };
+  }
+  const s = useStore.getState();
+  s.patchObject(target.id, { name: td.name });
+  explodedSceneId = target.id;
+  explodedTarget = target;
+  s.setTeardown(td);
+  s.setExplode(1);
+  voiceBridge.sendContextualUpdate(describeTeardown(td));
+  if (needsDetails(td)) void enrichInBackground(td);
+  else if (td.anchor !== 'hand' && td.layout !== 'solid') void generateMeshes(td, myRun);
+  return { ok: true, message: `Exploded ${td.name}: ${td.parts.length} parts.` };
+}
+
+/** The centre path's look was usable: pin the thing where the crop was and open it as any other object. */
+async function openCentreLook(region: ReturnType<typeof centreRegion>, look: Extract<LookResult, { kind: 'solid' | 'checked' }>): Promise<ExplodeResult> {
+  const obj = pinObject(region, look.ident);
+  presketched.set(obj.id, look);
+  if (inFlight && inFlight.sceneId === CENTRE_SCAN) inFlight.sceneId = obj.id;
+  const result = await runExplode(obj);
+  presketched.delete(obj.id);
+  if (!result.ok) {
+    unpinObject(obj.id);
+    const s = useStore.getState();
+    if (s.selectedObjectId === obj.id) s.selectObject(null);
+  }
+  return result;
+}
+
+/**
+ * The details afterwards (#124): POST /api/enrich, then merged into the open list if the same thing is
+ * still open (the tutor is told), and into its kept copy if it was saved meanwhile. A failure keeps the
+ * one-sentence summaries.
+ */
+async function enrichInBackground(td: Teardown): Promise<void> {
+  if (enriching.has(td.object_id)) return;
+  enriching.add(td.object_id);
+  const started = performance.now();
+  try {
+    const enr = await fetchDetails(td);
+    console.info(`[flow] details for ${td.object_id} in ${((performance.now() - started) / 1000).toFixed(1)} s`);
+    applyEnrichment(td.object_id, enr);
+  } catch (err) {
+    console.warn(`[flow] details for ${td.object_id} failed; keeping the summaries`, err);
+  } finally {
+    enriching.delete(td.object_id);
+  }
+}
+
+function applyEnrichment(objectId: string, enr: EnrichResponse): void {
+  const open = useStore.getState().teardown;
+  if (open && open.object_id === objectId && open.layout === 'solid') {
+    const merged = mergeEnrichment(open, enr);
+    // Only the parts list changes: the status, explode amount, highlight and step stay as they are.
+    useStore.setState({ teardown: merged });
+    voiceBridge.sendContextualUpdate(
+      `The details for the ${merged.name} have arrived: each part now has a longer explanation${
+        merged.steps.length ? `, and there are ${merged.steps.length} steps` : ''
+      }.\n\n${describeTeardown(merged)}`,
+    );
+  }
+  patchKeptTeardown(objectId, (kept) => (kept.layout === 'solid' ? mergeEnrichment(kept, enr) : kept));
 }
 
 /**

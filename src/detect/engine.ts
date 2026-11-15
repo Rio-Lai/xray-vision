@@ -27,7 +27,7 @@ import { DetectorTiming, LITE2_MAX_MS } from './detectorTiming';
 import type { RawDetection } from './objectTracker';
 import { HandTracker, handTuning } from './handTracker';
 import type { RawHand } from './handTracker';
-import { mockFace, mockHandLandmarks, mockLaptop, mockPhone } from './mock';
+import { mockBottle, mockFace, mockHandLandmarks, mockLaptop, mockPhone } from './mock';
 import { FaceTracker, blendshapeMap, measureFace } from './faceTracker';
 import type { FaceFocus, FaceMeasure } from './faceTracker';
 import { pinnedObjects } from './centre';
@@ -441,7 +441,9 @@ export function createDetectionEngine(): DetectionEngine {
     } else if (MOCK_MODE) {
       const handInCentre = MOCK_SCENE === 'hand';
       const eyeScene = MOCK_SCENE === 'eye';
-      engObjects = [mockLaptop(!handInCentre && !eyeScene), mockPhone()];
+      const bottleScene = MOCK_SCENE === 'bottle';
+      // #124: the bottle (not stored) on the right, or in the middle with ?mock=bottle
+      engObjects = [mockLaptop(!handInCentre && !eyeScene && !bottleScene), mockPhone(), mockBottle(bottleScene)];
       const lm = mockHandLandmarks(now, handInCentre ? 0 : 0.3);
       handTracker.update([{ handedness: 'right', score: 0.99, landmarks: lm }], now, fw, fh);
       // ?mock=eye: a face in the middle of the view (its eyes are "this").

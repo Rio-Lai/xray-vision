@@ -30,6 +30,18 @@ export function anthropicEffort(call: 'identify' | 'teardown' | 'scan'): Anthrop
 }
 
 /**
+ * #124, POST /api/sketch (one look -> a solid model in seconds): ANTHROPIC_SKETCH_MODEL (default the main
+ * model) at ANTHROPIC_SKETCH_EFFORT (default low; "none" sends no effort). The details afterwards
+ * (POST /api/enrich) use the normal parts-list model and effort (ANTHROPIC_MODEL, ANTHROPIC_EFFORT).
+ */
+export const anthropicSketchModel = () => process.env.ANTHROPIC_SKETCH_MODEL?.trim() || anthropicModel();
+export function anthropicSketchEffort(): AnthropicEffort | 'none' {
+  const raw = (process.env.ANTHROPIC_SKETCH_EFFORT ?? '').trim().toLowerCase();
+  if (raw === 'none') return 'none';
+  return (EFFORTS as readonly string[]).includes(raw) ? (raw as AnthropicEffort) : 'low';
+}
+
+/**
  * Ports. This is the ONE place the defaults live: server/index.ts, server/lib/preflight.ts and
  * vite.config.ts (its /api proxy) all read them from here.
  *
