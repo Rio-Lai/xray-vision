@@ -29,6 +29,7 @@ import { shortName } from './names';
 import { SavedRow } from './SavedRow';
 import { savedAgo, useSaved } from '../lib/saved';
 import { modelOnStage } from '../overlay/stageState';
+import { openReport } from '../overlay/liftOut';
 
 /** #109: a model lifting out of its object shows the title once it has arrived, or after this at the latest (ms). */
 const TITLE_LATE_MS = 2500;
@@ -425,6 +426,7 @@ function DebugPanel() {
   );
   if (st.detector) lines.push(st.detector);
   lines.push(scanDebugLine(performance.now()));
+  lines.push(openReport.text || 'last open: none yet (longest frame gap in the 2 s after a model is asked for, warm/cold: #125)');
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
   const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} zoom ${zoom.toFixed(2)} pan ${panX.toFixed(2)}, ${panY.toFixed(2)} | input ${modelControl.describe()}`);

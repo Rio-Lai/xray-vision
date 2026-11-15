@@ -6,6 +6,7 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { armGeometry, blendFrames, namedPoint, type ArmGeometry, type Frame } from './frames';
 import { limbRadius, placements, SPREAD_FOR_SLIPS, type Anchor, type Placement } from './placement';
 import { FINGERS, type ArmFrame, type ArmTeardown, type FingerId, type Keystroke } from './types';
@@ -74,6 +75,52 @@ function samePoints(a: ArmGeometry, b: ArmGeometry): boolean {
 const LAYERS = [1, 2, 3, 4, 5, 6];
 const BASE = '/cache/arm-hand/';
 const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+
+/**
+ * Optional preload hook (#125, added by the overlay): parsed GLBs by URL, shared by every mount (a
+ * mount copies the geometry it uses and never disposes these), so preloadArmMeshes() can parse them
+ * ahead of time, one per slice, and a mount does not wait for 26 files.
+ */
+const gltfCache = new Map<string, Promise<GLTF>>();
+let gltfLoader: GLTFLoader | null = null;
+let preloaded = false;
+
+function loadArmGlb(url: string): Promise<GLTF> {
+  let p = gltfCache.get(url);
+  if (!p) {
+    gltfLoader ??= new GLTFLoader();
+    const q = gltfLoader.loadAsync(url);
+    q.catch(() => {
+      if (gltfCache.get(url) === q) gltfCache.delete(url); // tried again on the next mount
+    });
+    gltfCache.set(url, q);
+    p = q;
+  }
+  return p;
+}
+
+/** Parse every model the arm uses, waiting for `slice()` before each one. Returns how many loaded. */
+export async function preloadArmMeshes(slice: () => Promise<void>, isCancelled: () => boolean = () => false): Promise<number> {
+  const wanted = [...new Set(placements().map((p) => p.mesh))];
+  let n = 0;
+  for (const id of wanted) {
+    await slice();
+    if (isCancelled()) return n;
+    try {
+      await loadArmGlb(`${BASE}${id}.glb`);
+      n += 1;
+    } catch {
+      /* loaded again on mount */
+    }
+  }
+  preloaded = n === wanted.length;
+  return n;
+}
+
+/** Have all the arm's models been parsed ahead of time? */
+export function armMeshesPreloaded(): boolean {
+  return preloaded;
+}
 
 /** Exponential moving average of landmarks, so the overlay does not jitter. */
 export class LandmarkSmoother {
@@ -158,14 +205,13 @@ export class ArmXray {
 
   private async load() {
     this.info = await fetch(`${BASE}meshes.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-    const loader = new GLTFLoader();
     const pls = placements();
     const wanted = [...new Set(pls.map((p) => p.mesh))];
     const geoms = new Map<string, { geo: THREE.BufferGeometry; map: THREE.Texture | null }>();
     await Promise.all(
       wanted.map(async (id) => {
         try {
-          const gltf = await loader.loadAsync(`${BASE}${id}.glb`);
+          const gltf = await loadArmGlb(`${BASE}${id}.glb`);
           let found: THREE.Mesh | null = null;
           gltf.scene.traverse((o) => {
             if (!found && (o as THREE.Mesh).isMesh) found = o as THREE.Mesh;
