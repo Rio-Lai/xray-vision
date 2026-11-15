@@ -16,8 +16,38 @@ const HL_LOCAL = '/models/hand_landmarker.task';
 const HL_REMOTE =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
-/** COCO classes worth tracking for the engineering lens. */
-export const USEFUL_CLASSES = ['laptop', 'cell phone', 'keyboard', 'mouse', 'cup', 'bottle', 'book', 'remote', 'tv'];
+/**
+ * COCO classes worth labelling: everyday things that could be on a desk or handed over by a judge
+ * (#80). Not `person` (the room would be covered in labels), not furniture that fills the view
+ * (dining table, couch, bed), and not chairs, plants or umbrellas: in a room full of them a background
+ * box at the centre of the view would take "this" away from the thing the wearer is holding up. Friendly names for each: src/hud/names.ts.
+ */
+export const USEFUL_CLASSES = [
+  'laptop',
+  'cell phone',
+  'keyboard',
+  'mouse',
+  'remote',
+  'tv',
+  'book',
+  'clock',
+  'scissors',
+  'cup',
+  'bottle',
+  'bowl',
+  'fork',
+  'knife',
+  'spoon',
+  'banana',
+  'apple',
+  'orange',
+  'backpack',
+  'handbag',
+  'vase',
+  'teddy bear',
+  'toothbrush',
+  'sports ball',
+];
 
 export interface VisionTasks {
   objects: ObjectDetector | null;
@@ -91,7 +121,8 @@ export async function loadVisionTasks(): Promise<VisionTasks> {
       baseOptions: odBuf ? { modelAssetBuffer: odBuf.slice(), delegate } : { modelAssetPath: OD_REMOTE, delegate },
       runningMode: 'VIDEO',
       scoreThreshold: 0.4,
-      maxResults: 6,
+      // More classes means more boxes in a busy room; the view still shows at most four labels.
+      maxResults: 10,
       categoryAllowlist: USEFUL_CLASSES,
     }),
   );

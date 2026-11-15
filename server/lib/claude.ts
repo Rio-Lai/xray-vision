@@ -33,8 +33,10 @@ const getClient = () => {
  * Identify answers quickly or not at all, with no retry: "analyse this" stops waiting after 4 s and
  * goes on with the detector's label (IDENTIFY_TIMEOUT_MS in src/lib/flow.ts, #84). A little longer
  * here so the client's limit decides; on a time-out the route answers with the label (fallback).
+ * With no label (the middle of the view, nothing detected there, #80) the client waits up to 12 s
+ * (CENTRE_IDENTIFY_TIMEOUT_MS), so this stops just before it and the client gets the fallback.
  */
-const IDENTIFY_REQUEST = { timeout: 5_000, maxRetries: 0 };
+const identifyRequest = (req: IdentifyRequest) => ({ timeout: req.hint ? 5_000 : 11_000, maxRetries: 0 });
 
 type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -135,7 +137,9 @@ export async function identifyLive(req: IdentifyRequest): Promise<IdentifyRespon
     .map((o) => `- ${o.object_id}: ${o.name}`)
     .join('\n');
   const prompt = [
-    req.hint ? `The on-device detector thinks this is: "${req.hint}".` : '',
+    req.hint
+      ? `The on-device detector thinks this is: "${req.hint}".`
+      : 'This is the middle of the wearer\'s view; the on-device detector found nothing there. Name the main thing in it. If there is no clear object, use object_id "unknown" and confidence 0.',
     known
       ? `Objects we already have checked teardowns for. If the object plausibly matches one, use its object_id exactly (the M2 and M3 13-inch MacBook Air look the same from outside):\n${known}`
       : '',
@@ -159,7 +163,7 @@ export async function identifyLive(req: IdentifyRequest): Promise<IdentifyRespon
         ],
       },
     ],
-  }, IDENTIFY_REQUEST);
+  }, identifyRequest(req));
 
   const raw = extractJson(textOf(msg)) as Record<string, unknown>;
   const conf = Number(raw.confidence);
