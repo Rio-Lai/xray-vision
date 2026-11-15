@@ -1,0 +1,363 @@
+{
+  "object_id": "iphone-17-pro",
+  "name": "iPhone 17 Pro (Cosmic Orange)",
+  "lens": "engineering",
+  "anchor": "box",
+  "explode_axis": "z",
+  "source": "cached",
+  "parts": [
+    {
+      "id": "display",
+      "name": "OLED display (Super Retina XDR, Ceramic Shield 2)",
+      "layer": 0,
+      "size": [
+        0.981,
+        0.991,
+        0.018
+      ],
+      "offset": [
+        0.0,
+        0.0
+      ],
+      "shape": "board",
+      "color": "#111111",
+      "summary": "The 6.3-inch ProMotion OLED touchscreen you see and tap, under Ceramic Shield 2 glass.",
+      "details": "An OLED panel makes its own light pixel by pixel, so blacks are truly black. ProMotion refreshes up to 120 times a second and can drop to 1 Hz for the Always-On display. The Dynamic Island is a pill-shaped cut-out for the front camera and Face ID.",
+      "safety": "Cracked glass can cut, and the OLED is fused to the glass, so the whole display assembly is replaced together.",
+      "mesh_url": "/cache/meshes/iphone-17-pro/display.glb"
+    },
+    {
+      "id": "face-id",
+      "name": "Face ID TrueDepth camera module",
+      "layer": 1,
+      "size": [
+        0.306,
+        0.04,
+        0.033
+      ],
+      "offset": [
+        0.0,
+        -0.443
+      ],
+      "shape": "box",
+      "color": "#2b2b2b",
+      "summary": "Projects thousands of invisible dots onto your face to recognise you.",
+      "details": "A dot projector, an infrared camera and a flood illuminator build a depth map of your face. It is paired to the logic board, so a swapped module will not unlock the phone.",
+      "safety": "The dot projector uses an infrared laser; never power it with the module damaged or opened.",
+      "mesh_url": "/cache/meshes/iphone-17-pro/face-id.glb"
+    },
+    {
+      "id": "vapour-chamber",
+      "name": "vapour chamber cooling plate",
+      "layer": 2,
+      "size": [
+        0.807,
+        0.413,
+        0.007
+      ],
+      "offset": [
+        0.0,
+        -0.147
+      ],
+      "shape": "board",
+      "color": "#b87333",
+      "summary": "A sealed copper plate with a drop of water inside that carries heat away from the chip.",
+      "details": "New on the 17 Pro and laser-welded to the aluminium frame. The water boils at the hot spot over the A19 Pro, the vapour spreads and condenses on the cooler metal, and the heat flows out into the unibody.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/vapour-chamber.glb"
+    },
+    {
+      "id": "frame",
+      "name": "aluminium unibody with camera plateau",
+      "layer": 3,
+      "size": [
+        1.0,
+        1.0,
+        0.122
+      ],
+      "offset": [
+        0.0,
+        0.0
+      ],
+      "shape": "box",
+      "color": "#e8611f",
+      "summary": "The forged aluminium body in Cosmic Orange that holds everything and spreads heat.",
+      "details": "The 17 Pro returns to aluminium: one heat-forged unibody, including the full-width camera plateau that houses the cameras, the logic board and the antennas. Aluminium conducts heat far better than titanium, which helps sustained performance.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/frame.glb"
+    },
+    {
+      "id": "logic-board",
+      "name": "logic board with A19 Pro chip",
+      "layer": 4,
+      "size": [
+        0.459,
+        0.18,
+        0.022
+      ],
+      "offset": [
+        -0.202,
+        -0.347
+      ],
+      "shape": "board",
+      "color": "#1f5f3f",
+      "summary": "The phone's brain: A19 Pro processor, memory, storage and modems, tucked under the camera plateau.",
+      "details": "The A19 Pro combines a 6-core CPU, 6-core GPU with neural accelerators and the Neural Engine. Moving the board up under the plateau frees space below for a bigger battery.",
+      "safety": "Static-sensitive. Parts are serialised to the board, so swaps can lose features.",
+      "mesh_url": "/cache/meshes/iphone-17-pro/logic-board.glb"
+    },
+    {
+      "id": "battery",
+      "name": "lithium-ion battery in metal tray",
+      "layer": 5,
+      "size": [
+        0.834,
+        0.5,
+        0.054
+      ],
+      "offset": [
+        0.0,
+        0.133
+      ],
+      "shape": "box",
+      "color": "#9a9a9a",
+      "summary": "Stores the energy that powers the phone; the biggest single part inside.",
+      "details": "A lithium-ion cell in a thin steel enclosure that helps it shed heat. Stretch-release adhesive strips hold it in, so it can be removed without prying.",
+      "safety": "Never puncture, bend or heat it: a damaged lithium-ion cell can catch fire. Disconnect it before working inside.",
+      "mesh_url": "/cache/meshes/iphone-17-pro/battery.glb"
+    },
+    {
+      "id": "taptic-engine",
+      "name": "Taptic Engine vibration motor",
+      "layer": 6,
+      "size": [
+        0.376,
+        0.057,
+        0.047
+      ],
+      "offset": [
+        -0.236,
+        0.417
+      ],
+      "shape": "box",
+      "color": "#555555",
+      "summary": "Makes the clicks and buzzes you feel.",
+      "details": "A linear motor moves a small weight back and forth on a spring. Precise control lets it fake button clicks, keyboard taps and the feel of Camera Control.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/taptic-engine.glb"
+    },
+    {
+      "id": "usb-c",
+      "name": "USB-C port",
+      "layer": 6,
+      "size": [
+        0.167,
+        0.033,
+        0.045
+      ],
+      "offset": [
+        0.0,
+        0.47
+      ],
+      "shape": "box",
+      "color": "#777777",
+      "summary": "Charging and data connection, with USB 3 speeds on the Pro.",
+      "details": "Up to 10 Gb/s data and fast wired charging. It sits on a flex cable that also carries the bottom microphones.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/usb-c.glb"
+    },
+    {
+      "id": "speaker",
+      "name": "loudspeaker",
+      "layer": 6,
+      "size": [
+        0.25,
+        0.06,
+        0.047
+      ],
+      "offset": [
+        0.264,
+        0.427
+      ],
+      "shape": "box",
+      "color": "#444444",
+      "summary": "Plays sound through the grille at the bottom edge.",
+      "details": "Works with the earpiece speaker at the top for stereo sound.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/speaker.glb"
+    },
+    {
+      "id": "main-camera-sensor",
+      "name": "48 MP main sensor with sensor-shift stabiliser",
+      "layer": 7,
+      "size": [
+        0.2,
+        0.096,
+        0.035
+      ],
+      "offset": [
+        0.313,
+        -0.421
+      ],
+      "shape": "box",
+      "color": "#3a3b40",
+      "summary": "The large 48 MP sensor that turns light into the photo, on a stage that moves to cancel hand shake.",
+      "details": "Each pixel measures light through a red, green or blue filter; the IR-cut filter above it blocks invisible infrared. Sensor-shift stabilisation floats the whole sensor on magnets and four copper coils, moving it thousands of times a second against your hand movements.",
+      "safety": "The sensor and its stabiliser are delicate; never press on the lens.",
+      "mesh_url": "/cache/meshes/iphone-17-pro/main-camera-sensor.glb"
+    },
+    {
+      "id": "telephoto-camera",
+      "name": "4x tetraprism telephoto camera",
+      "layer": 7,
+      "size": [
+        0.108,
+        0.16,
+        0.111
+      ],
+      "offset": [
+        0.129,
+        -0.31
+      ],
+      "shape": "box",
+      "color": "#20232a",
+      "summary": "Folds the light sideways with a glass prism, so a long zoom lens fits inside a thin phone.",
+      "details": "Light enters the lens, bounces four times inside the tetraprism and travels along a lens group lying flat inside the phone before reaching a sensor standing on its side. That long light path gives 4x optical zoom.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/telephoto-camera.glb"
+    },
+    {
+      "id": "ultra-wide-camera",
+      "name": "48 MP ultra wide camera",
+      "layer": 8,
+      "size": [
+        0.153,
+        0.073,
+        0.09
+      ],
+      "offset": [
+        0.313,
+        -0.319
+      ],
+      "shape": "box",
+      "color": "#20232a",
+      "summary": "A wide-angle lens with a strongly curved front element that sees a 120-degree view; also used for macro shots.",
+      "details": "Six aspheric elements bend light from a very wide field onto its own 48 MP sensor. Autofocus lets it focus as close as 2 cm for macro photos.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/ultra-wide-camera.glb"
+    },
+    {
+      "id": "main-camera-lens",
+      "name": "main camera lens (48 MP Fusion)",
+      "layer": 8,
+      "size": [
+        0.186,
+        0.089,
+        0.089
+      ],
+      "offset": [
+        0.313,
+        -0.421
+      ],
+      "shape": "box",
+      "color": "#0c0c0e",
+      "summary": "Seven precision glass and plastic elements that focus the image onto the main sensor.",
+      "details": "The elements are aspheric (not simple spheres) to keep the picture sharp to the corners. A voice-coil motor, a copper coil between magnets, moves the whole lens a fraction of a millimetre to focus.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/main-camera-lens.glb"
+    },
+    {
+      "id": "cameras",
+      "name": "camera rings, sapphire covers, flash and LiDAR",
+      "layer": 9,
+      "size": [
+        0.584,
+        0.213,
+        0.049
+      ],
+      "offset": [
+        0.223,
+        -0.373
+      ],
+      "shape": "box",
+      "color": "#222222",
+      "summary": "The outside of the camera system: anodised lens rings, sapphire crystal covers, True Tone flash and the LiDAR scanner.",
+      "details": "The telephoto folds light through a tetraprism for 4x optical zoom (8x optical-quality crop). The LiDAR scanner measures depth for portraits, low-light focus and AR.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/cameras.glb"
+    },
+    {
+      "id": "back",
+      "name": "Ceramic Shield rear glass panel",
+      "layer": 10,
+      "size": [
+        0.875,
+        0.7,
+        0.013
+      ],
+      "offset": [
+        0.0,
+        0.12
+      ],
+      "shape": "board",
+      "color": "#e46a2c",
+      "summary": "Back cover, with a glass window for wireless and MagSafe charging.",
+      "details": "Metal blocks wireless charging, so the aluminium back has a Ceramic Shield glass window, colour-matched in Cosmic Orange, over the MagSafe coil.",
+      "safety": null,
+      "mesh_url": "/cache/meshes/iphone-17-pro/back.glb"
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "text": "The display comes off the front first; Face ID sits just behind the Dynamic Island.",
+      "part_ids": [
+        "display",
+        "face-id"
+      ]
+    },
+    {
+      "n": 2,
+      "text": "Behind it, a copper vapour chamber spreads heat from the chip into the aluminium body.",
+      "part_ids": [
+        "vapour-chamber",
+        "frame"
+      ]
+    },
+    {
+      "n": 3,
+      "text": "The logic board with the A19 Pro is tucked up under the camera plateau.",
+      "part_ids": [
+        "logic-board"
+      ]
+    },
+    {
+      "n": 4,
+      "text": "That leaves room for a big battery filling the lower body.",
+      "part_ids": [
+        "battery"
+      ]
+    },
+    {
+      "n": 5,
+      "text": "Along the bottom edge: Taptic Engine, USB-C port and loudspeaker.",
+      "part_ids": [
+        "taptic-engine",
+        "usb-c",
+        "speaker"
+      ]
+    },
+    {
+      "n": 6,
+      "text": "At the back: three 48 MP cameras. The main one stabilises by moving its sensor, the telephoto folds light through a prism, and the glass back lets MagSafe charge through it.",
+      "part_ids": [
+        "main-camera-lens",
+        "main-camera-sensor",
+        "telephoto-camera",
+        "ultra-wide-camera",
+        "cameras",
+        "back"
+      ]
+    }
+  ]
+}
