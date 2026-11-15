@@ -1,7 +1,8 @@
 /**
  * Live gesture tuning, read every frame by the gesture driver. Change it with the sliders in the
  * debug panel (D): saved in localStorage, and URL params override (for a quick test on the rig):
- *   ?pinch=0.25&unpinch=0.4&hold=70&rot=1.1&spread=0.9&burst=1&twohand=0&gestures=0
+ *   ?pinch=0.25&unpinch=0.4&hold=100&rot=1.1&spread=0.9&burst=1&twohand=0&gestures=0
+ *   &typingms=1500&resthand=0.22 (which hands may gesture, #107; typingms=0 turns the typing rule off)
  */
 import { urlNumber } from '../camera/frame';
 import { GESTURE_TUNING_DEFAULTS } from './gestures';
@@ -39,6 +40,8 @@ function load(): GestureTuning {
   t.holdMs = urlNumber('hold', t.holdMs);
   t.rotGain = urlNumber('rot', t.rotGain);
   t.spreadGain = urlNumber('spread', t.spreadGain);
+  t.typingMs = urlNumber('typingms', t.typingMs);
+  t.restHandMax = urlNumber('resthand', t.restHandMax);
   t.burst = urlBool('burst') ?? t.burst;
   t.twoHand = urlBool('twohand') ?? t.twoHand;
   t.enabled = urlBool('gestures') ?? t.enabled;
@@ -60,6 +63,7 @@ export function setGestureTuning(patch: Partial<GestureTuning>): void {
 export function gestureTuningUrl(t: GestureTuning): string {
   return (
     `pinch=${t.pinchOn.toFixed(2)}&unpinch=${t.pinchOff.toFixed(2)}&hold=${Math.round(t.holdMs)}` +
-    `&rot=${t.rotGain.toFixed(2)}&spread=${t.spreadGain.toFixed(2)}&burst=${t.burst ? 1 : 0}&twohand=${t.twoHand ? 1 : 0}`
+    `&rot=${t.rotGain.toFixed(2)}&spread=${t.spreadGain.toFixed(2)}&burst=${t.burst ? 1 : 0}&twohand=${t.twoHand ? 1 : 0}` +
+    `&typingms=${Math.round(t.typingMs)}&resthand=${t.restHandMax.toFixed(2)}`
   );
 }

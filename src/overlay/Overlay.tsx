@@ -6,7 +6,9 @@
  *
  * Stage mode (the default): the box rig lifts the model out of the object and floats it in the
  * middle of the view, turned by store.modelYaw / modelPitch, plus a very slow idle drift once
- * nothing has touched it for IDLE_MS. "Put it away" (reset) glides it back into its object.
+ * nothing has touched it for IDLE_MS. Its models are flat: the drift sways it to and fro about the
+ * face it shows, and its yaw never goes past FLAT_YAW_LIMIT (src/stage/turnLimit.ts, #107).
+ * "Put it away" (reset) glides it back into its object.
  * A hand on stage is Kash's 3D arm (flow.ts swaps in its parts list, src/stage/armTeardown.ts):
  * ArmStage.tsx draws it in the middle of the view with its own renderer and labels, while the
  * landmark-drawn tendons keep following the real hand here (the live preview, lit by key presses).
@@ -34,6 +36,7 @@ import type { LabelItem, StackBounds } from './labels';
 import { ObjectLabelLayer } from './objectLabels';
 import { preloadTeardownMeshes } from './glbCache';
 import { modelControl } from '../stage/modelControl';
+import { FLAT_YAW_LIMIT, faceNear, faceOf, stageYawOffset } from '../stage/turnLimit';
 import { gestureLive } from '../detect/gestureDriver';
 import { PinchDotLayer } from './pinchDots';
 import { hasPartMeshes } from './stageState';
@@ -53,8 +56,10 @@ const DWELL_ENABLED = urlFlag('dwell');
 const PRELOAD_DELAY_MS = 2500;
 /** Stage: the model starts turning slowly by itself after this long without any input... */
 const IDLE_MS = 4000;
-/** ...at this speed (rad/s): a full turn a minute. */
+/** ...at this speed (rad/s)... */
 const IDLE_SPIN = 0.1;
+/** ...to and fro, up to this far either side of the face it shows (radians). */
+const IDLE_SWAY = (35 * Math.PI) / 180;
 
 function teardownSignature(td: Teardown): string {
   return [
@@ -99,6 +104,9 @@ class OverlayEngine {
   private retiringStage = false;
   /** Stage idle drift: extra yaw added to store.modelYaw, and what was last seen of the inputs. */
   private drift = 0;
+  /** Which way the idle sway is going, and the face (front or back) the model shows. */
+  private driftDir = 1;
+  private face = 0;
   private seenYaw = 0;
   private seenPitch = 0;
   private seenExplode = 0;
@@ -236,6 +244,8 @@ class OverlayEngine {
     this.boxRig = new BoxRig(td, this.scene, { meshOnly: td.anchor === 'hand' });
     this.rigObjectId = s.selectedObjectId ?? s.focusedObjectId;
     this.drift = 0;
+    this.driftDir = 1;
+    this.face = faceOf(s.modelYaw);
     this.lastInput = performance.now();
     this.boxRig.syncMeshes(td);
   }
@@ -269,7 +279,12 @@ class OverlayEngine {
     return { cx: b.x + b.w / 2, cy: b.y + b.h / 2, w: b.w, h: b.h };
   }
 
-  /** Stage: yaw target with the idle drift (after IDLE_MS without input; any input stops it). */
+  /**
+   * Stage: yaw target with the idle drift (after IDLE_MS without input; any input stops it). The
+   * box rig's models are flat: the drift sways about the face shown, and the yaw is held within
+   * FLAT_YAW_LIMIT of it whatever turned it (the excess goes into the drift, so a turn back answers
+   * at once). Inputs are limited before they reach the store (turnLimit.ts); this is the backstop.
+   */
   private stageYaw(s: AppState, now: number, dt: number): number {
     if (
       s.modelYaw !== this.seenYaw ||
@@ -282,8 +297,18 @@ class OverlayEngine {
       this.seenPitch = s.modelPitch;
       this.seenExplode = s.explodeAmount;
     }
-    if (now - this.lastInput > IDLE_MS) this.drift += IDLE_SPIN * dt;
-    return s.modelYaw + this.drift;
+    let yaw = s.modelYaw + this.drift;
+    this.face = faceNear(yaw, this.face);
+    if (now - this.lastInput > IDLE_MS) {
+      if (yaw - this.face > IDLE_SWAY) this.driftDir = -1;
+      else if (yaw - this.face < -IDLE_SWAY) this.driftDir = 1;
+      this.drift += this.driftDir * IDLE_SPIN * dt;
+      yaw = s.modelYaw + this.drift;
+    }
+    const held = Math.min(this.face + FLAT_YAW_LIMIT, Math.max(this.face - FLAT_YAW_LIMIT, yaw));
+    this.drift += held - yaw;
+    stageYawOffset.value = this.drift;
+    return held;
   }
 
   /** true while the floating model is gliding back into its object after "put it away". */
@@ -335,6 +360,7 @@ class OverlayEngine {
     this.lastNow = now;
     this.resize();
     const s = useStore.getState();
+    stageYawOffset.value = 0; // set again by stageYaw while a box-rig model is on stage
     if (s.teardown !== this.teardownRef) this.onTeardown(s.teardown);
     const td = s.teardown;
     this.syncHandRig(td, s);
