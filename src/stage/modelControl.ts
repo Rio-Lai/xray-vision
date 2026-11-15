@@ -3,9 +3,11 @@
  * gestures): writes store.rotateModel / store.setExplode, keeps a little inertia after a drag is
  * let go (like spinning a globe), and remembers when anything was last touched, so the overlay's
  * idle drift waits for a few quiet seconds. Voice (rotate_model, explode) writes the store directly.
+ * Turns go through turnModel (turnLimit.ts): a flat model is soft-limited so it never rests edge-on.
  */
 import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
+import { turnModel } from './turnLimit';
 
 /** After a release the spin slows with this time constant (s). */
 const INERTIA_TAU_S = 0.38;
@@ -54,7 +56,7 @@ class ModelControl {
     const k = 0.45;
     this.vYaw += (dYaw / dt - this.vYaw) * k;
     this.vPitch += (dPitch / dt - this.vPitch) * k;
-    if (dYaw !== 0 || dPitch !== 0) s.rotateModel(dYaw, dPitch);
+    if (dYaw !== 0 || dPitch !== 0) turnModel(dYaw, dPitch, true);
   }
 
   /** The drag ended: keep turning a little, slowing down (inertia). */
@@ -104,7 +106,14 @@ class ModelControl {
     }
     if (!this.coasting) return;
     const dt = Math.min(0.1, Math.max(0, dtSec));
-    s.rotateModel(this.vYaw * dt, this.vPitch * dt);
+    const dy = this.vYaw * dt;
+    const dp = this.vPitch * dt;
+    if (turnModel(dy, dp, true)) {
+      // A flat model coasting into its limit: the spin dies there instead of pressing on.
+      const n = useStore.getState();
+      if (dy !== 0) this.vYaw *= Math.min(1, Math.max(0, (n.modelYaw - s.modelYaw) / dy));
+      if (dp !== 0) this.vPitch *= Math.min(1, Math.max(0, (n.modelPitch - s.modelPitch) / dp));
+    }
     const decay = Math.exp(-dt / INERTIA_TAU_S);
     this.vYaw *= decay;
     this.vPitch *= decay;
