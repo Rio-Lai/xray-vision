@@ -21,6 +21,8 @@ import { describeEyes } from '../detect/faceTracker';
 import { live } from '../detect/live';
 // #107 / #109: voice turns keep a flat model off edge-on, as the hands and the mouse do.
 import { voiceTurn } from '../stage/turnLimit';
+// ?detail=1 only: show_detail / detail_step / close_detail (without the flag they answer DETAIL_UNAVAILABLE and do nothing)
+import { DETAIL_ON, closeDetail, openDetail, setDetailStep } from '../lib/detail';
 
 // Kash's X-ray arm (public/cache/arm-hand) is the floating model for a hand on stage: flow.ts loads it as the hand's
 // parts list, so these tools work on it through the store like on any other object (src/stage/armTeardown.ts), and
@@ -96,6 +98,20 @@ function partNames(ids: string[]): string[] {
   return ids.map((id) => td.parts.find((p) => p.id === id)?.name).filter((n): n is string => Boolean(n));
 }
 
+/**
+ * The detail tools' answer without `?detail=1`: nothing to say, so a view without the flag never speaks about
+ * detail models even if the agent has the tools; the agent does what it would have done without them.
+ */
+const DETAIL_UNAVAILABLE = json({
+  ok: false,
+  unavailable: true,
+  present: 'Detail models are off in this view. Do what you would have done without this tool (explode, highlight_part or show_step) and do not mention detail models.',
+});
+
+/** How the agent presents a detail model (show_detail's `present`). */
+const DETAIL_PRESENT =
+  'Say the summary in one sentence, then for each step call detail_step with n 1, 2 and so on and say that step in one short sentence. Stop after the last step.';
+
 const tools: Record<ClientToolName, Tool> = {
   async get_scene() {
     const s = useStore.getState();
@@ -129,6 +145,16 @@ const tools: Record<ClientToolName, Tool> = {
       highlighted_part_id: s.highlightedPartId,
       active_step: s.activeStep,
       saved: describeSaved(),
+      // ?detail=1 only (the reply is unchanged without it)
+      ...(DETAIL_ON
+        ? {
+            detail: s.detail
+              ? { title: s.detail.title, steps: s.detail.steps.length, step: s.detailStep, source: s.detail.source === 'sample' ? 'Sample (test fixture)' : 'AI sketch' }
+              : s.detailStatus === 'loading'
+                ? { loading: s.detailTopic }
+                : null,
+          }
+        : {}),
     });
   },
 
@@ -318,6 +344,62 @@ const tools: Record<ClientToolName, Tool> = {
       return json({ ok: true, say: `Moved ${m[1]}.` });
     }
     return json({ ok: false, say: 'I can zoom in or out, move it left, right, up or down, or put it back in the middle.' });
+  },
+
+  // ?detail=1: "show me how the ... works", "what is the ... made of", "how is this made", "model the ...":
+  // a schematic model of that mechanism, material or process beside the model on stage (src/lib/detail.ts).
+  async show_detail(p) {
+    if (!DETAIL_ON) return DETAIL_UNAVAILABLE;
+    const topic = str(p, 'topic');
+    if (!topic) return 'topic is required: a few words saying what to model.';
+    const td = useStore.getState().teardown;
+    const partQ = str(p, 'part_id');
+    const part = partQ && td ? findPart(partQ) : null;
+    const res = await openDetail(topic, {
+      object: td ? shortName(td.name) : undefined,
+      part: part ? part.name : partQ?.replace(/-/g, ' '),
+      context: part ? part.summary : undefined,
+    });
+    // a newer show_detail (or close, or put away) took over while this one was built: nothing to say
+    if (!res.ok) return json(res.superseded ? { ok: false, superseded: true } : { ok: false, say: res.say });
+    const sc = res.scene;
+    return json({
+      ok: true,
+      // AI-made, never checked: the spoken line says so once (the ?detail=mock fixture is a "Sample:", not generated)
+      say: sc.source === 'sample' ? `${sc.title}.` : `${sc.title}. AI sketch.`,
+      summary: sc.summary,
+      steps: sc.steps.map((x) => x.say),
+      ...(sc.caveat ? { caveat: sc.caveat } : {}),
+      present: DETAIL_PRESENT,
+    });
+  },
+
+  async detail_step(p) {
+    if (!DETAIL_ON) return DETAIL_UNAVAILABLE;
+    const sc = useStore.getState().detail;
+    if (!sc) return json({ ok: false, say: 'No detail model is open.' });
+    const n = num(p, 'n');
+    if (n === undefined) return 'n is required.';
+    const k = Math.round(n);
+    if (!setDetailStep(k)) return `No step ${k}. There are ${sc.steps.length} steps.`;
+    const st = sc.steps[k - 1];
+    return json({
+      ok: true,
+      step: k,
+      of: sc.steps.length,
+      say: st.say,
+      focus: st.focus.map((id) => sc.parts.find((x) => x.id === id)?.name).filter((x): x is string => Boolean(x)),
+      present: k < sc.steps.length ? `Say this step in one short sentence, then call detail_step with n ${k + 1}.` : 'Say this step in one short sentence. That was the last step: stop.',
+    });
+  },
+
+  async close_detail() {
+    if (!DETAIL_ON) return DETAIL_UNAVAILABLE;
+    const s = useStore.getState();
+    if (!s.detail && s.detailStatus === 'idle') return json({ ok: true, say: 'Nothing to close.' });
+    closeDetail();
+    const td = useStore.getState().teardown;
+    return json({ ok: true, say: td ? `Back to the ${shortName(td.name)}.` : 'Closed.' });
   },
 
   async get_pose() {

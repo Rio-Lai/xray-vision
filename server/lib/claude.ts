@@ -20,7 +20,15 @@ import {
   type Teardown,
   type TeardownRequest,
 } from '../../shared/teardown';
-import { anthropicEffort, anthropicModel, anthropicSketchEffort, anthropicSketchModel, type AnthropicEffort } from './env';
+import {
+  anthropicDetailEffort,
+  anthropicDetailModel,
+  anthropicEffort,
+  anthropicModel,
+  anthropicSketchEffort,
+  anthropicSketchModel,
+  type AnthropicEffort,
+} from './env';
 import {
   SKETCH_EXAMPLES,
   SKETCH_MAX_PARTS,
@@ -32,6 +40,7 @@ import {
   type SketchOutcome,
   type SketchRequest,
 } from '../../shared/sketch';
+import { DETAIL_LIMITS, SAMPLE_DETAIL, parseDetail, type DetailRequest, type DetailScene } from '../../shared/detail';
 import { listCheckedObjects, safeId } from './cache';
 
 let client: Anthropic | null = null;
@@ -515,4 +524,139 @@ export async function enrichLive(req: EnrichRequest): Promise<EnrichResponse> {
   const out = cleanEnrichment(raw, ids);
   if (out.parts.length === 0 && out.steps.length === 0) throw new Error('enrich reply had no usable parts or steps');
   return out;
+}
+
+/* ---------------- detail (?detail=1): a schematic model of one mechanism, material or process ---------------- */
+
+/** The whole detail request (both tries) gives up after this long; server/lib/detail.ts maps it to one sentence. */
+export const DETAIL_TIMEOUT_MS = 45_000;
+/** A second try (after an invalid reply) only starts with at least this long left. */
+const DETAIL_RETRY_MIN_MS = 12_000;
+/** Room for low-effort thinking plus the scene (~1.5-3k tokens for 14 parts, 4 paths, 6 animations, 5 steps). */
+const DETAIL_MAX_TOKENS = 9000;
+
+/** The format example in the prompt: the sample fixture without its "Sample:" title and test caveat. */
+const DETAIL_EXAMPLE = JSON.stringify({
+  ...SAMPLE_DETAIL,
+  source: 'ai',
+  title: 'Lithium-ion cell discharging',
+  caveat: 'A real cell rolls many thin layers into a spiral or stack; this shows one layer.',
+});
+
+const DETAIL_SYSTEM = `You build small schematic 3D teaching models for Blowfish, an AR "x-ray vision" app. The user asks about one
+specific part, mechanism, material, inner structure or manufacturing process; the app draws your model out of simple
+primitives beside the object they are looking at, runs its animations, and a voice tutor says your steps in order while
+the parts each step names light up. Reply with exactly one compact JSON object and nothing else (no prose, no code fence).
+
+Schema:
+{
+  "title": string,              // 2 to 6 plain words, e.g. "Lithium-ion cell discharging"
+  "summary": string,            // ONE plain sentence: what the model shows
+  "source": "ai",
+  "parts": [{
+    "id": string,               // short kebab-case, unique
+    "name": string,             // plain name a teacher would use, 1 to 4 words
+    "shape": "box" | "cylinder" | "sphere" | "capsule" | "cone" | "torus" | "sheet" | "tube",
+    "size": [x, y, z],          // full extents before rotation, scene units
+    "position": [x, y, z],      // centre
+    "rotation": [x, y, z],      // degrees (usually all 0, or one of them 90)
+    "color": "#rrggbb",         // a colour that looks like the real thing
+    "opacity": number,          // 0.15 to 1: shells, fluids and casings 0.2 to 0.35; the parts that matter 0.7 to 0.9
+    "note": string              // optional, a few words
+  }],
+  "paths": [{ "id": string, "points": [[x, y, z], ...], "closed": boolean }],
+  "animations": [               // each one of:
+    { "kind": "spin", "part": id, "axis": "x" | "y" | "z", "rpm": number },
+    { "kind": "slide", "part": id, "from": [x, y, z], "to": [x, y, z], "seconds": number, "mode": "loop" | "yoyo" },
+    { "kind": "flow", "path": id, "count": integer, "speed": number, "color": "#rrggbb", "size": number },
+    { "kind": "pulse", "part": id, "seconds": number }
+  ],
+  "steps": [{ "say": string, "focus": [part ids] }],
+  "caveat": string              // optional
+}
+
+Scene: x to the right, y up, z towards the viewer. The whole model fits inside -1..1 on every axis, centred on 0, and is
+seen from the front and a little above. Scale the subject to fill that box and keep its real proportions.
+Shapes, each centred on its position and filling its size: box = a block. sheet = a thin panel, foil, film or membrane
+(make its thin side about 0.02). cylinder = round along its own y axis (size y = length; rotation [0, 0, 90] lays it along x,
+[90, 0, 0] along z). tube = a hollow cylinder (pipe, sleeve, vessel wall), along y like a cylinder. capsule = a rounded rod
+along y (a cell, a fibre, a roller end). cone = point up along +y. sphere = a ball or ellipsoid (an ion, a cell, a bulb).
+torus = a ring in the x-y plane (size x and y = outer diameter, z = ring thickness).
+
+Rules:
+- A schematic teaching model, not a replica: 4 to 12 parts (never more than ${DETAIL_LIMITS.parts}), only those that explain
+  the answer, each at least 0.05 across. No screws, text, labels, logos or brand names anywhere.
+- Physically and factually right. Draw only what really happens, where it really happens, in the right direction. For
+  example, in a lithium-ion cell discharging, electrons leave the anode through the external circuit (a path outside the
+  cell, through the load) to the cathode, while lithium ions cross the electrolyte and the separator inside the cell from
+  anode to cathode: never draw electrons inside the cell crossing the separator. Light goes from outside through the
+  cornea and lens to the retina; a tendon pulls a bone towards its muscle; a label web unwinds from its roll onto the bottle.
+- paths (0 to ${DETAIL_LIMITS.paths}): routes something moves along (electrons, ions, blood, air, light, a nerve signal, a web of
+  material); 2 to 16 points each, in the direction of travel; "closed": true for a loop.
+- animations (0 to ${DETAIL_LIMITS.animations}), only where they show the mechanism: spin for rollers, gears, drums, fans and
+  wheels (axis = the scene axis it turns about through its centre; 5 to 60 rpm, negative for the other way); slide for a
+  part that travels or moves back and forth (a bottle on a conveyor, a piston, a bone as a finger curls; seconds 1.5 to 6;
+  loop = runs from "from" to "to" and starts again, yoyo = there and back); flow for dots moving along a path (count 4 to 24,
+  speed 0.1 to 1 scene units per second, size 0.02 to 0.06, a colour that stands out); pulse for something that lights,
+  beats or fires (seconds 0.6 to 2). A material or a structure may have no animation at all.
+- steps (2 to ${DETAIL_LIMITS.steps}): the tutor says one per step, in order. Each "say" is ONE short spoken sentence of under
+  20 words, in plain words, with no numbers you are unsure of. focus: the 1 to 3 part ids that light up for it.
+- caveat: one short sentence saying how the model is simplified, if it is (it usually is).
+- If an object on stage is named, model the asked thing as it is in that object (a MacBook's battery is lithium-polymer
+  pouch cells). If nothing is named, model the topic on its own.
+- Only state facts you are confident of. No marketing language. Keep it compact.
+
+Example of the format (copy the format, not the content):
+${DETAIL_EXAMPLE}`;
+
+/**
+ * POST /api/detail (server/lib/detail.ts caches it): one call -> a DetailScene, cleaned and validated by
+ * shared/detail.ts (parseDetail, which always sets source "ai"). An invalid reply is retried once with the errors if there is time left;
+ * the whole thing stops after `timeoutMs`. One log line per call (logged).
+ */
+export async function detailLive(req: DetailRequest, timeoutMs = DETAIL_TIMEOUT_MS): Promise<DetailScene> {
+  const started = Date.now();
+  const user = [
+    `Topic: ${req.topic}`,
+    req.object ? `Object on stage: ${req.object}` : 'Nothing is on stage: model the topic on its own.',
+    req.part ? `Part of it asked about: ${req.part}` : '',
+    req.context ? `What the app knows about it: ${req.context}` : '',
+    'Reply with the JSON object only.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: user }];
+  const model = anthropicDetailModel();
+  const effort = anthropicDetailEffort();
+  let lastError = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const left = timeoutMs - (Date.now() - started);
+    if (attempt > 0 && left < DETAIL_RETRY_MIN_MS) break;
+    const msg = await logged(`detail${attempt ? ' (retry)' : ''}`, model, effort, () =>
+      getClient().messages.create(
+        {
+          model,
+          max_tokens: DETAIL_MAX_TOKENS,
+          ...effortConfig(effort),
+          system: [{ type: 'text', text: DETAIL_SYSTEM, cache_control: { type: 'ephemeral' } }],
+          messages,
+        },
+        { timeout: Math.max(1_000, left), maxRetries: 0 },
+      ),
+    );
+    const text = textOf(msg);
+    let raw: unknown = null;
+    try {
+      raw = extractJson(text);
+    } catch {
+      raw = salvageJson(text);
+    }
+    const out = parseDetail(raw, { topic: req.topic });
+    if (out.ok) return out.scene;
+    lastError = out.errors;
+    console.warn(`[detail] attempt ${attempt + 1} invalid: ${lastError}`);
+    messages.push({ role: 'assistant', content: text || '(empty)' });
+    messages.push({ role: 'user', content: `That did not match the schema: ${lastError}. Reply again with the corrected JSON object only.` });
+  }
+  throw new Error(`detail reply invalid: ${lastError || 'no time left for a retry'}`);
 }

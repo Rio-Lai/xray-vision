@@ -4,10 +4,29 @@
  */
 import { useStore } from '../state/store';
 import { explodeObject, resetAll } from '../lib/flow';
+import { DETAIL_ON } from '../lib/detail';
 import { clientTools } from './clientTools';
 
 export async function runLocalCommand(input: string): Promise<string | null> {
   const t = input.toLowerCase().trim();
+
+  // ?detail=1 only (without it these phrases mean what they always did): "detail <topic>",
+  // "detail step 2", "close detail" / "back to the model". First, as "detail ... inside" would explode.
+  if (DETAIL_ON) {
+    if (/^(close (the )?detail|detail off|back to the model)\b/.test(t)) return sayOf(await clientTools.close_detail());
+    const dstep = t.match(/^detail\s+step\s*(\d+)/);
+    if (dstep) return sayOf(await clientTools.detail_step({ n: Number(dstep[1]) }));
+    const detail = input.trim().match(/^detail\s+(?:of\s+|on\s+)?(.+)$/i);
+    if (detail) {
+      const out = await clientTools.show_detail({ topic: detail[1] });
+      try {
+        const r = JSON.parse(out) as { say?: string; summary?: string };
+        return [r.say, r.summary].filter(Boolean).join(' ') || out;
+      } catch {
+        return out;
+      }
+    }
+  }
 
   const step = t.match(/step\s*(\d+)/);
   if (step) {

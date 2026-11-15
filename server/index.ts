@@ -11,6 +11,7 @@ import { generatePart } from './routes/generate-part';
 import { agentToken } from './routes/agent-token';
 import { sketch } from './routes/sketch';
 import { enrich } from './routes/enrich';
+import { detail } from './routes/detail';
 
 const app = express();
 // npm run phone only (BLOWFISH_SERVE_DIST=1): the access code first, then the built app on this port too.
@@ -40,6 +41,8 @@ app.get('/api/agent-token', wrap(agentToken));
 // #124: a live object as simple solids in seconds, and its details afterwards
 app.post('/api/sketch', wrap(sketch));
 app.post('/api/enrich', wrap(enrich));
+// ?detail=1: a schematic model of one mechanism, material or process (only the app with that flag calls it)
+app.post('/api/detail', wrap(detail));
 
 app.use(errorHandler);
 
