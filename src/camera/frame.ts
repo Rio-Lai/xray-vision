@@ -63,11 +63,18 @@ export function urlNumber(name: string, fallback: number): number {
 }
 
 /**
- * #131: the most device pixels per CSS pixel any WebGL canvas draws (`?dpr=`, 1 to 2; default 1.5).
- * On a 2x screen 1.5 draws 56% of the pixels (clears, antialiasing, shading, compositing) for a
- * picture that is only a little softer; `?dpr=2` is the old sharpness.
+ * `?phone=1` (npm run phone, src/phone/): the app on an iPhone in landscape, mirrored to the glasses:
+ * a tap-to-start screen, touch buttons, the back camera, no noise gate, lighter vision settings.
+ * Without it nothing changes.
  */
-export const MAX_DPR: number = Math.min(2, Math.max(1, urlNumber('dpr', 1.5)));
+export const PHONE_MODE: boolean = urlFlag('phone');
+
+/**
+ * #131: the most device pixels per CSS pixel any WebGL canvas draws (`?dpr=`, 1 to 2; default 1.5,
+ * 1.25 in phone mode). On a 2x screen 1.5 draws 56% of the pixels (clears, antialiasing, shading,
+ * compositing) for a picture that is only a little softer; `?dpr=2` is the old sharpness.
+ */
+export const MAX_DPR: number = Math.min(2, Math.max(1, urlNumber('dpr', PHONE_MODE ? 1.25 : 1.5)));
 
 /**
  * #131: `?budget=0` turns the rest of #131 off for a comparison or a fallback: objects and faces at

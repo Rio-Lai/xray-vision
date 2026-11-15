@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { errorHandler, wrap } from './lib/http';
+import { mountPhone, serveDistOn } from './lib/serveDist';
 import { WEB_PORT, anthropicModel, apiPort, hasAnthropic, hasEleven, hasFal, isMock, portInUseMessage } from './lib/env';
 import { identify } from './routes/identify';
 import { scan } from './routes/scan';
@@ -13,6 +14,8 @@ import { enrich } from './routes/enrich';
 import { detail } from './routes/detail';
 
 const app = express();
+// npm run phone only (BLOWFISH_SERVE_DIST=1): the access code first, then the built app on this port too.
+if (serveDistOn()) mountPhone(app);
 // The browser reaches us through the Vite proxy (same origin); only allow local pages to call directly.
 app.use(cors({ origin: [/^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/] }));
 app.use(express.json({ limit: '15mb' }));
