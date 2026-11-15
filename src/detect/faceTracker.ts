@@ -279,6 +279,10 @@ export interface FaceFocus {
 
 export class FaceTracker {
   private tracks: FaceTrack[] = [];
+  /** #131: while the engine runs the face model only every so often, a face may go this much longer than DROP_AFTER_MS unmatched. */
+  extraHoldMs = 0;
+  /** #131: faces the last update did not match (the engine then looks again at the next slot). */
+  unmatched = 0;
 
   /** New measurements (any number of faces; the landmarker gives at most two). */
   update(faces: FaceMeasure[], now: number): void {
@@ -332,11 +336,14 @@ export class FaceTracker {
         used.add(t);
       }
     }
+    this.unmatched = 0;
+    for (const t of this.tracks) if (!used.has(t)) this.unmatched += 1;
     this.prune(now);
   }
 
   prune(now: number): void {
-    this.tracks = this.tracks.filter((t) => now - t.lastSeen <= DROP_AFTER_MS);
+    const keep = DROP_AFTER_MS + this.extraHoldMs;
+    this.tracks = this.tracks.filter((t) => now - t.lastSeen <= keep);
   }
 
   clear(): void {

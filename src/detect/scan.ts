@@ -545,6 +545,8 @@ const state = {
   onSince: 0,
   noKey: false,
   busy: false,
+  /** #131: no shift samples (a model is up on stage) */
+  samplerPaused: false,
   inFlight: false,
   why: 'view' as 'view' | 'centre',
   hasScanned: false,
@@ -835,6 +837,12 @@ export interface ScanContext {
   overlayOn: boolean;
   /** a model is open or loading: no scans */
   busy: boolean;
+  /**
+   * #131: a model is up on stage (and did not come out of a scanned thing, engine.ts): no shift
+   * samples either. The labels stay where they were; the first sample after it measures the shift
+   * since the last one before (a view moved too far for that is lost, as after a fast turn).
+   */
+  samplerPaused: boolean;
   frozen: boolean;
   selectedId: string | null;
   focusedId: string | null;
@@ -858,6 +866,7 @@ export function scanTick(now: number, ctx: ScanContext): SceneObject[] {
     state.onSince = now;
   }
   state.busy = ctx.busy;
+  state.samplerPaused = ctx.samplerPaused;
   state.tracked = ctx.tracked;
   if (MOCK_MODE) {
     mockTick(now);
@@ -874,7 +883,7 @@ export function scanTick(now: number, ctx: ScanContext): SceneObject[] {
     state.lastSampleAt = -1;
     lost(ctx.selectedId);
   }
-  sample(now, ctx.selectedId);
+  if (!ctx.samplerPaused) sample(now, ctx.selectedId);
   const scanned = tracker.objects(ctx.tracked, ctx.selectedId, now);
   maybeScan(now, ctx.tracked.concat(ctx.others, scanned), ctx.focusedId, ctx.faces);
   return scanned;
@@ -904,7 +913,7 @@ export function scanDebugLine(now: number): string {
   if (!state.on) return `${head}: waiting for the overlay`;
   const parts: string[] = [];
   if (state.inFlight) parts.push(`scanning (${state.why}) ${((now - state.scanAt) / 1000).toFixed(1)} s`);
-  else if (state.busy) parts.push('paused: a model is open');
+  else if (state.busy) parts.push(state.samplerPaused ? 'paused: a model is up (sampler paused too, #131)' : 'paused: a model is open');
   else if (now < state.failUntil) parts.push(`waiting after a failure (${((state.failUntil - now) / 1000).toFixed(0)} s)`);
   else if (state.steadySince < 0) parts.push('waiting for a steady view');
   else parts.push(`steady ${((now - state.steadySince) / 1000).toFixed(1)} s`);

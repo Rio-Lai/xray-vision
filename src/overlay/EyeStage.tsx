@@ -40,8 +40,8 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
-import { boxToView, errorText, getCoverMap } from '../camera/frame';
-import { live } from '../detect/live';
+import { boxToView, canvasDpr, errorText, getCoverMap } from '../camera/frame';
+import { live, perfCount } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
 import { isEyeTeardown } from '../stage/eyeTeardown';
 import { sentenceCase } from '../stage/armTeardown';
@@ -565,7 +565,7 @@ class EyeStageCtl {
   private resize(): void {
     const vw = Math.max(1, window.innerWidth);
     const vh = Math.max(1, window.innerHeight);
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = canvasDpr(); // #131
     if (vw === this.vw && vh === this.vh && dpr === this.dpr) return;
     this.vw = vw;
     this.vh = vh;
@@ -804,6 +804,7 @@ class EyeStageCtl {
     if (this.renderer) {
       this.renderer.domElement.style.opacity = this.lift.opacity.toFixed(3);
       this.renderer.render(this.scene, cam);
+      perfCount('eye');
     }
     this.updateLabels(on, hlIds, w, h);
   };

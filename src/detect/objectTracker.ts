@@ -107,6 +107,13 @@ export function newFilter(b: Box): Float64Array {
 
 export class ObjectTracker {
   private tracks: Track[] = [];
+  /**
+   * #131: while the engine runs the detector only every so often (a model up on stage), a labelled
+   * track may go this much longer than DROP_AFTER_MS unmatched: the time it could not have been seen.
+   */
+  extraHoldMs = 0;
+  /** #131: labelled tracks the last update did not match (the engine then looks again at the next slot). */
+  unmatched = 0;
 
   update(dets: RawDetection[], now: number): void {
     const pairs: { t: number; d: number; score: number }[] = [];
@@ -133,6 +140,8 @@ export class ObjectTracker {
       t.lastSeen = now;
       if (!t.id && ++t.hits >= APPEAR_HITS) t.id = this.nextId(t.label);
     }
+    this.unmatched = 0;
+    for (let ti = 0; ti < this.tracks.length; ti++) if (this.tracks[ti].id && !usedT.has(ti)) this.unmatched += 1;
     dets.forEach((d, di) => {
       if (usedD.has(di) || d.score < APPEAR_SCORE) return;
       if (this.tracks.some((t) => t.id && t.label !== d.label && iou(t.box, d.box) >= OTHER_LABEL_IOU)) return;
@@ -142,8 +151,9 @@ export class ObjectTracker {
   }
 
   prune(now: number): void {
+    const keep = DROP_AFTER_MS + this.extraHoldMs;
     let n = 0;
-    for (const t of this.tracks) if (now - t.lastSeen <= (t.id ? DROP_AFTER_MS : CANDIDATE_MS)) this.tracks[n++] = t;
+    for (const t of this.tracks) if (now - t.lastSeen <= (t.id ? keep : CANDIDATE_MS)) this.tracks[n++] = t;
     this.tracks.length = n;
   }
 

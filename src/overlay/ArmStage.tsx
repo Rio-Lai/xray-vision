@@ -33,8 +33,8 @@ import type { ArmFrame, ArmStep, ArmTeardown, FingerId, Keystroke } from '../bio
 import { ARM_RADIUS_M, armStageFrame } from '../stage/armStagePose';
 import { isArmTeardown, sentenceCase } from '../stage/armTeardown';
 import { STAGE_MIN_EXPLODE, modelControl, panPx } from '../stage/modelControl';
-import { boxToView, getCoverMap } from '../camera/frame';
-import { live } from '../detect/live';
+import { boxToView, canvasDpr, getCoverMap } from '../camera/frame';
+import { live, perf, perfCount } from '../detect/live';
 import { FINGERS } from '../detect/handTracker';
 import { smoothstep } from './explodeAnimator';
 import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_SIZE, STAGE_TURN_OMEGA, TOP_MARGIN } from './boxRig';
@@ -137,6 +137,8 @@ class ArmStageCtl {
   private explodeTarget = 0;
   private eShown = 0;
   private anchors: Anchor[] = [];
+  /** #131: when drive returned (his renderer draws between drive and onFrame) */
+  private drawStart = -1;
 
   attach(wrap: HTMLDivElement, labelHost: HTMLDivElement): void {
     this.wrap = wrap;
@@ -308,6 +310,7 @@ class ArmStageCtl {
       this.yaw = this.stageYaw(s, now, dt, !step && !hlPart);
       this.pitch = s.modelPitch;
     }
+    this.drawStart = performance.now();
     return {
       landmarks: this.frame,
       explode: this.explodeTarget,
@@ -326,6 +329,12 @@ class ArmStageCtl {
 
   /** Every frame, after his renderer drew: Blowfish label pills and the pick points. */
   onFrame = (labels: ArmLabel[], w: number, h: number): void => {
+    if (this.drawStart >= 0) {
+      // #131: his draw (and label projection) this frame, for the debug panel
+      perf.cur.armMs += performance.now() - this.drawStart;
+      perfCount('arm');
+      this.drawStart = -1;
+    }
     const dt = 1 / 60;
     this.eShown += (this.explodeTarget - this.eShown) * (1 - Math.exp(-dt * 6));
     const { ox, oy, s, tx, ty } = this.xf;
@@ -430,6 +439,7 @@ function ArmStageView({ onDone }: { onDone: () => void }) {
           drive={ctl.drive}
           onFrame={ctl.onFrame}
           onReady={ctl.onReady}
+          pixelRatio={canvasDpr()}
         />
       </div>
       <div ref={labelRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />

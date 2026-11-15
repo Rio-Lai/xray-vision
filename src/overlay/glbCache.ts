@@ -144,6 +144,11 @@ export class GlbWarmer {
     return this.disposed;
   }
 
+  /** #131: a model is in the scene to be drawn once this frame (the overlay draws even with nothing else to show). */
+  get drawing(): boolean {
+    return this.pending !== null && this.pending.added;
+  }
+
   /**
    * Compile an object's materials against the overlay's scene (its lights and environment) without
    * drawing it. Keeps its materials (the programs live as long as they do). Waits for the compile.

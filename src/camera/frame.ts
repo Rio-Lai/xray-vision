@@ -62,6 +62,25 @@ export function urlNumber(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * #131: the most device pixels per CSS pixel any WebGL canvas draws (`?dpr=`, 1 to 2; default 1.5).
+ * On a 2x screen 1.5 draws 56% of the pixels (clears, antialiasing, shading, compositing) for a
+ * picture that is only a little softer; `?dpr=2` is the old sharpness.
+ */
+export const MAX_DPR: number = Math.min(2, Math.max(1, urlNumber('dpr', 1.5)));
+
+/**
+ * #131: `?budget=0` turns the rest of #131 off for a comparison or a fallback: objects and faces at
+ * their normal rates with a model up, the scan sampler running, the overlay's canvas drawn every
+ * frame (`?dpr=2` for the old pixel ratio).
+ */
+export const PERF_BUDGET: boolean = urlParam('budget') !== '0';
+
+/** The pixel ratio for a WebGL canvas: the screen's, at most MAX_DPR. */
+export function canvasDpr(): number {
+  return Math.min(MAX_DPR, window.devicePixelRatio || 1);
+}
+
 export interface FrameRuntime {
   video: HTMLVideoElement | null;
   /** Snapshot shown while store.frozen is true. */
