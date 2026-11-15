@@ -15,6 +15,7 @@ import { MODEL_PAN_MAX, useStore } from '../state/store';
 import { DetailSceneSchema, SAMPLE_DETAIL, type DetailScene } from '../../shared/detail';
 import { urlParam } from '../camera/frame';
 import { PAN_UNIT_VH } from '../stage/modelControl';
+import { WIDE_DETAIL_SPLIT, isShortWide } from '../phone/viewport';
 import { ApiError, SERVER_DOWN_MESSAGE, api, isServerDown, isTimeout } from './api';
 
 const MODE = urlParam('detail');
@@ -46,9 +47,13 @@ let aside: { objectId: string; panX: number; panY: number; zoom: number } | null
  */
 export type DetailOpen = { ok: true; scene: DetailScene } | { ok: false; say: string; superseded?: undefined } | { ok: false; superseded: true; say?: undefined };
 
-/** The pan (stage sizes) that puts the main model in the middle of the left half of the view. */
+/**
+ * The pan (stage sizes) that puts the main model in the middle of the left half of the view (phone mode: of the
+ * left 55 percent, beside the detail model's 45, src/overlay/DetailStage.tsx).
+ */
 export function asidePanX(vw: number, vh: number): number {
-  const x = -(vw / 4) / Math.max(1, PAN_UNIT_VH * vh);
+  const offset = isShortWide(vw, vh) ? (vw * (1 - WIDE_DETAIL_SPLIT)) / 2 : vw / 4;
+  const x = -offset / Math.max(1, PAN_UNIT_VH * vh);
   return Math.max(-MODEL_PAN_MAX, Math.min(0, x));
 }
 

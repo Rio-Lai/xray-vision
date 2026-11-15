@@ -132,14 +132,19 @@ On the phone:
 
 1. Open the link in Safari (or scan the QR code with the Camera app), tap "Tap to start", and allow the camera and the microphone.
 2. Turn the phone sideways (if it is upright, the screen says so), then plug in the glasses: they mirror the phone screen.
-3. Optional, for full screen without Safari's bars: Share > Add to Home Screen, then open Blowfish from the home screen. That icon only works until `npm run phone` stops: every restart makes a new link (a new tunnel address and code), so open the new link in Safari, then Add to Home Screen again (and delete the old icon).
+3. Full screen: Share, then Add to Home Screen, and open Blowfish from the icon (no Safari bars). That icon only works until `npm run phone` stops: every restart makes a new link (a new tunnel address and code), so open the new link in Safari, then Add to Home Screen again (and delete the old icon).
+4. Keep it sideways: turn on Portrait Orientation Lock, then AssistiveTouch (Settings > Accessibility > Touch) > Device > Rotate Screen.
 
-The buttons on the right do what the hidden keys do on the laptop: Voice (V), Analyse (A), Explode (E), Put away (R) and a small D for the debug panel. Touch drag turns the model on stage; a tap picks a part. Problems show as one sentence on the screen (camera blocked, voice could not connect, the Mac cannot be reached).
+The start screen shows steps 3 and 4 too (step 3 not once it runs from the icon). iPhone browsers (Safari and Chrome alike) have no full-screen or orientation lock for web pages, so there is no button for it there; where the browser has them (Android, iPad, a computer) the start screen and the settings sheet have a "Full screen" button instead, which also locks the screen sideways where it can, and hides while the page is full screen. The page is never turned with CSS: the glasses mirror the real screen.
+
+The phone shows the laptop's layout, only smaller: the page is laid out 1400 CSS pixels wide (about 1400 x 646 sideways) and the phone scales it to its screen, so the glasses and a projector show the same picture as the laptop. `?vw=` changes the width for one link, e.g. `npm run phone -- vw=1200` makes everything about a sixth bigger, `vw=1600` smaller (800 to 2400; the default is `PHONE_VW_DEFAULT` in `src/camera/frame.ts`, and the same number in `index.html`).
+
+The quiet gear at the top right opens the settings: the debug panel (D), full screen (where the browser has it), and, in case voice fails on stage, what the hidden keys do on the laptop: Voice on / off (V), Analyse (A), Explode (E), Put away (R). Touch drag turns the model on stage; a tap picks a part. Problems show as one sentence on the screen (camera blocked, voice could not connect, the Mac cannot be reached).
 
 - **Access code.** The tunnel link is public, and `/api` spends the API credits, so each run makes a new random code; it is the `code=` at the end of the link. The first visit with it sets a cookie on the phone; anything without the code or the cookie gets "this link needs its access code". Set `BLOWFISH_PHONE_CODE=` in `.env` to keep one code across runs; the tunnel address still changes on every run, so after a restart always open the new link. The Mac itself (http://localhost:8791) needs no code.
 - **Keep the Mac awake and online.** `npm run phone` keeps it from sleeping while it runs (`caffeinate`), but keep it plugged in with the lid open, and on a network. Ctrl-C in its window stops the server and the tunnel.
 - **What needs the internet:** everything in this mode goes through the tunnel, so both the Mac and the phone need a connection (the phone can use mobile data). The voice tutor, Claude and fal need it as on the laptop. The vision models come from the Mac (`npm run fetch-models` runs by itself if they are missing; otherwise the phone fetches them from Google).
-- The phone runs lighter settings: the small object detector (Lite0), canvases at 1.25 device pixels per CSS pixel (`?dpr=` changes it), no noise gate (on iOS a second use of the microphone can silence the voice session) and the phone's default microphone.
+- The phone runs lighter settings: the small object detector (Lite0), canvases at 1.25 device pixels per screen point (`?dpr=` changes it), no noise gate (on iOS a second use of the microphone can silence the voice session) and the phone's default microphone.
 - Without `?phone=1` nothing changes, and `npm run dev` on the laptop is exactly as before.
 
 ## Controls

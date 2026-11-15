@@ -21,6 +21,7 @@ import * as THREE from 'three';
 import { useStore } from '../state/store';
 import type { DetailPart, DetailScene, DetailShape } from '../../shared/detail';
 import { flowEndScale, flowOffsets, pulseLevel, sceneBounds, slideFraction, spinAngle } from '../../shared/detail';
+import { WIDE_DETAIL_SPLIT, isShortWide, phoneSafeArea } from '../phone/viewport';
 import { canvasDpr, errorText } from '../camera/frame';
 import { perfCount } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
@@ -129,6 +130,27 @@ interface Area {
   y: number;
   w: number;
   h: number;
+}
+
+/**
+ * Where the model is drawn. Laptop: the right half of the view beside a model on stage, else the middle; below
+ * the card's top edge. Phone mode (sideways about 1400 x 646, src/phone/viewport.ts): the right 45 percent (the
+ * main model has the left 55, src/lib/detail.ts), inside the safe area, between the compact card at the top and
+ * the captions at the bottom.
+ */
+function detailArea(beside: boolean, vw: number, vh: number): Area {
+  if (isShortWide(vw, vh)) {
+    const right = Math.round(Math.max(24, phoneSafeArea().right) + 8);
+    // below the compact card (about 120 px from the top) and above the voice pill and captions
+    const y = Math.max(Math.round(vh * 0.2), 146);
+    const h = Math.max(1, Math.round(vh * 0.81) - y);
+    const x = Math.round(vw * (beside ? WIDE_DETAIL_SPLIT : 0.2));
+    const w = Math.max(1, (beside ? vw - right : Math.round(vw * 0.8)) - x);
+    return { x, y, w, h };
+  }
+  return beside
+    ? { x: Math.round(vw * 0.5), y: Math.round(vh * 0.14), w: Math.round(vw * 0.5 - 24), h: Math.round(vh * 0.74) }
+    : { x: Math.round(vw * 0.2), y: Math.round(vh * 0.12), w: Math.round(vw * 0.6), h: Math.round(vh * 0.76) };
 }
 
 class DetailView {
@@ -337,13 +359,11 @@ class DetailView {
     devLog(`Detail model: ${sc.title}, ${sc.parts.length} parts, ${sc.paths.length} paths, ${sc.animations.length} animations`);
   }
 
-  /** Right half of the view beside a model on stage, else the middle; below the card's top edge. */
+  /** Right half of the view beside a model on stage, else the middle (phone mode: detailArea). */
   private layout(beside: boolean): void {
     const vw = Math.max(1, window.innerWidth);
     const vh = Math.max(1, window.innerHeight);
-    const a: Area = beside
-      ? { x: Math.round(vw * 0.5), y: Math.round(vh * 0.14), w: Math.round(vw * 0.5 - 24), h: Math.round(vh * 0.74) }
-      : { x: Math.round(vw * 0.2), y: Math.round(vh * 0.12), w: Math.round(vw * 0.6), h: Math.round(vh * 0.76) };
+    const a: Area = detailArea(beside, vw, vh);
     const dpr = canvasDpr();
     if (a.x !== this.area.x || a.y !== this.area.y || a.w !== this.area.w || a.h !== this.area.h || dpr !== this.dpr) {
       this.area = a;
@@ -541,21 +561,50 @@ const TITLE: CSSProperties = { margin: '10px 0 6px', fontSize: 20, lineHeight: 1
 const BODY: CSSProperties = { margin: 0, fontSize: 18, lineHeight: 1.4, color: 'rgba(255, 255, 255, 0.9)' };
 const MUTED: CSSProperties = { margin: '8px 0 0', fontSize: 16, lineHeight: 1.35, color: 'rgba(255, 255, 255, 0.62)' };
 
+/*
+ * Phone mode (detailArea): a compact card at the top right, clear of the settings gear (--bf-phone-* come from
+ * src/phone/PhoneApp.tsx): the tag and the step marks, the title on one line, the step's sentence (or the summary)
+ * on at most two; no part names, no caveat (the tag says it).
+ */
+const CARD_WIDE: CSSProperties = {
+  ...CARD,
+  top: 'var(--bf-phone-top, 24px)',
+  right: 'calc(var(--bf-phone-right, 24px) + var(--bf-phone-gear, 0px) + 4px)',
+  width: 'min(380px, 30vw)',
+  padding: '10px 14px 12px',
+  borderRadius: 16,
+};
+const CHIP_WIDE: CSSProperties = { ...CHIP, padding: '2px 8px', fontSize: 15 };
+const TITLE_WIDE: CSSProperties = { ...TITLE, margin: '6px 0 4px', fontSize: 17, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const BODY_WIDE: CSSProperties = {
+  ...BODY,
+  fontSize: 16,
+  lineHeight: 1.35,
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical',
+  WebkitLineClamp: 2,
+  overflow: 'hidden',
+};
+
 function DetailCard() {
   const detail = useStore((s) => s.detail);
   const status = useStore((s) => s.detailStatus);
   const topic = useStore((s) => s.detailTopic);
   const error = useStore((s) => s.detailError);
   const step = useStore((s) => s.detailStep);
+  // phone mode only (a constant): the laptop always gets the laptop card
+  const wide = isShortWide(window.innerWidth, window.innerHeight);
   if (status === 'idle') return null;
+  const title = wide ? TITLE_WIDE : TITLE;
+  const body = wide ? BODY_WIDE : BODY;
   const short = (topic ?? '').length > 60 ? `${(topic ?? '').slice(0, 58).trim()}…` : topic ?? '';
   const current = detail && step !== null ? detail.steps[step - 1] : undefined;
   const names = current && detail ? current.focus.map((id) => detail.parts.find((p) => p.id === id)?.name).filter((n): n is string => Boolean(n)) : [];
   return (
-    <section style={CARD} className="bf-enter" data-bf-avoid key={detail?.title ?? `loading-${topic ?? ''}`}>
+    <section style={wide ? CARD_WIDE : CARD} className="bf-enter bf-detail-card" data-bf-avoid key={detail?.title ?? `loading-${topic ?? ''}`}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         {/* AI-made, never checked; the ?detail=mock fixture is hand-written: "Sample" (while loading, what is coming) */}
-        <span style={CHIP}>{(detail ? detail.source === 'sample' : DETAIL_MOCK) ? 'Sample' : 'AI sketch'}</span>
+        <span style={wide ? CHIP_WIDE : CHIP}>{(detail ? detail.source === 'sample' : DETAIL_MOCK) ? 'Sample' : 'AI sketch'}</span>
         {detail && (
           <span style={{ display: 'flex', gap: 4, flex: 1 }} aria-hidden="true">
             {detail.steps.map((_, i) => (
@@ -564,19 +613,19 @@ function DetailCard() {
           </span>
         )}
       </div>
-      {status === 'loading' && <h2 style={TITLE}>Building a model of {short}…</h2>}
+      {status === 'loading' && <h2 style={title}>Building a model of {short}…</h2>}
       {status === 'error' && (
         <>
-          <h2 style={TITLE}>{short || 'Detail'}</h2>
-          <p style={BODY}>{error}</p>
+          <h2 style={title}>{short || 'Detail'}</h2>
+          <p style={body}>{error}</p>
         </>
       )}
       {status === 'ready' && detail && (
         <>
-          <h2 style={TITLE}>{detail.title}</h2>
-          <p style={BODY}>{current ? current.say : detail.summary}</p>
-          {names.length > 0 && <p style={MUTED}>{names.join(' · ')}</p>}
-          {detail.caveat && !current && <p style={MUTED}>{detail.caveat}</p>}
+          <h2 style={title}>{detail.title}</h2>
+          <p style={body}>{current ? current.say : detail.summary}</p>
+          {!wide && names.length > 0 && <p style={MUTED}>{names.join(' · ')}</p>}
+          {!wide && detail.caveat && !current && <p style={MUTED}>{detail.caveat}</p>}
         </>
       )}
     </section>
