@@ -32,9 +32,15 @@ export function makeCode(length = 10) {
   return out;
 }
 
-/** The link to open on the phone. */
-export function phoneLink(base, code) {
-  return `${String(base).replace(/\/+$/, '')}/?phone=1&overlay=1&code=${encodeURIComponent(code)}`;
+/** Extra URL switches from the command line (`npm run phone -- detail=1 dpr=1`): only plain name=value words. */
+export function extraParams(args) {
+  return (args ?? []).filter((a) => /^[a-z][a-z0-9]*=[a-z0-9._-]+$/i.test(a) && !/^(phone|overlay|code)=/i.test(a));
+}
+
+/** The link to open on the phone (`extra`: more switches, e.g. ['detail=1']). */
+export function phoneLink(base, code, extra = []) {
+  const more = extra.length ? `&${extra.join('&')}` : '';
+  return `${String(base).replace(/\/+$/, '')}/?phone=1&overlay=1${more}&code=${encodeURIComponent(code)}`;
 }
 
 /** The official cloudflared release file for this machine, or null if there is none. */
