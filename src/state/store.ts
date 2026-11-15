@@ -101,7 +101,7 @@ export interface AppState {
   modelPitch: number;
   /**
    * How big the model on stage is drawn: 1 = the normal stage size, MODEL_ZOOM_MIN..MODEL_ZOOM_MAX.
-   * Hand gestures, the mouse and the zoom_model voice tool write it; every stage renderer
+   * Hand gestures, the mouse and the adjust_view voice tool write it; every stage renderer
    * (box rig, arm, eye) multiplies its size by it and eases towards it.
    */
   modelZoom: number;

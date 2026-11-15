@@ -8,7 +8,6 @@ import { clientTools } from './clientTools';
 
 export async function runLocalCommand(input: string): Promise<string | null> {
   const t = input.toLowerCase().trim();
-  const s = useStore.getState();
 
   const step = t.match(/step\s*(\d+)/);
   if (step) {
@@ -19,14 +18,17 @@ export async function runLocalCommand(input: string): Promise<string | null> {
       return out;
     }
   }
-  // #109: zoom (before "reset": "reset zoom" is a zoom)
-  if (/\b(normal size|reset zoom|zoom reset)\b/.test(t)) return sayOf(await clientTools.zoom_model({ direction: 'reset' }));
-  if (/\b(zoom in|bigger|closer)\b/.test(t)) return sayOf(await clientTools.zoom_model({ direction: 'in' }));
-  if (/\b(zoom out|smaller)\b/.test(t)) return sayOf(await clientTools.zoom_model({ direction: 'out' }));
+  // The view (adjust_view): zoom, move, recentre (before "reset": "reset zoom" is a zoom)
+  if (/\b(normal size|reset zoom|zoom reset)\b/.test(t)) return sayOf(await clientTools.adjust_view({ action: 'normal_size' }));
+  if (/\b(zoom in|bigger|closer)\b/.test(t)) return sayOf(await clientTools.adjust_view({ action: 'zoom_in' }));
+  if (/\b(zoom out|smaller)\b/.test(t)) return sayOf(await clientTools.adjust_view({ action: 'zoom_out' }));
+  if (/\b(re-?cent(re|er)|cent(re|er) it|middle)\b/.test(t)) return sayOf(await clientTools.adjust_view({ action: 'centre' }));
+  const move = t.match(/\bmove (it )?(left|right|up|down)\b/);
+  if (move) return sayOf(await clientTools.adjust_view({ action: `move_${move[2]}` }));
   if (/\b(explode|x-?ray|open it|inside)\b/.test(t)) return (await explodeObject()).message;
-  if (/\b(collapse|close it)\b/.test(t)) {
-    s.setExplode(0);
-    return 'Collapsed.';
+  if (/\b(collapse|close it|put it back together)\b/.test(t)) {
+    if (!useStore.getState().teardown) return 'Nothing is open yet.';
+    return sayOf(await clientTools.explode({ amount: 0.12 }));
   }
   if (/\b(reset|clear)\b/.test(t)) {
     resetAll();

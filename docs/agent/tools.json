@@ -1,0 +1,131 @@
+{
+  "_about": "The Blowfish agent's client tools, one source of truth (the table in docs/ROHAN.md says the same). npm run agent:tools compares the agent with this file; npm run agent:tools -- --apply adds the ones the agent is missing. Every tool is type client and waits for a response. Names must match CLIENT_TOOL_NAMES in shared/teardown.ts.",
+  "tools": [
+    {
+      "type": "client",
+      "name": "get_scene",
+      "description": "What the user can see now: the objects in view, which one is in the centre, the exploded parts with their ids, and the saved models.",
+      "expects_response": true,
+      "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "set_overlay",
+      "description": "Turn Blowfish's labels on (true) or go back to the clean camera view (false). Off also puts everything back.",
+      "parameters": {
+        "type": "object",
+        "required": ["on"],
+        "properties": {
+          "on": { "type": "boolean", "description": "true for labels on, false for the clean camera view" }
+        }
+      },
+      "expects_response": true,
+      "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "select_object",
+      "description": "Select an object in view. Leave empty for the one in the centre.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "object_id": { "type": "string", "description": "id from get_scene; leave empty for the object in the centre" }
+        }
+      },
+      "expects_response": true,
+      "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "explode",
+      "description": "Bring a 3D model of the object the user is looking at into the middle of the view and spread its parts. amount 0.12 = assembled (\"analyse this\", \"put it back together\", \"collapse it\"), 1 = fully exploded, 0 closes it.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "object_id": { "type": "string", "description": "leave empty for \"this\"; \"arm-hand\" for the hand or arm, \"eye\" for the eye, or a saved model's id or name" },
+          "amount": { "type": "number", "description": "0 to 1: 0.12 assembled, 1 fully exploded, 0 closed" }
+        }
+      },
+      "expects_response": true,
+      "response_timeout_secs": 60
+    },
+    {
+      "type": "client",
+      "name": "highlight_part",
+      "description": "Light up one part before talking about it. Returns its facts and safety note.",
+      "parameters": {
+        "type": "object",
+        "required": ["part_id"],
+        "properties": {
+          "part_id": { "type": "string", "description": "a part id from the explode reply or get_scene" }
+        }
+      },
+      "expects_response": true,
+      "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "show_step",
+      "description": "Show step n of the walkthrough (repair steps, how a key press works, or the path of light in the eye).",
+      "parameters": {
+        "type": "object",
+        "required": ["n"],
+        "properties": {
+          "n": { "type": "integer", "description": "the step number, from 1" }
+        }
+      },
+      "expects_response": true,
+      "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "reset_view",
+      "description": "Put the model away (it is saved for later): collapse everything and clear the selection.",
+      "expects_response": true,
+      "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "rotate_model",
+      "description": "Turn the floating model. \"around\" turns it half a turn.",
+      "parameters": {
+        "type": "object",
+        "required": ["direction"],
+        "properties": {
+          "direction": { "type": "string", "description": "left, right, up, down or around", "enum": ["left", "right", "up", "down", "around"] },
+          "degrees": { "type": "number", "description": "only if the user says a number; default 45, around 180" }
+        }
+      },
+      "expects_response": true,
+      "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "get_pose",
+      "description": "Which finger is pressing right now and which muscle part ids are working.",
+      "expects_response": true,
+      "response_timeout_secs": 20
+    },
+    {
+      "type": "client",
+      "name": "adjust_view",
+      "description": "Move the view of the floating model without changing it: zoom in or out, move it left, right, up or down, put it back in the middle (also normal size and facing the front), or back to normal size.",
+      "parameters": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "zoom_in, zoom_out, move_left, move_right, move_up, move_down, centre or normal_size",
+            "enum": ["zoom_in", "zoom_out", "move_left", "move_right", "move_up", "move_down", "centre", "normal_size"]
+          },
+          "amount": { "type": "number", "description": "only if the user says how much: zoom factor (default 1.5) or distance in model widths (default 0.5)" }
+        }
+      },
+      "expects_response": true,
+      "response_timeout_secs": 20
+    }
+  ]
+}

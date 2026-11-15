@@ -70,7 +70,10 @@ interface PttState {
   held: boolean;
   /** Device id or part of a device label; null = the browser's default microphone. */
   mic: string | null;
+  /** A command is locked in, or Blowfish is speaking (voiceLock.ts): muted unless the talk key is held. */
+  locked: boolean;
   setPttOnly: (on: boolean) => void;
+  setLocked: (locked: boolean) => void;
   setHeld: (held: boolean) => void;
   setMic: (mic: string | null) => void;
 }
@@ -79,6 +82,8 @@ export const usePtt = create<PttState>((set) => ({
   pttOnly: initialPttOnly(),
   held: false,
   mic: initialMic(),
+  locked: false,
+  setLocked: (locked) => set({ locked }),
   setPttOnly: (pttOnly) => {
     write(KEY_PTT, pttOnly ? '1' : '0');
     set({ pttOnly });
@@ -90,8 +95,10 @@ export const usePtt = create<PttState>((set) => ({
   },
 }));
 
-/** true when the mic should be muted right now. */
+/** true when push-to-talk alone mutes the mic right now (the pill then says "Hold to talk"). */
 export const shouldMute = (s: Pick<PttState, 'pttOnly' | 'held'>) => s.pttOnly && !s.held;
+/** true when the mic is muted right now: push-to-talk, or a locked-in command (voiceLock.ts); holding always talks. */
+export const micMutedNow = (s: Pick<PttState, 'pttOnly' | 'held' | 'locked'>) => !s.held && (s.pttOnly || s.locked);
 
 async function microphones(): Promise<MediaDeviceInfo[]> {
   try {
@@ -154,17 +161,18 @@ interface Controls {
 export function usePushToTalk({ connected, setMuted, changeInputDevice }: Controls) {
   const pttOnly = usePtt((s) => s.pttOnly);
   const held = usePtt((s) => s.held);
+  const locked = usePtt((s) => s.locked);
   const mic = usePtt((s) => s.mic);
 
-  // Mute follows the setting and the held key.
+  // Mute follows the setting, the held key and the command lock.
   useEffect(() => {
     if (!connected) return;
     try {
-      setMuted(shouldMute({ pttOnly, held }));
+      setMuted(micMutedNow({ pttOnly, held, locked }));
     } catch (err) {
       console.warn('[voice] setMuted failed', err);
     }
-  }, [connected, pttOnly, held, setMuted]);
+  }, [connected, pttOnly, held, locked, setMuted]);
 
   // A new microphone choice applies to a running session at once.
   useEffect(() => {
