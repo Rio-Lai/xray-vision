@@ -18,6 +18,7 @@
  * in src/hud/kit/hud.ts (Figma Make kit look, #86), or src/hud/styles.ts with ?look=classic.
  */
 import { KIT_LOOK } from '../hud/look';
+import { phoneSafeX } from '../phone/viewport';
 import type { SceneObject } from '../state/store';
 import { boxToView } from '../camera/frame';
 import type { CoverMap } from '../camera/frame';
@@ -251,13 +252,15 @@ export class ObjectLabelLayer {
     // Every chosen label's dot is an obstacle too, so a pill never covers another object's dot.
     const placed: Rect[] = chosen.map((c) => ({ x: c.n.x - 7, y: c.n.y - 7, w: 14, h: 14 }));
     const shownIds = new Set<string>();
+    // phone mode: pills stay out of the safe area (sideways, the Dynamic Island on either side); else EDGE_PX
+    const edgeX = Math.max(EDGE_PX, phoneSafeX());
     chosen.forEach((c, rank) => {
       const n = c.n;
       const staggerOk = now - this.visibleSince >= rank * STAGGER_MS;
       if (!staggerOk) return;
       shownIds.add(c.id);
       const half = n.w / 2;
-      const shiftX = Math.min(vw - EDGE_PX - half, Math.max(EDGE_PX + half, n.x)) - n.x;
+      const shiftX = Math.min(vw - edgeX - half, Math.max(edgeX + half, n.x)) - n.x;
       const rectFor = (dir: 1 | -1, lift: number): Rect => {
         const top = dir === 1 ? n.y - STEM_PX - DOT_GAP_PX - n.h - lift : n.y + STEM_PX + DOT_GAP_PX + lift;
         return { x: n.x + shiftX - half - 4, y: top - 3, w: n.w + 8, h: n.h + 6 };

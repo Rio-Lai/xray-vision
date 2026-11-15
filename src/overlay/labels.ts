@@ -8,6 +8,8 @@
  * leader lines that stop short of the pill), or src/hud/styles.ts with ?look=classic (straight lines).
  */
 import { KIT_LOOK } from '../hud/look';
+import { PHONE_MODE } from '../camera/frame';
+import { phoneSafeX } from '../phone/viewport';
 
 export interface LabelItem {
   id: string;
@@ -47,9 +49,10 @@ interface Placed {
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const TOP_MARGIN = 70;
+/** The same as boxRig.ts (smaller in phone mode). */
+const TOP_MARGIN = PHONE_MODE ? 56 : 70;
 /** Bottom-centre space kept for the voice pill and captions (person2) and the status pill. */
-const BOTTOM_MARGIN = 150;
+const BOTTOM_MARGIN = PHONE_MODE ? 120 : 150;
 const GAP = 8;
 const SIDE_GAP = 28;
 const EDGE = 12;
@@ -242,6 +245,8 @@ export class LabelLayer {
       }
 
       const rects = avoidRects();
+      // phone mode: pills stay out of the safe area (sideways, the Dynamic Island on either side)
+      const edge = Math.max(EDGE, phoneSafeX());
       for (const side of ['left', 'right'] as const) {
         const col = bySy.filter((e) => e.node.side === side);
         if (col.length === 0) continue;
@@ -261,8 +266,8 @@ export class LabelLayer {
         const placed: Placed[] = col.map((e, i) => ({ item: e.item, node: e.node, y: ys[i] }));
         for (const { item, node, y } of placed) {
           let x: number;
-          if (side === 'left') x = Math.max(EDGE, Math.min(bounds.left - SIDE_GAP - node.w, item.ax - 48 - node.w));
-          else x = Math.min(vw - node.w - EDGE, Math.max(bounds.right + SIDE_GAP, item.ax + 48));
+          if (side === 'left') x = Math.max(edge, Math.min(bounds.left - SIDE_GAP - node.w, item.ax - 48 - node.w));
+          else x = Math.min(vw - node.w - edge, Math.max(bounds.right + SIDE_GAP, item.ax + 48));
           const op = item.opacity.toFixed(3);
           node.tag.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
           node.tag.style.opacity = op;
