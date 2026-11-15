@@ -216,6 +216,8 @@ const tools: Record<ClientToolName, Tool> = {
     if (!td) return 'Nothing is exploded yet. Call explode first.';
     if (n === undefined) return 'n is required.';
     const step = td.steps.find((x) => x.n === Math.round(n));
+    // A live model sketched a moment ago (#124) has no steps until its details arrive in the background.
+    if (!step && td.steps.length === 0) return 'The steps for this are still being worked out. Say that in a few words and offer to describe the parts instead.';
     if (!step) return `No step ${n}. There are ${td.steps.length} steps.`;
     useStore.getState().showStep(step.n);
     // Light up the part the step is about, so the wearer sees where to look.
