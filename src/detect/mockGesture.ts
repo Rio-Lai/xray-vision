@@ -1,16 +1,16 @@
 /**
  * Synthetic hands for `?mock=gesture` (and the Node simulations of gestures.ts): a hand seen from
  * the back by the head camera, fingers pointing up the image, posed by a few numbers (wrist
- * position, size, curl, pinch), and a scripted loop that plays every hand control in turn (#121),
- * with a short pause between them, so you can see what each should look like:
- *   1. pinch turn: right hand comes up, pinches, drags right (turns the model), lets go with a flick (coasts);
+ * position, size, curl, pinch, per-finger curls, index beside the middle finger), and a scripted loop
+ * that plays every hand control of Rio's mapping (15 Nov, third pass) in turn, with a short pause
+ * between them, so you can see what each should look like:
+ *   1. two-finger pan: right hand comes up, index and middle out and together, ring and pinky curled,
+ *      moves right and up (the model follows the two fingertips), back, opens and goes down;
  *   2. two-hand zoom: both hands pinch, pull apart (zooms in), hold, come together (zooms out), let go;
- *   3. grab: an open hand comes up over the model, closes to a fist (grabs it), moves right and up
- *      (the model follows), back, opens (lets go);
- *   4. globe turn: both open hands come up, hold, move right together (turns it), back left, then one
+ *   3. globe turn: both open hands come up, hold, move right together (turns it), back left, then one
  *      hand comes closer while the other moves away (turns it too), and back;
- *   5. snap: a hand comes up with the thumb on the middle fingertip, snaps (explodes the model);
- *   6. sweep: a flat open hand at the top of the view sweeps down and out (puts the model away; the
+ *   4. snap: a hand comes up with the thumb on the middle fingertip, snaps (explodes the model);
+ *   5. sweep: a flat open hand at the top of the view sweeps down and out (puts the model away; the
  *      mock analyses the fake laptop again before the loop starts over).
  */
 import type { Landmark, RawHand } from './handTracker';
@@ -25,6 +25,12 @@ export interface HandPose {
   curl: number;
   /** curl of the middle, ring and pinky fingers if different (a pinch with the other fingers curled) */
   rest?: number;
+  /** curl of each finger (index, middle, ring, pinky) if given: overrides curl and rest (the two-finger pose: [0, 0, 1, 1]) */
+  fingers?: [number, number, number, number];
+  /** the index finger leans towards the middle finger (1 = tips together, about 0.2 hand sizes apart; negative = spread, a V) */
+  pair?: number;
+  /** how far the thumb folds over the palm if not with the index curl (0 = out, 1 = folded) */
+  thumb?: number;
   /** 0 = apart, 1 = thumb tip on index tip (or on the middle tip with pinchTo 12) */
   pinch: number;
   /** the fingertip the thumb pinches: 8 = index (default), 12 = middle (a snap getting ready) */
@@ -64,7 +70,8 @@ export function syntheticHand(p: HandPose, fw: number, fh: number): Landmark[] {
   // shortens along its own direction.
   const rest = Math.min(1, Math.max(0, p.rest ?? curl));
   CHAINS.forEach((chain, k) => {
-    const c = k === 0 ? Math.max(curl, 0.35 * pinch) : rest;
+    const own = p.fingers ? Math.min(1, Math.max(0, p.fingers[k])) : k === 0 ? curl : rest;
+    const c = k === 0 ? Math.max(own, 0.35 * pinch) : own;
     const m = pts[chain[0]];
     const segs = [1, 2, 3].map((j) => {
       const a = BASE[chain[j - 1]];
@@ -86,10 +93,23 @@ export function syntheticHand(p: HandPose, fw: number, fh: number): Landmark[] {
       pts[chain[j + 1]] = { x, y, z };
     });
   });
+  // The index leaning towards the middle finger (in the image plane, about its knuckle).
+  if (p.pair) {
+    const a = 0.3 * p.pair;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const o = pts[5];
+    for (const i of [6, 7, 8]) {
+      const q = pts[i];
+      const dx = q.x - o.x;
+      const dy = q.y - o.y;
+      pts[i] = { x: o.x + dx * ca - dy * sa, y: o.y + dx * sa + dy * ca, z: q.z };
+    }
+  }
   // Thumb: folds over the index when curled; meets the index tip (or the middle tip) when pinching.
   const idxTip = pts[p.pinchTo ?? 8];
   const idxPip = pts[6];
-  const fold = 0.85 * curl;
+  const fold = 0.85 * (p.thumb ?? curl);
   for (const [i, w] of [[2, 0.3], [3, 0.6], [4, 1]] as [number, number][]) {
     const o = pts[i];
     const toPip = { x: o.x + (idxPip.x - o.x) * fold * w, y: o.y + (idxPip.y - o.y) * fold * w, z: o.z + (idxPip.z + 0.05 - o.z) * fold * w };
@@ -122,7 +142,7 @@ const smooth = (a: number, b: number, t: number) => {
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /** One loop of the script, in ms. */
-export const MOCK_GESTURE_LOOP_MS = 30000;
+export const MOCK_GESTURE_LOOP_MS = 25000;
 
 /**
  * The scripted hands at `t` ms into the loop (frame 1280 x 720). Hands come up from the bottom
@@ -139,18 +159,21 @@ export function mockGestureHands(t: number, fw = 1280, fh = 720): RawHand[] {
     const landmarks = syntheticHand(pose, fw, fh);
     hands.push({ handedness: pose.left ? 'left' : 'right', score: 0.97, landmarks, world: syntheticWorld(landmarks, pose, fw, fh) });
   };
-  if (s < 3.4) {
-    // 1. 0.0-3.4 s: one-hand pinch-drag (turn), flick release at 2.4 s.
-    const up = smooth(0.2, 0.8, s) * (1 - smooth(2.8, 3.4, s));
-    const drag = smooth(1.1, 2.4, s);
+  if (s < 3.6) {
+    // 1. 0.0-3.6 s: two-finger pan: index and middle together, ring and pinky curled; right and up, back, open, down.
+    const up = smooth(0.2, 0.7, s) * (1 - smooth(3.0, 3.6, s));
+    const pose = smooth(0.7, 0.9, s) * (1 - smooth(2.95, 3.1, s));
+    const move = smooth(1.2, 2.0, s) * (1 - smooth(2.2, 2.9, s));
     add({
-      wx: lerp(0.38 * fw, 0.38 * fw + 2.6 * hs, drag),
-      wy: lerp(below, 0.82 * fh, up) + 0.25 * hs * smooth(1.6, 2.4, s),
+      wx: 0.45 * fw + 1.6 * hs * move,
+      wy: lerp(below, 0.84 * fh, up) - 0.7 * hs * move,
       hs,
-      curl: 0.15,
-      pinch: smooth(0.8, 1.0, s) * (1 - smooth(2.36, 2.46, s)),
+      curl: 0.1,
+      fingers: [0.05, 0.05, 0.1 + 0.9 * pose, 0.1 + 0.9 * pose],
+      pair: pose,
+      pinch: 0,
       left: false,
-      angle: -0.1,
+      angle: -0.15,
     });
   } else if (s < 9.6) {
     // 2. 3.8-9.6 s: both hands pinch, pull apart (zoom in), hold, come together (zoom out), let go.
@@ -161,39 +184,33 @@ export function mockGestureHands(t: number, fw = 1280, fh = 720): RawHand[] {
     const wy = lerp(below, 0.86 * fh, up);
     add({ wx: fw / 2 - half - 0.4 * hs, wy, hs, curl: 0.15, pinch, left: true, angle: 0.25 });
     add({ wx: fw / 2 + half + 0.4 * hs, wy, hs, curl: 0.15, pinch, left: false, angle: -0.25 });
-  } else if (s < 14.8) {
-    // 3. 10.0-14.8 s: an open hand over the model closes to a fist (grab), moves right and up, back, opens.
-    const up = smooth(10.0, 10.6, s) * (1 - smooth(14.2, 14.8, s));
-    const curl = lerp(0.08, 1, smooth(11.0, 11.2, s) * (1 - smooth(13.9, 14.1, s)));
-    const move = smooth(11.5, 12.4, s) * (1 - smooth(12.8, 13.7, s));
-    add({ wx: 0.5 * fw + 1.4 * hs * move, wy: lerp(below, 0.86 * fh, up) - 0.6 * hs * move, hs, curl, pinch: 0, left: false, angle: -0.1 });
-  } else if (s < 20.8) {
-    // 4. 15.2-20.8 s: two open hands (the globe): right together, back left, then the left hand
+  } else if (s >= 10.0 && s < 15.6) {
+    // 3. 10.0-15.6 s: two open hands (the globe): right together, back left, then the left hand
     // comes closer while the right moves away, and back; then down.
-    const up = smooth(15.2, 15.8, s) * (1 - smooth(20.2, 20.8, s));
-    const side = 1.1 * hs * (smooth(16.4, 17.2, s) - smooth(17.6, 18.4, s));
-    const depth = 0.2 * (smooth(18.7, 19.3, s) - smooth(19.5, 20.1, s));
+    const up = smooth(10.0, 10.6, s) * (1 - smooth(15.0, 15.6, s));
+    const side = 1.1 * hs * (smooth(11.2, 12.0, s) - smooth(12.4, 13.2, s));
+    const depth = 0.2 * (smooth(13.5, 14.1, s) - smooth(14.3, 14.9, s));
     const wy = lerp(below, 0.84 * fh, up);
     add({ wx: fw / 2 - 1.7 * hs + side, wy, hs: hs * (1 + depth), curl: 0.12, pinch: 0, left: true, angle: 0.15 });
     add({ wx: fw / 2 + 1.7 * hs + side, wy, hs: hs * (1 - depth), curl: 0.12, pinch: 0, left: false, angle: -0.15 });
-  } else if (s < 24.0) {
-    // 5. 21.2-24.0 s: thumb on the middle fingertip, held, then the snap (middle finger into the palm).
-    const up = smooth(21.2, 21.8, s) * (1 - smooth(23.4, 24.0, s));
-    const snapped = s >= 22.6;
+  } else if (s >= 16.0 && s < 18.8) {
+    // 4. 16.0-18.8 s: thumb on the middle fingertip, held, then the snap (middle finger into the palm).
+    const up = smooth(16.0, 16.6, s) * (1 - smooth(18.2, 18.8, s));
+    const snapped = s >= 17.4;
     add({
       wx: 0.6 * fw,
       wy: lerp(below, 0.84 * fh, up),
       hs,
       curl: 0.2,
       rest: snapped ? 1 : 0.3,
-      pinch: snapped ? 0 : smooth(21.5, 21.9, s),
+      pinch: snapped ? 0 : smooth(16.3, 16.7, s),
       pinchTo: 12,
       left: false,
       angle: -0.1,
     });
-  } else if (s >= 24.4 && s < 26.0) {
-    // 6. 24.4-26.0 s: a flat open hand at the top of the view sweeps down and out (puts it away).
-    const down = smooth(25.2, 25.8, s);
+  } else if (s >= 19.2 && s < 20.8) {
+    // 5. 19.2-20.8 s: a flat open hand at the top of the view sweeps down and out (puts it away).
+    const down = smooth(20.0, 20.6, s);
     add({ wx: 0.55 * fw, wy: lerp(0.42 * fh, 1.3 * fh, down), hs, curl: 0.05, pinch: 0, left: false, angle: -0.05 });
   }
   return hands;

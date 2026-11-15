@@ -11,6 +11,8 @@
  *  - Animations from the scene: spin (about a scene axis through the part's centre), slide (loop or yoyo),
  *    flow (dots moving along a path, e.g. electrons), pulse; a slow idle sway of the whole model.
  *  - The step's focus parts light up (accent tint, stronger edge); the others fade a little.
+ *  - Its own view (src/stage/detailView.ts): while it is up, hands, mouse, keys and voice turn, zoom and
+ *    move it instead of the main model, eased here; the idle sway rests for a few seconds after that.
  *  - Its own canvas and its own animation frames, running only while a detail model is up or fading out;
  *    the canvas is sized to its area at most canvasDpr() (#131); nothing is drawn while the tab is hidden.
  *    Everything is disposed when the scene changes and when this unmounts.
@@ -25,6 +27,8 @@ import { canvasDpr, errorText } from '../camera/frame';
 import { perfCount } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
 import { DETAIL_MOCK } from '../lib/detail';
+import { detailInput, easeDetailView } from '../stage/detailView';
+import { PAN_UNIT_VH } from '../stage/modelControl';
 
 const DEG = Math.PI / 180;
 const FOV = 30;
@@ -33,6 +37,8 @@ const VIEW_PITCH = 14 * DEG;
 const VIEW_YAW = -16 * DEG;
 const SWAY = 20 * DEG;
 const SWAY_PERIOD_S = 18;
+/** The sway rests while the detail model is being turned or moved, and this long after (ms). */
+const SWAY_QUIET_MS = 4000;
 const GREY = new THREE.Color('#c3c9d1');
 const WHITE = new THREE.Color('#ffffff');
 const ACCENT = new THREE.Color('#4DA3FF');
@@ -154,6 +160,8 @@ class DetailView {
   private area: Area = { x: 0, y: 0, w: 0, h: 0 };
   private dpr = 1;
   private stepSeen: number | null = -1;
+  /** how much of the idle sway shows (0 while the detail model is being turned or moved) */
+  private swayK = 1;
   private focus = new Set<string>();
   // scratch (no allocation per frame)
   private readonly v = new THREE.Vector3();
@@ -399,8 +407,14 @@ class DetailView {
     const sc = this.scene;
     if (!sc) return;
     const shown = this.appear;
-    this.turn.rotation.set(VIEW_PITCH, VIEW_YAW + SWAY * Math.sin((2 * Math.PI * t) / SWAY_PERIOD_S), 0, 'XYZ');
-    this.turn.scale.setScalar(0.92 + 0.08 * shown);
+    // its own view (hands, mouse, keys, voice; detailView.ts), eased; pan in stage sizes -> px -> scene units at the model
+    const v = easeDetailView(dt);
+    this.swayK += ((performance.now() - detailInput.at < SWAY_QUIET_MS ? 0 : 1) - this.swayK) * (1 - Math.exp(-dt * 2));
+    this.turn.rotation.set(VIEW_PITCH + v.pitch, VIEW_YAW + v.yaw + this.swayK * SWAY * Math.sin((2 * Math.PI * t) / SWAY_PERIOD_S), 0, 'XYZ');
+    this.turn.scale.setScalar((0.92 + 0.08 * shown) * v.zoom);
+    const perPx = (2 * this.camera.position.z * Math.tan((FOV * DEG) / 2)) / Math.max(1, this.area.h);
+    const unitPx = PAN_UNIT_VH * Math.max(1, window.innerHeight);
+    this.turn.position.set(v.panX * unitPx * perPx, -v.panY * unitPx * perPx, 0);
 
     if (step !== this.stepSeen) {
       this.stepSeen = step;

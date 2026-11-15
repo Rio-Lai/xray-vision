@@ -68,14 +68,16 @@ export const KIT_HUD_CSS = `
 
 /* ---- the hand cue (#121, src/overlay/pinchDots.ts; not in the kit): a small ring at each free raised
    hand's palm, filled while it does something ---- */
-.bf-hand-mark { position: absolute; left: 0; top: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px; box-sizing: border-box;
-  border-radius: var(--bf-radius-pill); border: var(--bf-border-width-focus) solid var(--bf-color-line-strong); background: transparent;
-  box-shadow: var(--bf-shadow-dot-ring); opacity: 0; will-change: transform, opacity;
+.bf-hand-mark { position: absolute; left: 0; top: 0; width: 0; height: 0; opacity: 0; transition: opacity var(--bf-duration-fast) var(--bf-easing-out); }
+.bf-hand-mark.on { opacity: 1; }
+/* a soft dot on each fingertip (pinchDots.ts): hollow and quiet, filled for the fingers taking part */
+.bf-hand-tip { position: absolute; left: 0; top: 0; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; box-sizing: border-box;
+  border-radius: var(--bf-radius-pill); border: 1px solid var(--bf-color-line-strong); background: transparent; opacity: 0.55;
+  box-shadow: var(--bf-shadow-dot-ring); will-change: transform;
   transition: opacity var(--bf-duration-fast) var(--bf-easing-out), background-color var(--bf-duration-fast) var(--bf-easing-out); }
-.bf-hand-mark.on { opacity: 0.8; }
-.bf-hand-mark.active { background: var(--bf-color-white); }
-/* the word under the ring (pinchDots.ts): what that hand is doing */
-.bf-hand-label { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); padding: 2px 8px; white-space: nowrap;
+.bf-hand-tip.on { background: var(--bf-color-white); border-color: var(--bf-color-white); opacity: 1; }
+/* the word under the point where the gesture happens (pinchDots.ts): what that hand is doing */
+.bf-hand-label { position: absolute; left: 0; top: 0; margin-top: 14px; padding: 2px 8px; white-space: nowrap;
   border-radius: var(--bf-radius-pill); background: var(--bf-color-glass-strong); color: var(--bf-color-text);
   font-size: 12px; font-weight: var(--bf-font-weight-medium); line-height: 1.3; text-shadow: var(--bf-shadow-1);
   opacity: 0; transition: opacity var(--bf-duration-fast) var(--bf-easing-out); pointer-events: none; }

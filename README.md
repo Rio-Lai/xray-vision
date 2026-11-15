@@ -105,7 +105,7 @@ Works with the Wi-Fi off:
 
 - the camera, object detection and labels, hand tracking
 - the cached MacBook Air and hand: parts lists, all twelve MacBook models, the muscle and tendon overlay with key presses
-- gestures (pinch-drag, two hands apart), the hidden keys and the mouse
+- gestures (two fingers to move, two open hands to turn, two hands pinching apart to zoom), the hidden keys and the mouse
 - part cards, safety notes and steps (`Left` / `Right`, `S`)
 
 Needs the network:
@@ -144,16 +144,26 @@ The buttons on the right do what the hidden keys do on the laptop: Voice (V), An
 
 ## Controls
 
-While a model is on stage. Hands work only once a hand has been in view for a moment and is not typing or resting on the laptop; a small ring marks each hand Blowfish is following (filled while it is doing something), and one word ("Turning", "Opening", "Closing", "Zooming", "Moving") shows above the voice pill.
+While a model is on stage. Hands work only once a hand has been in view for a moment and is not typing or resting on the laptop; a small dot marks each fingertip of a hand Blowfish is following (the fingers doing the current gesture are filled), with one word under them ("Panning", "Rotating", "Zooming", "Exploding", "Closing"). With `?detail=1`, while a detail model is open, turning, zooming, moving and centring (hands, mouse, keys and voice) act on the detail model instead, even with no main model on stage; it starts facing its default view at the normal size every time it opens, and the main model is as it was when it closes. Opening / closing (snap, wheel, `A` / `E`) stays the main model's, and the sweep down puts everything away.
 
 | | Turn | Open / close | Zoom | Move | Centre |
 | --- | --- | --- | --- | --- | --- |
-| **Hands** | Pinch (thumb to index) and drag; or both hands open, move them like spinning a globe (both sideways, both up or down, or one hand pushed away while the other comes closer) | Snap your fingers: explodes it, or closes it back to analysed if open (`?twoopen=1`: the two-hand pinch opens it first); a flat hand swept down from the top of the view puts it away | Pinch with both hands and pull apart / bring together | An open hand over the model, then a fist: it follows the fist until you open the hand | |
+| **Hands** | Both hands open, move them like spinning a globe (both sideways, both up or down, or one hand pushed away while the other comes closer) | Snap your fingers: explodes it, or closes it back to analysed if open (`?twoopen=1`: the two-hand pinch opens it first); a flat hand swept down from the top of the view puts it away | Pinch with both hands and pull apart / bring together (it needs both hands, so it is never confused with the snap) | Two fingers: index and middle out and held together, ring and pinky curled (a closed peace sign); the model follows the two fingertips until you let the pose go | |
 | **Mouse, trackpad** | Drag | Wheel | Trackpad pinch (wheel + Ctrl) | Shift-drag or right-drag | Double-click |
 | **Keys** | | `A` analyse, `E` explode, `R` put away | `+` / `-` | Shift + arrow keys | `0` |
 | **Voice** | "turn it around" | "explode it", "put it back together", "collapse it", "put it away" | "zoom in", "closer", "normal size" | "move it left / right / up / down" | "recentre it" |
 
-Hands never open something from nothing (voice and `A` / `E` do); the sweep down puts it away (saved, as "put it away"). Sweep: start with the open hand near the top of the view (palm in the top 40 percent), then wipe it straight down past the middle, briskly (about a third of a second to a second; straight out of the bottom is fine). Snap: press the thumb on the middle fingertip for a moment, then snap; the camera sees the pose before and after, so 30 fps is enough. The pinch, the fist and the open hand are read from MediaPipe's 3D hand (its world landmarks), so they work with the hand seen from behind or pointing away from the head camera (`?world=0`: from the image, as before). The ring sits between the thumb and index fingertips (at the palm for a fist), fills as soon as a pinch counts, and shows one word under it while that hand does something ("Rotating", "Panning", "Zooming", "Exploding", "Closing"). A gesture misbehaving on the rig: `?snap=0`, `?sweep=0`, `?grab=0`, `?globe=0`, `?twohand=0`, or `?gestures=0` for all of them; `?pinchturn=0` makes the pinch move the model, `?burst=1` brings back the fist-flick open / close, `?pan=1` the two-hand move. `?mock=gesture` plays each hand gesture in turn with scripted hands.
+| Gesture | Does | URL switch |
+| --- | --- | --- |
+| Two fingers together, moved | Moves (pans) the model | `?twofinger=0` off; `?tfgap=0.4` `?tfcurl=1.2` `?tfreach=1.35` `?tfhold=120` tune it |
+| Snap | Explodes / closes it | `?snap=0` |
+| Two open palms, moved like a globe | Turns it | `?globe=0` |
+| Two hands pinching, apart / together | Zooms in / out | `?twohand=0` |
+| One hand pinching | Nothing | `?pinchturn=1` pinch-drag turns it, `?pinchmove=1` moves it |
+| Open hand over it, then a fist | Nothing (off) | `?grab=1` grabs and moves it |
+| Flat hand swept down from the top | Puts it away | `?sweep=0` |
+
+Two fingers: the index and middle tips must be well out from the wrist (`tfreach`, 1.35 hand sizes), within `tfgap` (0.4 hand sizes) of each other, the ring and pinky tips curled in (within `tfcurl`, 1.2 hand sizes, of the wrist), the thumb not on the index or middle tip, held `tfhold` ms; read from MediaPipe's 3D hand, so it works with the hand at any angle. Too picky on the camera: raise `tfgap` or `tfcurl`, or lower `tfreach`; too eager: the other way (all four are sliders in the debug panel, `D`, which also shows each hand's numbers). Hands never open something from nothing (voice and `A` / `E` do); the sweep down puts it away (saved, as "put it away"). Sweep: start with the open hand near the top of the view (palm in the top 40 percent), then wipe it straight down past the middle, briskly (about a third of a second to a second; straight out of the bottom is fine). Snap: press the thumb on the middle fingertip for a moment, then snap; the camera sees the pose before and after, so 30 fps is enough. The two fingers, the pinch, the fist and the open hand are read from MediaPipe's 3D hand (its world landmarks), so they work with the hand seen from behind or pointing away from the head camera (`?world=0`: from the image, as before). The fingertip dots light up for the fingers doing the gesture (two-finger pan: index and middle; pinch and zoom: thumb and index; globe: all five; snap: thumb and middle), and the word sits under them. A gesture misbehaving on the rig: `?twofinger=0`, `?snap=0`, `?sweep=0`, `?globe=0`, `?twohand=0`, or `?gestures=0` for all of them; `?burst=1` brings back the fist-flick open / close, `?pan=1` the two-hand move. `?mock=gesture` plays each hand gesture in turn with scripted hands (two-finger pan, two-hand zoom, globe, snap, sweep).
 
 ## Developer fallback
 
@@ -181,7 +191,7 @@ Mouse and keys for the model on stage: see "Controls" above. A click without dra
 URL options:
 
 - `?mock=1` (or `?mock=laptop`, `?mock=hand`): no camera or vision models needed; a fake laptop, phone and typing hand (`hand` puts the hand in the centre of view). Fake data: never film it for the product shots.
-- `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands play every hand control in turn: pinch turn, two-hand zoom, fist grab and move, globe turn, finger snap (explodes), sweep down (puts it away; analysed again for the next loop)
+- `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands play every hand control in turn: two-finger pan, two-hand zoom, globe turn, finger snap (explodes), sweep down (puts it away; analysed again for the next loop)
 - `?mock=eye`: a fake face in the middle of the view, to open the eye without a camera
 - `?look=classic`: the interface as it was before the Figma Make kit, to compare or fall back
 - `?lift=0`: the model cross-fades in on the stage instead of lifting out of the real object (a fallback if the transition misbehaves)
@@ -194,7 +204,7 @@ URL options:
 - `?hands=raw`: use if left and right hands look swapped
 - `?mic=<part of the name>`: pick the microphone, for example `?mic=c920` or `?mic=iphone` (remembered)
 - `?ptt=1` / `?ptt=0`: push-to-talk only on / off (remembered)
-- Gesture tuning: `?pinch=0.3&unpinch=0.45&hold=90&reach=1&rot=1.1&spread=1&burstms=400&globegain=1.3&pangain=1`; `?snap=0`, `?sweep=0`, `?grab=0`, `?globe=0`, `?twohand=0` turn one gesture off, `?gestures=0` all of them; `?pinchturn=0`, `?twoopen=1`, `?burst=1`, `?pan=1`, `?world=0` as above. URL values override the debug panel sliders (saved in this browser). Voice: `?gate=0` turns the noise gate off, `?gatedb=12` sets how far above the room the wearer must be, `?lock=1` mutes the microphone from the end of a command until Blowfish has answered.
+- Gesture tuning: `?pinch=0.3&unpinch=0.45&hold=90&reach=1&rot=1.1&spread=1&burstms=400&globegain=1.3&pangain=1`; `?twofinger=0`, `?snap=0`, `?sweep=0`, `?globe=0`, `?twohand=0` turn one gesture off, `?gestures=0` all of them; `?tfreach=1.35&tfgap=0.4&tfcurl=1.2&tfhold=120` tune the two-finger pose; `?pinchturn=1`, `?pinchmove=1`, `?grab=1`, `?twoopen=1`, `?burst=1`, `?pan=1`, `?world=0` as above. URL values override the debug panel sliders (saved in this browser). Voice: `?gate=0` turns the noise gate off, `?gatedb=12` sets how far above the room the wearer must be, `?lock=1` mutes the microphone from the end of a command until Blowfish has answered.
 - Key-press tuning: `?press=0.6&release=0.15&extend=1.2`
 
 ## Scripts

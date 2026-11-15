@@ -7,10 +7,14 @@
  * Zoom (#109): store.modelZoom, from the trackpad pinch, the + / - keys, the two-hand spread and the burst.
  * Pan (#121): store.modelPanX / modelPanY in stage sizes (PAN_UNIT_VH of the view height each), from the
  * two-hand pinch moved together, shift- or right-drag and shift + arrow keys; `centre` puts it back.
+ * While a detail model is up (`?detail=1`, store.detailStatus 'ready'), turning, zooming, moving and
+ * centring act on it instead (src/stage/detailView.ts), even with no main model on stage, and the main
+ * model keeps its own view for when the detail closes; opening and closing (explode) stay the main model's.
  */
 import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
 import { turnModel } from './turnLimit';
+import { centreDetail, detailInputActive, detailViewTarget, panDetail, setDetailZoom, turnDetail, zoomDetail } from './detailView';
 
 /** After a release the spin slows with this time constant (s). */
 const INERTIA_TAU_S = 0.38;
@@ -33,9 +37,28 @@ export function panPx(pan: number, vh: number): number {
   return Number.isFinite(pan) ? pan * PAN_UNIT_VH * vh : 0;
 }
 
-/** Direct input works only while a box model is on stage (the floating model). */
-export function stageInputActive(s: Pick<AppState, 'trackingMode' | 'teardown'>): boolean {
+type InputState = Pick<AppState, 'trackingMode' | 'teardown'> & Partial<Pick<AppState, 'detailStatus' | 'detail'>>;
+
+/** A box model is on stage (the floating model): opening and closing it work. */
+export function mainInputActive(s: Pick<AppState, 'trackingMode' | 'teardown'>): boolean {
   return s.trackingMode === 'stage' && s.teardown !== null;
+}
+
+/** A detail model is up: turning, zooming and moving act on it (detailView.ts) instead of the main model. */
+export function detailInputOn(s: InputState): boolean {
+  return s.detailStatus !== undefined && s.detail !== undefined && detailInputActive({ detailStatus: s.detailStatus, detail: s.detail });
+}
+
+/** Direct input works while a box model is on stage (the floating model) or a detail model is up. */
+export function stageInputActive(s: InputState): boolean {
+  return mainInputActive(s) || detailInputOn(s);
+}
+
+/** Zoom and pan of whatever direct input moves now (the detail model while one is up, else the main model). */
+export interface ViewNow {
+  zoom: number;
+  panX: number;
+  panY: number;
 }
 
 class ModelControl {
@@ -46,10 +69,28 @@ class ModelControl {
   private vYaw = 0;
   private vPitch = 0;
   private coasting = false;
+  /** the drag and its coasting act on the detail model (it was up when they began) */
+  private onDetail = false;
+  private readonly view: ViewNow = { zoom: 1, panX: 0, panY: 0 };
 
   /** Mark activity without moving (e.g. a pinch held still): stops the idle drift. */
   touch(now: number): void {
-    this.lastInputAt = now;
+    if (!detailInputOn(useStore.getState())) this.lastInputAt = now;
+  }
+
+  /** Zoom and pan of what direct input moves now (reused object): the detail model while one is up, else the main model. */
+  viewNow(): Readonly<ViewNow> {
+    const s = useStore.getState();
+    const d = detailInputOn(s) ? detailViewTarget() : null;
+    this.view.zoom = d ? d.zoom : s.modelZoom;
+    this.view.panX = d ? d.panX : s.modelPanX;
+    this.view.panY = d ? d.panY : s.modelPanY;
+    return this.view;
+  }
+
+  /** Turn the main model or the detail model; true = it stopped at a limit. */
+  private applyTurn(dYaw: number, dPitch: number, soft: boolean): boolean {
+    return this.onDetail ? turnDetail(dYaw, dPitch) : turnModel(dYaw, dPitch, soft);
   }
 
   /** One drag step: turn the model by (dYaw, dPitch) radians now. */
@@ -57,6 +98,12 @@ class ModelControl {
     const s = useStore.getState();
     if (!stageInputActive(s)) return;
     if (!Number.isFinite(dYaw) || !Number.isFinite(dPitch)) return;
+    // (the detail opened or closed since the last step: a fresh drag on the other model)
+    const det = detailInputOn(s);
+    if (det !== this.onDetail) {
+      this.stop();
+      this.onDetail = det;
+    }
     const dt = this.dragging ? Math.max(1 / 240, Math.min(0.1, (now - this.lastDragAt) / 1000)) : 1 / 60;
     if (!this.dragging) {
       this.vYaw = 0;
@@ -65,19 +112,19 @@ class ModelControl {
     this.dragging = true;
     this.coasting = false;
     this.lastDragAt = now;
-    this.lastInputAt = now;
+    if (!det) this.lastInputAt = now;
     // Velocity estimate for the release (EMA over the last few steps).
     const k = 0.45;
     this.vYaw += (dYaw / dt - this.vYaw) * k;
     this.vPitch += (dPitch / dt - this.vPitch) * k;
-    if (dYaw !== 0 || dPitch !== 0) turnModel(dYaw, dPitch, true);
+    if (dYaw !== 0 || dPitch !== 0) this.applyTurn(dYaw, dPitch, true);
   }
 
   /** The drag ended: keep turning a little, slowing down (inertia). */
   release(now: number): void {
     if (!this.dragging) return;
     this.dragging = false;
-    this.lastInputAt = now;
+    if (!this.onDetail) this.lastInputAt = now;
     if (now - this.lastDragAt > STILL_MS) {
       this.vYaw = 0;
       this.vPitch = 0;
@@ -88,10 +135,10 @@ class ModelControl {
     this.coasting = Math.hypot(this.vYaw, this.vPitch) > MIN_SPIN;
   }
 
-  /** Set the explode amount from direct input (kept between the analyse state and fully open). */
+  /** Set the explode amount from direct input (kept between the analyse state and fully open). Always the main model. */
   setExplode(amount: number, now: number): void {
     const s = useStore.getState();
-    if (!stageInputActive(s) || !Number.isFinite(amount)) return;
+    if (!mainInputActive(s) || !Number.isFinite(amount)) return;
     this.lastInputAt = now;
     const a = Math.min(1, Math.max(STAGE_MIN_EXPLODE, amount));
     if (Math.abs(a - s.explodeAmount) > 1e-4) s.setExplode(a);
@@ -101,6 +148,7 @@ class ModelControl {
   zoomBy(factor: number, now: number): void {
     const s = useStore.getState();
     if (!stageInputActive(s) || !Number.isFinite(factor) || factor <= 0) return;
+    if (detailInputOn(s)) return zoomDetail(factor, now);
     this.lastInputAt = now;
     s.zoomModel(factor);
   }
@@ -109,6 +157,7 @@ class ModelControl {
   setZoom(zoom: number, now: number): void {
     const s = useStore.getState();
     if (!stageInputActive(s) || !Number.isFinite(zoom)) return;
+    if (detailInputOn(s)) return setDetailZoom(zoom, now);
     this.lastInputAt = now;
     if (Math.abs(zoom - s.modelZoom) > 1e-4) s.setModelZoom(zoom);
   }
@@ -117,6 +166,10 @@ class ModelControl {
   panBy(dx: number, dy: number, now: number): void {
     const s = useStore.getState();
     if (!stageInputActive(s) || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    if (detailInputOn(s)) {
+      panDetail(dx, dy, now);
+      return;
+    }
     this.lastInputAt = now;
     if (Math.abs(dx) > 1e-5 || Math.abs(dy) > 1e-5) s.panModel(dx, dy);
   }
@@ -125,6 +178,7 @@ class ModelControl {
   centre(now: number): void {
     const s = useStore.getState();
     if (!stageInputActive(s)) return;
+    if (detailInputOn(s)) return centreDetail(now);
     this.lastInputAt = now;
     s.centreModel();
     s.setModelZoom(1);
@@ -141,7 +195,8 @@ class ModelControl {
   /** Once per animation frame. */
   tick(now: number, dtSec: number): void {
     const s = useStore.getState();
-    if (!stageInputActive(s)) {
+    // (nothing to move, or the detail opened or closed mid-spin: the spin stops)
+    if (!stageInputActive(s) || detailInputOn(s) !== this.onDetail) {
       if (this.coasting || this.dragging) this.stop();
       return;
     }
@@ -155,7 +210,10 @@ class ModelControl {
     const dt = Math.min(0.1, Math.max(0, dtSec));
     const dy = this.vYaw * dt;
     const dp = this.vPitch * dt;
-    if (turnModel(dy, dp, true)) {
+    if (this.onDetail) {
+      // (the detail model has no yaw limit; at the pitch limit the tipping dies)
+      if (turnDetail(dy, dp, now)) this.vPitch = 0;
+    } else if (turnModel(dy, dp, true)) {
       // A flat model coasting into its limit: the spin dies there instead of pressing on.
       const n = useStore.getState();
       if (dy !== 0) this.vYaw *= Math.min(1, Math.max(0, (n.modelYaw - s.modelYaw) / dy));
@@ -164,13 +222,13 @@ class ModelControl {
     const decay = Math.exp(-dt / INERTIA_TAU_S);
     this.vYaw *= decay;
     this.vPitch *= decay;
-    this.lastInputAt = now;
+    if (!this.onDetail) this.lastInputAt = now;
     if (Math.hypot(this.vYaw, this.vPitch) < MIN_SPIN) this.coasting = false;
   }
 
   /** For the debug panel. */
   describe(): string {
-    return `${this.dragging ? 'dragging' : this.coasting ? 'coasting' : 'idle'} v ${this.vYaw.toFixed(2)}/${this.vPitch.toFixed(2)} rad/s`;
+    return `${this.dragging ? 'dragging' : this.coasting ? 'coasting' : 'idle'}${this.onDetail ? ' (detail model)' : ''} v ${this.vYaw.toFixed(2)}/${this.vPitch.toFixed(2)} rad/s`;
   }
 }
 

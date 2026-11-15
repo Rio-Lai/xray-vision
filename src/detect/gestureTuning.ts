@@ -1,23 +1,29 @@
 /**
  * Live gesture tuning, read every frame by the gesture driver. Change it with the sliders in the
  * debug panel (D): saved in localStorage, and URL params override (for a quick test on the rig):
- *   ?gestures=0 (all hand gestures off), ?grab=0 (open hand over the model, then a fist, moves it),
+ *   ?gestures=0 (all hand gestures off), ?twofinger=0 (index and middle together move it),
+ *   ?tfreach=1.35&tfgap=0.4&tfcurl=1.2&tfhold=120 (the two-finger pose: index and middle tips at least
+ *   tfreach from the wrist and at most tfgap apart, ring and pinky tips at most tfcurl from the wrist,
+ *   held tfhold ms; hand sizes: a larger tfgap / tfcurl or a smaller tfreach is less picky),
  *   ?sweep=0 (flat hand from the top down puts it away), ?snap=0 (a finger snap opens / closes it),
  *   ?globe=0 (two open hands turn it), ?twohand=0 (two-hand pinch apart / together zooms),
- *   ?twoopen=1 (that pinch opens it first, then zooms), ?pinchturn=0 (one-hand pinch moves it instead of turning it),
+ *   ?twoopen=1 (that pinch opens it first, then zooms), ?pinchturn=1 (a one-hand pinch-drag turns it;
+ *   off by default: a lone pinch does nothing), ?pinchmove=1 (a one-hand pinch-drag moves it),
+ *   ?grab=1 (open hand over the model, then a fist, moves it),
  *   ?world=0 (pinch and hand shape from the image, not MediaPipe's 3D hand), ?burst=1 (fist / open hand
  *   flick opens and closes), ?pan=1 (two-hand pinch moved together moves it), ?pangain=1
  *   ?pinch=0.3&unpinch=0.45&hold=90&reach=1&rot=1.1&spread=1&burstms=400&globegain=1.3
  *   &typingms=1500&resthand=0.22 (which hands may gesture, #107; typingms=0 turns the typing rule off)
- * #121 and Rio's new mapping (15 Nov: pinch turns, fist grabs and moves, two-hand pinch zooms, snap
- * opens / closes, sweep puts away; burst and two-hand pan off) changed the defaults, so the saved
- * sliders live under a new key: everyone starts from the new defaults once (older keys are ignored).
+ * #121 and Rio's mappings (15 Nov, third pass: two fingers pan, two open hands turn, two-hand pinch
+ * zooms, snap opens / closes, sweep puts away; a lone pinch, the grab, burst and two-hand pan off)
+ * changed the defaults, so the saved sliders live under a new key: everyone starts from the new
+ * defaults once (older keys are ignored).
  */
 import { urlNumber } from '../camera/frame';
 import { GESTURE_TUNING_DEFAULTS } from './gestures';
 import type { GestureTuning } from './gestures';
 
-const KEY = 'blowfish.gestureTuning.v4';
+const KEY = 'blowfish.gestureTuning.v5';
 
 function urlBool(name: string): boolean | null {
   try {
@@ -55,12 +61,27 @@ function load(): GestureTuning {
   t.typingMs = urlNumber('typingms', t.typingMs);
   t.restHandMax = urlNumber('resthand', t.restHandMax);
   t.panGain = urlNumber('pangain', t.panGain);
+  t.twoFingerReach = urlNumber('tfreach', t.twoFingerReach);
+  t.twoFingerGap = urlNumber('tfgap', t.twoFingerGap);
+  t.twoFingerCurl = urlNumber('tfcurl', t.twoFingerCurl);
+  t.twoFingerHoldMs = urlNumber('tfhold', t.twoFingerHoldMs);
+  t.twoFinger = urlBool('twofinger') ?? t.twoFinger;
   t.burst = urlBool('burst') ?? t.burst;
   t.globe = urlBool('globe') ?? t.globe;
   t.twoHand = urlBool('twohand') ?? t.twoHand;
   t.pan = urlBool('pan') ?? t.pan;
   t.world = urlBool('world') ?? t.world;
-  t.pinchTurns = urlBool('pinchturn') ?? t.pinchTurns;
+  // ?pinchturn=1: a one-hand pinch-drag turns it (as before); ?pinchmove=1: moves it; ?pinchturn=0: a lone pinch does nothing
+  const pinchTurn = urlBool('pinchturn');
+  const pinchMove = urlBool('pinchmove');
+  if (pinchTurn !== null) {
+    t.pinchDrag = pinchTurn;
+    if (pinchTurn) t.pinchTurns = true;
+  }
+  if (pinchMove) {
+    t.pinchDrag = true;
+    t.pinchTurns = false;
+  }
   t.grab = urlBool('grab') ?? t.grab;
   t.sweep = urlBool('sweep') ?? t.sweep;
   t.snap = urlBool('snap') ?? t.snap;
@@ -86,7 +107,9 @@ export function gestureTuningUrl(t: GestureTuning): string {
     `pinch=${t.pinchOn.toFixed(2)}&unpinch=${t.pinchOff.toFixed(2)}&hold=${Math.round(t.holdMs)}&reach=${t.pinchReachMin.toFixed(2)}` +
     `&rot=${t.rotGain.toFixed(2)}&spread=${t.spreadGain.toFixed(2)}&burstms=${Math.round(t.burstMs)}&globegain=${t.globeGain.toFixed(2)}` +
     `&burst=${t.burst ? 1 : 0}&globe=${t.globe ? 1 : 0}&twohand=${t.twoHand ? 1 : 0}&pan=${t.pan ? 1 : 0}` +
-    `&grab=${t.grab ? 1 : 0}&sweep=${t.sweep ? 1 : 0}&snap=${t.snap ? 1 : 0}&twoopen=${t.twoOpens ? 1 : 0}&world=${t.world ? 1 : 0}&pinchturn=${t.pinchTurns ? 1 : 0}&pangain=${t.panGain.toFixed(2)}` +
+    `&twofinger=${t.twoFinger ? 1 : 0}&tfreach=${t.twoFingerReach.toFixed(2)}&tfgap=${t.twoFingerGap.toFixed(2)}&tfcurl=${t.twoFingerCurl.toFixed(2)}&tfhold=${Math.round(t.twoFingerHoldMs)}` +
+    `&grab=${t.grab ? 1 : 0}&sweep=${t.sweep ? 1 : 0}&snap=${t.snap ? 1 : 0}&twoopen=${t.twoOpens ? 1 : 0}&world=${t.world ? 1 : 0}` +
+    `&${t.pinchDrag ? (t.pinchTurns ? 'pinchturn=1' : 'pinchmove=1') : 'pinchturn=0'}&pangain=${t.panGain.toFixed(2)}` +
     `&typingms=${Math.round(t.typingMs)}&resthand=${t.restHandMax.toFixed(2)}`
   );
 }
