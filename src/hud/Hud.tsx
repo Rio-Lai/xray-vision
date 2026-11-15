@@ -27,6 +27,10 @@ import { isPinnedId } from '../detect/centre';
 import { shortName } from './names';
 import { SavedRow } from './SavedRow';
 import { savedAgo, useSaved } from '../lib/saved';
+import { modelOnStage } from '../overlay/stageState';
+
+/** #109: a model lifting out of its object shows the title once it has arrived, or after this at the latest (ms). */
+const TITLE_LATE_MS = 2500;
 
 /** Something is open: exploded in freeze / follow, or any model on stage (even at explode 0). */
 function isShowing(s: AppState): boolean {
@@ -120,11 +124,24 @@ function StatusPill() {
   );
 }
 
-/** Name of the exploded object, plus "AI-estimated" when the parts list was generated live. */
+/**
+ * Name of the exploded object, plus "AI-estimated" when the parts list was generated live. A model on
+ * stage (#109): it fades in once the model has lifted out of its object and arrived (liftOut.ts).
+ */
 function ExplodedTitle() {
   const tdName = useStore((s) => (isShowing(s) ? s.teardown?.name ?? null : null));
   const isLive = useStore((s) => s.teardown?.source === 'live');
+  const onStage = useStore((s) => modelOnStage(s));
+  const arrived = useHud((s) => s.stageArrived.box || s.stageArrived.arm || s.stageArrived.eye);
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    setLate(false);
+    if (!tdName || !onStage) return;
+    const id = setTimeout(() => setLate(true), TITLE_LATE_MS);
+    return () => clearTimeout(id);
+  }, [tdName, onStage]);
   if (!tdName) return null;
+  if (onStage && !arrived && !late) return null;
   if (KIT_LOOK) {
     // kit TitlePill: one pill, the "AI-estimated" chip inside it in neutral grey
     return (

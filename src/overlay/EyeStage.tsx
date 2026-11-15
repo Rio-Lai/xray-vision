@@ -19,11 +19,14 @@
  *  - His materials are kept (transparent cornea, lens and humours; textured iris and retina): only
  *    clipping, a highlight tint, dimming of the other parts while something is highlighted, and his
  *    darkening of the eye's lining while it is closed (so the pupil looks black) are added, on copies.
- *  - It lifts out of the eye it came from (facing the wearer, as the real eye does; a left eye is
- *    mirrored, so the optic nerve leaves on the nasal side), glides to the middle of the view and
- *    turns to his three-quarter view; modelYaw / modelPitch (hands, mouse, voice) and the idle drift
- *    turn it, modelZoom (eased) scales it about its middle; "put it away" glides it back into the
- *    eye and fades it (as the box rig and the arm do).
+ *  - It lifts out of the eye it came from (liftOut.ts, #109, as the box rig and the arm do: an
+ *    outline draws round the eye, the eyeball appears over it at its size, facing the wearer as the
+ *    real eye does, opaque; a left eye is mirrored, so the optic nerve leaves on the nasal side), then
+ *    rises, grows and turns to his three-quarter view on one ease-out curve, its parts separating
+ *    only as it arrives; modelYaw / modelPitch (hands, mouse, voice) and the idle drift turn it,
+ *    modelZoom (eased) scales it about its middle; "put it away" closes it and glides it back into
+ *    the eye (or its saved pill) and fades it. A saved eye brought back with no eye in view lifts
+ *    out of its pill.
  *  - Part labels are the Blowfish pills (labels.ts) on each part once it is apart, and on the parts of
  *    a step or a highlight; the overlay asks `eyeStage.pickAt` which part a click is on.
  *  - It is mounted from the start and draws nothing until the eye opens: a few seconds after the
@@ -43,10 +46,13 @@ import { isEyeTeardown } from '../stage/eyeTeardown';
 import { sentenceCase } from '../stage/armTeardown';
 import { STAGE_MIN_EXPLODE, modelControl } from '../stage/modelControl';
 import { smoothstep } from './explodeAnimator';
-import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_LIFT_OMEGA, STAGE_SIZE, STAGE_TURN_OMEGA, TOP_MARGIN } from './boxRig';
+import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_SIZE, STAGE_TURN_OMEGA, TOP_MARGIN } from './boxRig';
 import type { ScreenBox } from './boxRig';
 import { loadGlbTemplate } from './glbCache';
 import { LabelLayer, inView } from './labels';
+import { Lift, LiftOutline, pillBox } from './liftOut';
+import { reopenedSavedId } from '../lib/flow';
+import { setStageArrived } from '../hud/hudStore';
 import type { LabelItem } from './labels';
 import { springStep } from './stageLayout';
 
@@ -228,6 +234,7 @@ class EyeStageCtl {
   /** how many parts the row slides were worked out for (they arrive one by one) */
   private rowFor = -1;
   private labels: LabelLayer | null = null;
+  private outline: LiftOutline | null = null;
   private readonly cutWorld = new THREE.Plane(new THREE.Vector3(0, -1, 0), CUT_NONE);
   private readonly cutLocal = new THREE.Plane(new THREE.Vector3(0, -1, 0), CUT_NONE);
   private cutSides = false;
@@ -243,12 +250,14 @@ class EyeStageCtl {
   private vw = 0;
   private vh = 0;
   private dpr = 1;
-  // glide (as BoxRig.updateStage / ArmStage)
-  private lift = 0;
-  private liftV = 0;
-  private presence = 0;
+  // the lift-out / put-away (liftOut.ts, as BoxRig.updateStage / ArmStage)
+  private readonly lift = new Lift();
   private from: ScreenBox | null = null;
+  /** it lifts out of a saved pill (no eye in view): the start does not follow an eye */
+  private fromPill = false;
   private objectId: string | null = null;
+  /** the parts list it came from (its saved pill, if it is put away with no eye in view) */
+  private savedId: string | null = null;
   // view
   private yaw = 0;
   private yawV = 0;
@@ -260,6 +269,8 @@ class EyeStageCtl {
   private lastInput = 0;
   private seen = { yaw: 0, pitch: 0, explode: 0, step: null as number | null, hl: null as string | null };
   private eShown = 0;
+  /** the explode amount drawn: eShown, held closed while it rises and closed as it is put away */
+  private eView = 0;
   private cut = 0;
   private ppu = 1;
   private readonly raycaster = new THREE.Raycaster();
@@ -306,6 +317,7 @@ class EyeStageCtl {
       setStatus('eye-webgl', 'error', `WebGL unavailable, the eye cannot be drawn: ${errorText(e)}`);
     }
     this.labels = new LabelLayer(labelHost);
+    this.outline = new LiftOutline(labelHost);
     this.initTimer = setTimeout(() => {
       this.initTimer = null;
       void this.init();
@@ -319,6 +331,9 @@ class EyeStageCtl {
     this.initTimer = null;
     eyeStage.tick = () => undefined;
     eyeStage.pickAt = () => null;
+    setStageArrived('eye', false);
+    this.outline?.dispose();
+    this.outline = null;
     this.labels?.dispose();
     this.labels = null;
     for (const p of this.parts) for (const m of p.mats) m.mat.dispose(); // copies; geometry and textures stay cached
@@ -512,7 +527,7 @@ class EyeStageCtl {
 
   /** Explode slide of a part along the visual axis (eye frame z). */
   private slide(p: EyePart): number {
-    return p.rowZ * this.eShown;
+    return p.rowZ * this.eView;
   }
 
   /** Work out each part's slide when fully apart (once the parts have arrived; see rowSlides). */
@@ -607,7 +622,7 @@ class EyeStageCtl {
     const on = isEyeTeardown(s.teardown);
     if (on && !this.wasOn) {
       // A new open (unless it is re-opened while still going away): start from the eye in view.
-      if (this.presence < 0.05 && this.lift < 0.05) {
+      if (this.lift.done) {
         this.from = null;
         this.objectId = null;
         this.drift = 0;
@@ -618,6 +633,7 @@ class EyeStageCtl {
         this.pitch = s.modelPitch;
         this.pitchV = 0;
         this.eShown = 0;
+        this.eView = 0;
         this.cut = 0;
         this.lastInput = now;
         for (const p of this.parts) {
@@ -629,13 +645,12 @@ class EyeStageCtl {
       if (!this.loading) void this.init(s.teardown?.parts);
     }
     this.wasOn = on;
-    if (!on && this.lift < 0.002 && this.presence < 0.002) {
+    if (!on && this.lift.done) {
       // Nothing to show: clear once, then draw nothing.
       if (this.drawn) {
         this.drawn = false;
-        this.lift = 0;
-        this.liftV = 0;
-        this.presence = 0;
+        setStageArrived('eye', false);
+        this.outline?.update(null, 0, 0);
         if (this.renderer) {
           this.renderer.domElement.style.opacity = '0';
           this.renderer.clear();
@@ -646,31 +661,44 @@ class EyeStageCtl {
     }
     this.drawn = true;
     // the eye it came out of (kept while it is put away, so it goes back into the same eye)
-    if (on) this.objectId = s.selectedObjectId ?? s.focusedObjectId ?? this.objectId;
+    if (on) {
+      this.objectId = s.selectedObjectId ?? s.focusedObjectId ?? this.objectId;
+      this.savedId = s.teardown?.object_id ?? this.savedId;
+    }
     const mirror = this.objectId && /^eye-left\b/.test(this.objectId) ? -1 : 1;
 
-    // Glide: out of the eye to the middle of the view, and back into it when put away.
+    // Lift: out of the eye (or its saved pill) to the middle of the view, and back when put away.
+    // It appears once its models are in (they are preloaded), at most MAX_WAIT_MS after the open.
     const box = this.objectBox();
-    if (!this.from) this.from = box ?? { cx: w / 2, cy: h / 2, w: 0.08 * h, h: 0.08 * h };
-    else if (box) {
-      const k = 1 - Math.exp(-dt * 12);
-      this.from.cx += (box.cx - this.from.cx) * k;
-      this.from.cy += (box.cy - this.from.cy) * k;
-      this.from.w += (box.w - this.from.w) * k;
-      this.from.h += (box.h - this.from.h) * k;
+    if (!this.from) {
+      const saved = on ? reopenedSavedId(this.objectId) : null;
+      this.fromPill = saved !== null;
+      const start = saved !== null ? pillBox(saved) : box ?? { cx: w / 2, cy: h / 2, w: 0.08 * h, h: 0.08 * h };
+      this.from = { cx: start.cx, cy: start.cy, w: start.w, h: start.h };
     }
-    const go = on && this.parts.length > 0 && (this.settled || now - this.sessionAt > MAX_WAIT_MS);
-    [this.lift, this.liftV] = springStep(this.lift, this.liftV, go ? 1 : 0, STAGE_LIFT_OMEGA, dt);
-    const L = clamp01(this.lift);
-    const presTarget = go ? 1 : smoothstep(0.03, 0.35, L);
-    this.presence += (presTarget - this.presence) * (1 - Math.exp(-dt * (go ? 9 : 14)));
+    this.lift.update(dt, on, this.parts.length > 0 && (this.settled || now - this.sessionAt > MAX_WAIT_MS));
+    // the start follows the eye for the first third of the lift; put away, the eye (or the pill)
+    const goal = !on ? box ?? pillBox(this.savedId) : this.lift.follow && !this.fromPill ? box : null;
+    if (goal) {
+      const k = 1 - Math.exp(-dt * 12);
+      this.from.cx += (goal.cx - this.from.cx) * k;
+      this.from.cy += (goal.cy - this.from.cy) * k;
+      this.from.w += (goal.w - this.from.w) * k;
+      this.from.h += (goal.h - this.from.h) * k;
+    }
+    // L: 0 on the eye, 1 in the middle of the view (a little past it at the overshoot)
+    const L = this.lift.pos;
+    setStageArrived('eye', on && this.lift.arrived);
+    this.outline?.update(this.from, this.lift.outlineDrawn, this.lift.outlineOpacity);
 
     // Store -> eye. Put away: it closes and keeps its last view.
     const step = on && s.teardown && s.activeStep !== null ? s.teardown.steps.find((x) => x.n === s.activeStep) : undefined;
     const hlIds = new Set<string>(on ? [...(step?.part_ids ?? []), ...(s.highlightedPartId ? [s.highlightedPartId] : [])] : []);
-    const eTarget = on ? clamp01((s.explodeAmount - STAGE_MIN_EXPLODE) / (1 - STAGE_MIN_EXPLODE)) : 0;
+    // (0 = analysed, assembled): it opens only once the eye is up, and closes as it is put away (spreadK)
+    const eTarget = on && this.lift.phase !== 'out' ? clamp01((s.explodeAmount - STAGE_MIN_EXPLODE) / (1 - STAGE_MIN_EXPLODE)) : 0;
     this.eShown += (eTarget - this.eShown) * (1 - Math.exp(-dt * 6));
-    const cutTarget = on ? Math.max(smoothstep(0, 0.25, this.eShown), hlIds.size > 0 ? 1 : 0) : 0;
+    this.eView = this.eShown * this.lift.spreadK;
+    const cutTarget = on ? Math.max(smoothstep(0, 0.25, this.eView), hlIds.size > 0 ? 1 : 0) : 0;
     this.cut += (cutTarget - this.cut) * (1 - Math.exp(-dt * 5));
     if (on) {
       const ty = this.targetYaw(s, now, dt, hlIds.size === 0);
@@ -685,8 +713,9 @@ class EyeStageCtl {
     const pivot = this.pivot();
     this.offset.position.copy(pivot).multiplyScalar(-1);
     this.mirror.scale.set(mirror, 1, 1);
-    const base = Q_ASSEMBLED.clone().slerp(Q_EXPLODED, smoothstep(0.05, 0.7, this.eShown));
-    const lifted = Q_IDENTITY.clone().slerp(base, smoothstep(0, 1, L));
+    const base = Q_ASSEMBLED.clone().slerp(Q_EXPLODED, smoothstep(0.05, 0.7, this.eView));
+    // the angle travels on the lift's curve (held at the stage view past it)
+    const lifted = Q_IDENTITY.clone().slerp(base, clamp01(L));
     const user = new THREE.Quaternion()
       .setFromAxisAngle(new THREE.Vector3(1, 0, 0), this.pitch)
       .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw));
@@ -715,14 +744,14 @@ class EyeStageCtl {
     // Cutaway plane: his "upper half removed", in the eye's own frame, slid in from above the eye.
     this.cutLocal.constant = CUT_NONE * (1 - this.cut);
     this.cutWorld.copy(this.cutLocal).applyMatrix4(this.offset.matrixWorld);
-    const lit = Math.max(this.cut, smoothstep(0, 0.15, this.eShown));
+    const lit = Math.max(this.cut, smoothstep(0, 0.15, this.eView));
     this.updateMaterials(hlIds, dt, lit);
 
     if (this.renderer) {
-      this.renderer.domElement.style.opacity = this.presence.toFixed(3);
+      this.renderer.domElement.style.opacity = this.lift.opacity.toFixed(3);
       this.renderer.render(this.scene, cam);
     }
-    this.updateLabels(on, hlIds, L, w, h);
+    this.updateLabels(on, hlIds, w, h);
   };
 
   private toScreen(v: THREE.Vector3, w: number, h: number): { x: number; y: number } {
@@ -730,13 +759,13 @@ class EyeStageCtl {
     return { x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * h };
   }
 
-  private updateLabels(on: boolean, hlIds: Set<string>, L: number, w: number, h: number): void {
+  private updateLabels(on: boolean, hlIds: Set<string>, w: number, h: number): void {
     if (!this.labels) return;
     const s = useStore.getState();
     const names = new Map<string, string>();
     if (on && s.teardown) for (const p of s.teardown.parts) names.set(p.id, sentenceCase(p.name));
-    const base = on ? this.presence * smoothstep(0.75, 1, L) : 0;
-    const all = smoothstep(LABEL_FROM, LABEL_FULL, this.eShown);
+    const base = on ? this.lift.opacity * this.lift.labels : 0;
+    const all = smoothstep(LABEL_FROM, LABEL_FULL, this.eView);
     const items: LabelItem[] = [];
     let left = Infinity;
     let right = -Infinity;
@@ -765,8 +794,8 @@ class EyeStageCtl {
 
   /** Part under a viewport point (not one cut away), when the eye is open or cut away enough. */
   pickAt = (x: number, y: number): string | null => {
-    if (this.presence < 0.5 || clamp01(this.lift) < 0.9) return null;
-    if (this.eShown < PICK_MIN && this.cut < PICK_MIN) return null;
+    if (this.lift.opacity < 0.5 || this.lift.pos < 0.9) return null;
+    if (this.eView < PICK_MIN && this.cut < PICK_MIN) return null;
     this.ndc.set((x / this.vw) * 2 - 1, -(y / this.vh) * 2 + 1);
     this.raycaster.setFromCamera(this.ndc, this.camera);
     const hits = this.raycaster.intersectObject(this.offset, true);

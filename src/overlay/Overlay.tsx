@@ -8,7 +8,9 @@
  * middle of the view, turned by store.modelYaw / modelPitch, plus a very slow idle drift once
  * nothing has touched it for IDLE_MS. Its models are flat: the drift sways it to and fro about the
  * face it shows, and its yaw never goes past FLAT_YAW_LIMIT (src/stage/turnLimit.ts, #107).
- * "Put it away" (reset) glides it back into its object.
+ * The lift-out and put-away (#109) are liftOut.ts: an accent outline draws round the object (drawn
+ * here for the box rig), the model appears over it and rises to the middle; "put it away" (reset)
+ * glides it back into its object, or into its saved pill (top left) when the object has gone.
  * A hand on stage is Kash's 3D arm (flow.ts swaps in its parts list, src/stage/armTeardown.ts):
  * ArmStage.tsx draws it in the middle of the view with its own renderer and labels, while the
  * landmark-drawn tendons keep following the real hand here (the live preview, lit by key presses).
@@ -26,12 +28,13 @@ import type { Teardown } from '../../shared/teardown';
 import { DEMO_IDENTIFY } from '../../shared/demo';
 import { boxToView, errorText, getCoverMap, urlFlag } from '../camera/frame';
 import { live } from '../detect/live';
-import { devLog, setHoldFrozen, setStatus, useHud } from '../hud/hudStore';
-import { pickPart } from '../lib/flow';
+import { devLog, setHoldFrozen, setStageArrived, setStatus, useHud } from '../hud/hudStore';
+import { pickPart, reopenedSavedId } from '../lib/flow';
 import { BoxRig } from './boxRig';
 import type { ScreenBox } from './boxRig';
 import { HandRig } from './handRig';
 import { LabelLayer } from './labels';
+import { LiftOutline, pillBox } from './liftOut';
 import type { LabelItem, StackBounds } from './labels';
 import { ObjectLabelLayer } from './objectLabels';
 import { preloadTeardownMeshes } from './glbCache';
@@ -102,6 +105,12 @@ class OverlayEngine {
   private rigObjectId: string | null = null;
   private retiringObjectId: string | null = null;
   private retiringStage = false;
+  /** Stage: the parts list the retiring model came from (its saved pill, if its object has gone). */
+  private retiringSavedId: string | null = null;
+  /** Stage: where the current model lifts out of when it is not its object's box (a saved pill), or null. */
+  private rigStartBox: ScreenBox | null = null;
+  /** The box rig's object outline (liftOut.ts). */
+  private readonly outline: LiftOutline;
   /** Stage idle drift: extra yaw added to store.modelYaw, and what was last seen of the inputs. */
   private drift = 0;
   /** Which way the idle sway is going, and the face (front or back) the model shows. */
@@ -182,6 +191,7 @@ class OverlayEngine {
     }, PRELOAD_DELAY_MS);
 
     this.labels = new LabelLayer(labelHost);
+    this.outline = new LiftOutline(labelHost);
     this.handRig = new HandRig(this.scene);
     this.resize();
   }
@@ -209,6 +219,7 @@ class OverlayEngine {
   }
 
   private onTeardown(td: Teardown | null): void {
+    const prevTd = this.teardownRef;
     this.teardownRef = td;
     const sig = td ? teardownSignature(td) : '';
     if (sig !== this.teardownSig) {
@@ -224,6 +235,7 @@ class OverlayEngine {
         this.retiring = old;
         this.retiringStage = true;
         this.retiringObjectId = this.rigObjectId;
+        this.retiringSavedId = prevTd?.object_id ?? null;
       } else if (old && !td && old.explodeLevel() > 0.05) {
         // "Put it back" by reset: collapse the parts over the same frozen image, then let go.
         this.retiring = old;
@@ -243,6 +255,9 @@ class OverlayEngine {
     // A hand on stage shows only the parts that have models; the rest stay on the real hand.
     this.boxRig = new BoxRig(td, this.scene, { meshOnly: td.anchor === 'hand' });
     this.rigObjectId = s.selectedObjectId ?? s.focusedObjectId;
+    // A saved model brought back while its object is not in view lifts out of its pill (#109).
+    const saved = reopenedSavedId(this.rigObjectId);
+    this.rigStartBox = saved !== null ? pillBox(saved) : null;
     this.drift = 0;
     this.driftDir = 1;
     this.face = faceOf(s.modelYaw);
@@ -352,6 +367,7 @@ class OverlayEngine {
     }
     this.retiringStage = false;
     this.retiringObjectId = null;
+    this.retiringSavedId = null;
     setHoldFrozen(false);
   }
 
@@ -381,11 +397,16 @@ class OverlayEngine {
         box: this.targetBox(s, stage ? this.rigObjectId : undefined),
         explodeTarget: s.explodeAmount,
         highlighted: hl,
-        stage: stage ? { yaw: this.stageYaw(s, now, dt), pitch: s.modelPitch, putAway: false, zoom: s.modelZoom } : null,
+        stage: stage
+          ? { yaw: this.stageYaw(s, now, dt), pitch: s.modelPitch, putAway: false, zoom: s.modelZoom, startBox: this.rigStartBox }
+          : null,
       });
       labelItems = out.labels;
       bounds = out.bounds;
     }
+    const lifting = this.boxRig ? this.boxRig.outline() : null;
+    this.outline.update(lifting ? lifting.box : null, lifting ? lifting.drawn : 0, lifting ? lifting.opacity : 0);
+    setStageArrived('box', this.boxRig !== null && td !== null && this.boxRig.arrived());
 
     // Kash's arm on stage (ArmStage.tsx): the real hand keeps the live tendon preview, lit by key presses.
     const armUp = isArmTeardown(td);
@@ -416,7 +437,8 @@ class OverlayEngine {
 
     if (this.retiring) {
       if (this.retiringStage) {
-        const box = this.retiringObjectId ? this.targetBox(s, this.retiringObjectId) : null;
+        // Back into its object if it is still in view (following it), else into its saved pill.
+        const box = (this.retiringObjectId ? this.targetBox(s, this.retiringObjectId) : null) ?? pillBox(this.retiringSavedId);
         const stage = { yaw: 0, pitch: 0, putAway: true, zoom: 1 };
         this.retiring.update({ now, dt, vw, vh, box, explodeTarget: 0, highlighted: new Set(), stage });
         if (this.retiring.stageDone()) this.endRetire();
@@ -476,6 +498,8 @@ class OverlayEngine {
     this.boxRig?.dispose();
     this.boxRig = null;
     this.endRetire();
+    this.outline.dispose();
+    setStageArrived('box', false);
     this.handRig.dispose();
     this.labels.dispose();
     this.renderer.dispose();

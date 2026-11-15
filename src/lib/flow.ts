@@ -560,6 +560,14 @@ export function resolveSavedObjectId(objectId: string, s: Pick<AppState, 'object
   return same ? same.id : pinSaved(item).id;
 }
 
+/**
+ * #109: the saved model's id when scene object `sceneId` was pinned to bring that model back because
+ * the thing itself is not in view (the stage then lifts it out of its saved pill), else null.
+ */
+export function reopenedSavedId(sceneId: string | null): string | null {
+  return sceneId ? reopening.get(sceneId)?.id ?? null : null;
+}
+
 /** Open a saved model by its id (the saved pills; the wearer uses voice). */
 export function bringBack(id: string): Promise<ExplodeResult> {
   const item = savedItems().find((i) => i.id === id);

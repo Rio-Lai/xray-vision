@@ -38,6 +38,11 @@ interface HudUiState {
    * ThinkPad. Getting its parts…" when Claude corrects a cached guess). Set and cleared by src/lib/flow.ts.
    */
   busy: string | null;
+  /**
+   * #109: the model on stage has finished lifting out of its object (per renderer: the box rig,
+   * Kash's arm, Kash's eye), so the title may fade in. Set by the renderers, read by the HUD.
+   */
+  stageArrived: { box: boolean; arm: boolean; eye: boolean };
 }
 
 export const useHud = create<HudUiState>(() => ({
@@ -47,7 +52,14 @@ export const useHud = create<HudUiState>(() => ({
   log: [],
   holdFrozen: false,
   busy: null,
+  stageArrived: { box: false, arm: false, eye: false },
 }));
+
+/** A stage renderer's model has arrived in the middle of the view (true) or is lifting / going away. */
+export function setStageArrived(who: 'box' | 'arm' | 'eye', on: boolean): void {
+  const cur = useHud.getState().stageArrived;
+  if (cur[who] !== on) useHud.setState({ stageArrived: { ...cur, [who]: on } });
+}
 
 /** The busy pill's text while a parts list loads (null = "Looking…"). */
 export function setBusyText(text: string | null): void {
