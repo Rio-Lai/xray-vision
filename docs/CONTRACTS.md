@@ -52,14 +52,16 @@ Names match `CLIENT_TOOL_NAMES`. Each takes a parameters object and returns a st
 | Tool | Params | Does | Returns |
 | --- | --- | --- | --- |
 | `get_scene` | none | reads the store | JSON: overlay_on, objects, focused id, teardown parts (id, name, summary, safety), status, explode amount, highlight, step |
-| `set_overlay` | `on` (boolean) | `true` = label what is in view ("Hey Blowfish, overlay on"); `false` = clean view, also resets | text |
-| `select_object` | `object_id?` | selects it (default: focused) | text |
-| `explode` | `object_id?`, `amount?` | `amount` 0 collapses; otherwise loads and explodes (default 1) | text, e.g. "Exploded MacBook Air 13-inch (M3, 2024): 12 parts." |
-| `highlight_part` | `part_id` | highlights; accepts an id or a loose name | JSON: part id, name, summary, details, safety |
-| `show_step` | `n` | sets `activeStep` | JSON: step text and part ids |
-| `reset_view` | none | `resetAll()` | text |
-| `rotate_model` | `direction` ("left", "right", "up", "down", "around"), `degrees?` (default 45; "around" = 180) | turns the floating model (`store.rotateModel`) | text |
+| `set_overlay` | `on` (boolean) | `true` = label what is in view ("Hey Blowfish, overlay on"); `false` = clean view, also resets | JSON: ok, say ("Labels on." / "Labels off."), saved? {id, name} |
+| `select_object` | `object_id?` | selects it (default: focused) | JSON: ok, say ("Selected <name>." / "I cannot see that."), object_id |
+| `explode` | `object_id?`, `amount?` | `amount` 0 collapses; otherwise loads and explodes (default 1) | JSON: ok, say ("<short name> analysed." below 0.5 / "<short name> exploded." from 0.5, plus " Parts are AI-estimated." for live; "Put back together."; "Closed." for 0; on failure the flow's sentence), name, source, part_ids, tour, if_asked (arm: layers, steps; eye: steps, steps_are, no tour) |
+| `highlight_part` | `part_id` | highlights; accepts an id or a loose name | JSON: part id, name, summary, details, safety (arm: nerve, typing_role, layer), present |
+| `show_step` | `n` | sets `activeStep` | JSON: step, of, text, part_ids, part_names (arm extras), present |
+| `reset_view` | none | `resetAll()` | JSON: ok, say ("Put away. Saved <short name>." / "View reset."), saved? {id, name} |
+| `rotate_model` | `direction` ("left", "right", "up", "down", "around"), `degrees?` (default 45; "around" = 180) | turns the floating model (`store.rotateModel`) | JSON: ok, say ("Turned left/right/up/down/around." / "Nothing is open yet."), degrees |
 | `get_pose` | none | reads hands | JSON: per hand: handedness, finger curl and pressing, activeFinger, action, muscles (part ids) |
+
+Action tools (#96): the agent says `say` exactly and stops; `if_asked` is only for when the user asks to be taught, toured or walked through. The agent's system prompt and first message live in `docs/agent/` (`npm run agent:prompt` compares them with the dashboard).
 
 There is no `set_lens` tool: Blowfish has no lenses.
 
@@ -91,6 +93,7 @@ Saved models (#97): `get_scene` also returns `saved: [{ id, name, saved_ago }]`.
 - `src/state/store.ts` is the only shared state. Read with `useStore(selector)` in React, `useStore.getState()` elsewhere.
 - detect writes `objects`, `focusedObjectId`, `hands`. The camera module calls `registerCamera`.
 - overlay reads `teardown`, `explodeAmount`, `highlightedPartId`, `activeStep`, `frozen`.
+- `modelZoom` (1 = the normal stage size, 0.5 to 4; `zoomModel(factor)`, `setModelZoom(z)`; back to 1 on reset): every stage renderer multiplies its size by it.
 - voice and flow call the actions. `voiceStatus`, `agentSpeaking`, `transcript` are written only by `src/voice/`.
 
 ## Cache layout
