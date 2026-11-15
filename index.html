@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- iPhone (npm run phone): "Add to Home Screen" opens full screen, without Safari's bars. No effect in Chrome on the Mac. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Blowfish" />
     <title>Blowfish</title>
     <style>
       /* Black reads as transparent in the XREAL glasses. */

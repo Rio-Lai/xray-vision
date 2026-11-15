@@ -116,6 +116,32 @@ Needs the network:
 
 If the Wi-Fi is slow rather than off, leave the keys in: the MacBook and the hand still open at once, and for any other object "analyse this" waits at most 6 seconds for Claude to name it before it goes on with the detector's label. Only a new object's parts list and its fal models are slow on a slow network. Do not use `MOCK=1`: it turns voice off too.
 
+## On an iPhone
+
+Blowfish can also run on an iPhone (built for the iPhone 16) with the XREAL glasses plugged into the phone's USB-C port, using the phone's camera and microphone. The Mac stays somewhere else as the server; the phone reaches it over the internet.
+
+On the Mac, paste this one line into Terminal (it stops anything still on ports 5173 and 8791, updates, installs and starts):
+
+```bash
+cd ~/xray-vision && { lsof -t -iTCP:5173 -iTCP:8791 -sTCP:LISTEN | xargs kill 2>/dev/null; sleep 1; git pull && npm install && npm run phone; }
+```
+
+`npm run phone` checks the ports like `npm run dev`, downloads the vision models if they are missing, builds the app, starts the server (the built app and `/api` on port 8791), opens a free Cloudflare quick tunnel to it and prints a link and its QR code, for example `https://some-random-words.trycloudflare.com/?phone=1&overlay=1&code=k7xq2mnp4r`. The tunnel gives the phone the https it needs for the camera and microphone. `cloudflared` installs itself (the `cloudflared` npm package; else one on the PATH; else the official release is downloaded into `.bin/`); if all of that fails, it says to paste `brew install cloudflared`.
+
+On the phone:
+
+1. Open the link in Safari (or scan the QR code with the Camera app), tap "Tap to start", and allow the camera and the microphone.
+2. Turn the phone sideways (if it is upright, the screen says so), then plug in the glasses: they mirror the phone screen.
+3. For full screen without Safari's bars: Share > Add to Home Screen, then open Blowfish from the home screen.
+
+The buttons on the right do what the hidden keys do on the laptop: Voice (V), Analyse (A), Explode (E), Put away (R) and a small D for the debug panel. Touch drag turns the model on stage; a tap picks a part. Problems show as one sentence on the screen (camera blocked, voice could not connect, the Mac cannot be reached).
+
+- **Access code.** The tunnel link is public, and `/api` spends the API credits, so each run makes a new random code; it is the `code=` at the end of the link. The first visit with it sets a cookie on the phone; anything without the code or the cookie gets "this link needs its access code". Set `BLOWFISH_PHONE_CODE=` in `.env` to keep one code across runs. The tunnel address changes on every run, so open the new link (or re-add it to the home screen) after a restart. The Mac itself (http://localhost:8791) needs no code.
+- **Keep the Mac awake and online.** `npm run phone` keeps it from sleeping while it runs (`caffeinate`), but keep it plugged in with the lid open, and on a network. Ctrl-C in its window stops the server and the tunnel.
+- **What needs the internet:** everything in this mode goes through the tunnel, so both the Mac and the phone need a connection (the phone can use mobile data). The voice tutor, Claude and fal need it as on the laptop. The vision models come from the Mac (`npm run fetch-models` runs by itself if they are missing; otherwise the phone fetches them from Google).
+- The phone runs lighter settings: the small object detector (Lite0), canvases at 1.25 device pixels per CSS pixel (`?dpr=` changes it), no noise gate (on iOS a second use of the microphone can silence the voice session) and the phone's default microphone.
+- Without `?phone=1` nothing changes, and `npm run dev` on the laptop is exactly as before.
+
 ## Controls
 
 While a model is on stage. Hands work only once a hand has been in view for a moment and is not typing or resting on the laptop; a small ring marks each hand Blowfish is following (filled while it is doing something), and one word ("Turning", "Opening", "Closing", "Zooming", "Moving") shows above the voice pill.
@@ -175,6 +201,7 @@ URL options:
 
 - `npm run dev`: checks both ports are free, then starts the API server and Vite together
 - `npm run dev:server`, `npm run dev:web`: one at a time
+- `npm run phone`: the app on an iPhone through a Cloudflare tunnel, with a printed link and QR code (see "On an iPhone")
 - `npm run typecheck`, `npm run build`: what CI runs on every pull request
 - `npm run fetch-models`: download the MediaPipe models and wasm into `public/models/` (run once)
 - `npm run check`: check every key against its provider, the voice agent's tools, ports, models and cache (see "Demo day")

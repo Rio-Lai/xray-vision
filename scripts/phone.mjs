@@ -1,0 +1,339 @@
+#!/usr/bin/env node
+/**
+ * npm run phone: Blowfish on an iPhone (and the XREAL glasses plugged into it), with this Mac as the
+ * server. One command, one link:
+ *
+ *   1. the same port check as `npm run dev` (server/lib/preflight.ts)
+ *   2. the vision models if they are missing (scripts/fetch-models.mjs; not fatal), then `vite build`
+ *   3. the API server, which then also serves dist/ on its own port (BLOWFISH_SERVE_DIST=1), behind
+ *      this run's access code (BLOWFISH_PHONE_CODE from .env, or a fresh random one)
+ *   4. a Cloudflare quick tunnel to that port: https://<random>.trycloudflare.com, the https iOS needs
+ *      for the camera and microphone. cloudflared comes from the `cloudflared` npm package (it
+ *      downloads the right binary), else from PATH, else the official release is downloaded into .bin/
+ *   5. prints the phone link, its QR code and what to do on the phone
+ *
+ * While it runs the Mac is kept awake (caffeinate). Ctrl-C stops the server and the tunnel.
+ * Plain Node (no build step); `npm run phone` puts node_modules/.bin on PATH.
+ */
+import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { findTunnelUrl, isTunnelReady, makeCode, phoneLink, releaseAsset } from './phone-lib.mjs';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+process.chdir(root);
+const require = createRequire(import.meta.url);
+
+const say = (line = '') => console.log(line);
+/** One plain line for Rio, then stop everything. */
+function giveUp(line) {
+  if (stopping) return;
+  say('');
+  say(`  ${line}`);
+  say('');
+  stopAll(1);
+}
+
+// --------------------------------------------------------------------------------------------
+// children, and stopping them all (Ctrl-C, or one of them dying)
+
+const children = new Set();
+let stopping = false;
+
+function track(child) {
+  children.add(child);
+  child.on('exit', () => children.delete(child));
+  return child;
+}
+
+function stopAll(exitCode = 0) {
+  if (stopping) return;
+  stopping = true;
+  for (const c of children) {
+    try {
+      c.kill('SIGTERM');
+    } catch {
+      /* already gone */
+    }
+  }
+  const deadline = Date.now() + 2000;
+  const wait = setInterval(() => {
+    if (children.size === 0 || Date.now() > deadline) {
+      clearInterval(wait);
+      for (const c of children) {
+        try {
+          c.kill('SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+      process.exit(exitCode);
+    }
+  }, 100);
+}
+
+process.on('SIGINT', () => {
+  say('\n  Stopping Blowfish (server and tunnel)...');
+  stopAll(0);
+});
+process.on('SIGTERM', () => stopAll(0));
+
+// --------------------------------------------------------------------------------------------
+// helpers
+
+/** node_modules/.bin/<name> if it is there, else the bare name (on PATH through npm run). */
+function localBin(name) {
+  const p = join(root, 'node_modules', '.bin', name);
+  return existsSync(p) ? p : name;
+}
+
+function runStep(cmd, args, opts = {}) {
+  const r = spawnSync(cmd, args, { stdio: 'inherit', ...opts });
+  if (r.error) return { ok: false, why: r.error.code === 'ENOENT' ? 'missing' : String(r.error.message) };
+  return { ok: r.status === 0, why: `exit ${r.status}` };
+}
+
+/** A real cloudflared answers `--version` with "cloudflared version 2026.x.y ...". */
+function works(bin) {
+  try {
+    const r = spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 20_000 });
+    return r.status === 0 && /cloudflared version/i.test(`${r.stdout ?? ''}${r.stderr ?? ''}`);
+  } catch {
+    return false;
+  }
+}
+
+/** Lines from a child's stdout and stderr, one at a time. */
+function onLines(child, fn) {
+  for (const stream of [child.stdout, child.stderr]) {
+    if (!stream) continue;
+    let buf = '';
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk) => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        fn(buf.slice(0, i).replace(/\r$/, ''));
+        buf = buf.slice(i + 1);
+      }
+    });
+    stream.on('end', () => {
+      if (buf) fn(buf);
+      buf = '';
+    });
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function serverAnswers(port) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1000) });
+    const body = await res.json();
+    return res.ok && body && body.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+// --------------------------------------------------------------------------------------------
+// cloudflared
+
+/** The official release binary, downloaded into .bin/ (gitignored). Returns the path or null. */
+async function downloadRelease(dest) {
+  const asset = releaseAsset();
+  if (!asset) return null;
+  const url = `https://github.com/cloudflare/cloudflared/releases/latest/download/${asset.file}`;
+  say(`  Downloading cloudflared from github.com/cloudflare/cloudflared (once, about 40 MB)...`);
+  try {
+    mkdirSync(dirname(dest), { recursive: true });
+    const res = await fetch(url, { signal: AbortSignal.timeout(180_000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (asset.tgz) {
+      const tgz = `${dest}.tgz`;
+      writeFileSync(tgz, buf);
+      const r = spawnSync('tar', ['-xzf', tgz, '-C', dirname(dest)], { encoding: 'utf8' });
+      rmSync(tgz, { force: true });
+      if (r.status !== 0) throw new Error(`tar failed: ${(r.stderr || '').trim()}`);
+      const extracted = join(dirname(dest), 'cloudflared');
+      if (extracted !== dest) renameSync(extracted, dest);
+    } else {
+      writeFileSync(dest, buf);
+    }
+    chmodSync(dest, 0o755);
+    return works(dest) ? dest : null;
+  } catch (e) {
+    say(`  Could not download cloudflared: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
+async function findCloudflared() {
+  // (a) the cloudflared npm package (a devDependency): it fetches the right binary for this Mac on npm install
+  try {
+    const cf = require('cloudflared');
+    if (cf && typeof cf.bin === 'string') {
+      if (!existsSync(cf.bin) && typeof cf.install === 'function') {
+        say('  Getting cloudflared (once)...');
+        await cf.install(cf.bin);
+      }
+      if (existsSync(cf.bin) && works(cf.bin)) return cf.bin;
+    }
+  } catch {
+    /* not installed, or its download failed: try the next way */
+  }
+  // (b) one already installed (brew install cloudflared)
+  for (const p of ['/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared', 'cloudflared']) {
+    if ((p === 'cloudflared' || existsSync(p)) && works(p)) return p;
+  }
+  // (c) the official release, into .bin/
+  const local = join(root, '.bin', 'cloudflared');
+  if (existsSync(local) && works(local)) return local;
+  return downloadRelease(local);
+}
+
+// --------------------------------------------------------------------------------------------
+
+async function main() {
+  say('');
+  say('  Blowfish for the iPhone: getting everything ready (about a minute)...');
+  say('');
+
+  try {
+    require('dotenv').config({ path: join(root, '.env') });
+  } catch {
+    giveUp('The packages are not installed. Paste this, then run the command again:  npm install');
+    return;
+  }
+  const port = Number((process.env.PORT ?? '').trim() || 8791);
+
+  // 1. the same check as npm run dev: both ports free (it explains and exits if not)
+  const pre = runStep(localBin('tsx'), ['server/lib/preflight.ts']);
+  if (!pre.ok) {
+    giveUp(
+      pre.why === 'missing'
+        ? 'The packages are not installed. Paste this, then run the command again:  npm install'
+        : 'A port is busy (see above). Close the other Blowfish window, or restart the Mac, then run the command again.',
+    );
+    return;
+  }
+
+  // Keep the Mac awake while this runs (caffeinate -w ends with us).
+  if (process.platform === 'darwin') {
+    try {
+      const c = spawn('caffeinate', ['-i', '-m', '-s', '-w', String(process.pid)], { stdio: 'ignore' });
+      c.on('error', () => undefined);
+      track(c);
+    } catch {
+      /* no caffeinate: the docs say to keep the Mac awake */
+    }
+  }
+
+  // 2. the vision models (local copies load faster over the tunnel than from Google), then the build
+  if (!existsSync(join(root, 'public', 'models', 'hand_landmarker.task'))) {
+    say('  Downloading the vision models (once)...');
+    const fm = runStep(process.execPath, [join(root, 'scripts', 'fetch-models.mjs')], { timeout: 180_000 });
+    if (!fm.ok) say('  (Some models did not download: the phone will fetch them from Google instead.)');
+  }
+  say('  Building the app...');
+  const build = runStep(localBin('vite'), ['build', '--logLevel', 'warn']);
+  if (!build.ok) {
+    giveUp('The app did not build (the error is above). Send a photo of it to the team.');
+    return;
+  }
+
+  // 3. the server: the built app and /api on one port, behind the access code
+  const code = (process.env.BLOWFISH_PHONE_CODE ?? '').trim() || makeCode();
+  const server = track(
+    spawn(localBin('tsx'), ['server/index.ts'], {
+      env: { ...process.env, BLOWFISH_SERVE_DIST: '1', BLOWFISH_PHONE_CODE: code },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }),
+  );
+  let serverReady = false;
+  onLines(server, (line) => {
+    // its "open http://localhost:5173" lines are for npm run dev, not for this
+    if (!line.trim() || line.includes('App (open in Chrome)') || line.includes('API health:')) return;
+    console.log(line);
+  });
+  server.on('error', () => giveUp('The Blowfish server could not start. Paste this, then run the command again:  npm install'));
+  server.on('exit', (c) => {
+    if (!stopping) giveUp(`The Blowfish server stopped (exit ${c}; the reason is above). Run the command again.`);
+  });
+  for (let i = 0; i < 100 && !serverReady && !stopping; i++) {
+    serverReady = await serverAnswers(port);
+    if (!serverReady) await sleep(300);
+  }
+  if (stopping) return;
+  if (!serverReady) {
+    giveUp(`The Blowfish server did not answer on port ${port}. Run the command again.`);
+    return;
+  }
+
+  // 4. the tunnel
+  const bin = await findCloudflared();
+  if (stopping) return;
+  if (!bin) {
+    giveUp('Could not get cloudflared (the tunnel to the phone). Paste this, then run the command again:  brew install cloudflared');
+    return;
+  }
+  const tunnel = track(
+    spawn(bin, ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate'], { stdio: ['ignore', 'pipe', 'pipe'] }),
+  );
+  let url = null;
+  let ready = false;
+  const recent = [];
+  onLines(tunnel, (line) => {
+    recent.push(line);
+    if (recent.length > 8) recent.shift();
+    url ??= findTunnelUrl(line);
+    if (isTunnelReady(line)) ready = true;
+    // once it runs, only its errors are worth showing
+    if (ready && / ERR /.test(line)) console.log(`[tunnel] ${line}`);
+  });
+  tunnel.on('error', () => giveUp('cloudflared could not start. Paste this, then run the command again:  brew install cloudflared'));
+  tunnel.on('exit', (c) => {
+    if (stopping) return;
+    const last = url ? '' : ` Last message: ${(recent.at(-1) ?? 'none').trim()}`;
+    giveUp(`The tunnel closed (exit ${c}). Check the Mac is online, then run the command again for a new link.${last}`);
+  });
+  for (let i = 0; i < 150 && !url && !stopping; i++) await sleep(200);
+  if (stopping) return;
+  if (!url) {
+    giveUp(`The tunnel did not start (no network, or Cloudflare is busy). Wait a minute and run the command again. Last message: ${recent.at(-1) ?? 'none'}`);
+    return;
+  }
+  for (let i = 0; i < 100 && !ready && !stopping; i++) await sleep(200);
+  if (stopping) return;
+
+  // 5. the link
+  const link = phoneLink(url, code);
+  say('');
+  say('  ============================================================================');
+  say('  Blowfish is ready for the iPhone. Open this link on the phone (or scan the QR');
+  say('  code with the iPhone Camera app):');
+  say('');
+  say(`  ${link}`);
+  say('');
+  try {
+    const qr = require('qrcode-terminal');
+    qr.generate(link, { small: true }, (text) => say(text.replace(/^/gm, '  ')));
+  } catch {
+    say('  (No QR code: the qrcode-terminal package is missing. Type or AirDrop the link instead.)');
+  }
+  say('');
+  say('  On the phone:');
+  say('    1. Open the link in Safari, tap "Tap to start", allow the camera and the microphone.');
+  say('    2. Turn the phone sideways, then plug in the glasses.');
+  say('    3. Full screen: Share > Add to Home Screen, then open Blowfish from the home screen.');
+  say('');
+  say('  If Safari cannot find the page, wait 20 seconds and reload. Keep this Mac awake,');
+  say('  plugged in and online, with the lid open. Ctrl-C here stops everything.');
+  say('  ============================================================================');
+  say('');
+}
+
+main().catch((e) => giveUp(`Something went wrong: ${e instanceof Error ? e.message : String(e)}. Run the command again.`));

@@ -14,6 +14,9 @@ import { voiceBridge } from './bridge';
 import { runLocalCommand } from './localCommands';
 import { VOICE_CSS } from './voiceStyles';
 import { shouldMute, usePtt } from './pushToTalk';
+import { PHONE_MODE } from '../camera/frame';
+import { showToast } from '../hud/hudStore';
+import { registerPhoneVoice } from '../phone/phoneVoice';
 
 type PillState = 'off' | 'connecting' | 'hold' | 'listening' | 'thinking' | 'speaking';
 
@@ -113,13 +116,22 @@ export function VoiceBar() {
   const thinking = useThinking(connected, speaking);
   const micMuted = usePtt(shouldMute);
 
-  // Errors never go on screen; the pill just says "Voice off".
+  // Errors never go on screen; the pill just says "Voice off". Phone mode (?phone=1): there is no
+  // console on the phone, so the one sentence is shown.
   useEffect(() => {
     if (error) console.warn('[voice]', error);
+    if (error && PHONE_MODE) showToast(`Voice: ${error}`, 'warn', 6000);
   }, [error]);
   useEffect(() => {
     if (notConfigured) console.info('[voice] not configured: set ELEVENLABS_API_KEY and ELEVENLABS_AGENT_ID in .env');
   }, [notConfigured]);
+
+  // Phone mode: the start screen and the Voice button start and stop the same session as V.
+  useEffect(() => {
+    if (!PHONE_MODE) return;
+    registerPhoneVoice({ start, stop, notConfigured });
+    return () => registerPhoneVoice(null);
+  }, [start, stop, notConfigured]);
 
   const toggle = useCallback(() => {
     const vs = useStore.getState().voiceStatus;

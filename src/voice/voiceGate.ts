@@ -21,6 +21,7 @@
  * The level, floor and bar are in the debug panel (D).
  */
 import { devLog } from '../hud/hudStore';
+import { PHONE_MODE } from '../camera/frame';
 import { resolveInputDeviceId, usePtt } from './pushToTalk';
 import { LOCK_COMMANDS, voicePhase } from './voiceLock';
 
@@ -33,7 +34,8 @@ function param(name: string): string | null {
 }
 
 const gateParam = param('gate');
-export const GATE_ON = !LOCK_COMMANDS && !(gateParam !== null && /^(0|false|off|no)$/i.test(gateParam));
+/** Phone mode (?phone=1): off. On iOS a second capture of the microphone can mute or stop the agent's own. */
+export const GATE_ON = !PHONE_MODE && !LOCK_COMMANDS && !(gateParam !== null && /^(0|false|off|no)$/i.test(gateParam));
 const marginParam = Number(param('gatedb'));
 /** Speech must be this much above the room's noise floor (dB). */
 const MARGIN_DB = Number.isFinite(marginParam) && marginParam > 0 && marginParam < 40 ? marginParam : 12;
@@ -185,7 +187,7 @@ usePtt.subscribe((s) => {
 
 /** For the debug panel. */
 export function describeGate(): string {
-  if (!GATE_ON) return LOCK_COMMANDS ? 'noise gate off (?lock=1: hard lock instead)' : 'noise gate off (?gate=0)';
+  if (!GATE_ON) return PHONE_MODE ? 'noise gate off (phone mode)' : LOCK_COMMANDS ? 'noise gate off (?lock=1: hard lock instead)' : 'noise gate off (?gate=0)';
   if (!g.analyser) return 'noise gate: waiting for the voice session';
   const f = (v: number) => (v <= -119 ? '-inf' : v.toFixed(0));
   return `noise gate ${g.open ? 'OPEN' : 'shut (background only)'} | level ${f(g.level)} dB, room ${f(g.floor)} dB, bar ${f(g.bar)} dB (+${MARGIN_DB}, ${voicePhase()})`;

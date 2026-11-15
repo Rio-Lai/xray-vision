@@ -88,8 +88,8 @@ function setOverlay(on: boolean): void {
   devLog(`Overlay ${on ? 'on' : 'off'}`);
 }
 
-/** amount 1 = "explode this"; STAGE_MIN_EXPLODE = "analyse this" (the voice agent's explode amount 0.12). */
-function runExplode(amount = 1): void {
+/** amount 1 = "explode this"; STAGE_MIN_EXPLODE = "analyse this" (the voice agent's explode amount 0.12). Also the phone buttons (src/phone/). */
+export function runExplode(amount = 1): void {
   if (!useStore.getState().overlayOn) useStore.getState().setOverlayOn(true);
   devLog(amount < 1 ? 'Analyse requested' : 'Explode requested');
   explodeObject()

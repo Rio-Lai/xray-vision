@@ -12,3 +12,5 @@ public/models/*
 !public/models/.gitkeep
 # npm run agent:prompt -- --apply saves the ElevenLabs agent's config here before it changes it: local only.
 .agent-backup/
+# npm run phone downloads cloudflared here if neither the npm package nor PATH has it: local only.
+.bin/

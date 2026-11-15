@@ -17,6 +17,7 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { devLog } from '../hud/hudStore';
+import { PHONE_MODE } from '../camera/frame';
 
 const KEY_PTT = 'blowfish.ptt';
 const KEY_MIC = 'blowfish.mic';
@@ -119,6 +120,8 @@ async function microphones(): Promise<MediaDeviceInfo[]> {
  * Call after microphone permission was granted (labels are empty before that).
  */
 export async function resolveInputDeviceId(): Promise<string | undefined> {
+  // Phone mode (?phone=1): iOS has one microphone route, and an exact device id can fail there.
+  if (PHONE_MODE) return undefined;
   const want = usePtt.getState().mic;
   if (!want) return undefined;
   const mics = await microphones();

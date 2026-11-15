@@ -1,0 +1,47 @@
+/**
+ * Small pure helpers for scripts/phone.mjs (npm run phone), kept apart so they can be tested on their own.
+ */
+import { randomInt } from 'node:crypto';
+
+/**
+ * The quick tunnel's public URL in one line of cloudflared's output, or null. cloudflared prints it in
+ * a box ("|  https://some-words-here.trycloudflare.com  |"). Its error lines name the API host
+ * (api.trycloudflare.com), which is never the tunnel.
+ */
+export function findTunnelUrl(line) {
+  for (const m of String(line).matchAll(/https:\/\/([a-z0-9-]+)\.trycloudflare\.com(?![a-z0-9.-])/gi)) {
+    const sub = m[1].toLowerCase();
+    if (sub === 'api' || sub === 'www') continue;
+    return `https://${sub}.trycloudflare.com`;
+  }
+  return null;
+}
+
+/** cloudflared says this once the tunnel can carry traffic. */
+export function isTunnelReady(line) {
+  return /Registered tunnel connection/i.test(String(line));
+}
+
+/** No 0/o, 1/l/i: easy to read off a screen and type. */
+const CODE_LETTERS = 'abcdefghjkmnpqrstuvwxyz23456789';
+
+/** A fresh access code for this run (10 characters, about 50 bits). */
+export function makeCode(length = 10) {
+  let out = '';
+  for (let i = 0; i < length; i++) out += CODE_LETTERS[randomInt(CODE_LETTERS.length)];
+  return out;
+}
+
+/** The link to open on the phone. */
+export function phoneLink(base, code) {
+  return `${String(base).replace(/\/+$/, '')}/?phone=1&overlay=1&code=${encodeURIComponent(code)}`;
+}
+
+/** The official cloudflared release file for this machine, or null if there is none. */
+export function releaseAsset(platform = process.platform, arch = process.arch) {
+  const a = arch === 'arm64' ? 'arm64' : arch === 'x64' ? 'amd64' : null;
+  if (!a) return null;
+  if (platform === 'darwin') return { file: `cloudflared-darwin-${a}.tgz`, tgz: true };
+  if (platform === 'linux') return { file: `cloudflared-linux-${a}`, tgz: false };
+  return null;
+}
