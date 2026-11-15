@@ -45,6 +45,12 @@ export function urlFlag(name: string): boolean {
   return v === '1' || v === 'true';
 }
 
+/**
+ * `?fit=even` (#98): each part model is scaled by one factor so it fits inside its slot, centred,
+ * never stretched. Default (no param): the model is stretched to fill its slot's width and height.
+ */
+export const FIT_EVEN: boolean = urlParam('fit') === 'even';
+
 /** Read a numeric URL param, e.g. `?press=0.6`, for live tuning without a rebuild. */
 export function urlNumber(name: string, fallback: number): number {
   const raw = urlParam(name);

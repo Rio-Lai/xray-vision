@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useStore } from '../state/store';
-import { MOCK_MODE } from '../camera/frame';
+import { FIT_EVEN, MOCK_MODE } from '../camera/frame';
 import { live } from '../detect/live';
 import { FINGERS, HAND_TUNING_DEFAULTS, handTuning, setHandTuning } from '../detect/handTracker';
 import type { HandTuning } from '../detect/handTracker';
@@ -384,6 +384,7 @@ function DebugPanel() {
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
   const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} | input ${modelControl.describe()}`);
+  lines.push(`part models ${FIT_EVEN ? 'fit=even (one scale, fitted inside the slot, #98; drop ?fit=even to fill)' : 'fill (stretched to the slot; ?fit=even keeps proportions, #98)'}`);
   lines.push(`look ${LOOK === 'kit' ? 'kit (Figma Make interface kit, #86; ?look=classic for the previous look)' : 'classic (?look=classic; drop it for the Figma Make kit)'}`);
   lines.push(...gestureLines(performance.now()));
   for (const n of st.notes) lines.push(n);
