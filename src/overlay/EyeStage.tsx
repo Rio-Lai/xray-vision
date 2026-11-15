@@ -51,7 +51,8 @@ import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_SIZE, STAGE_TU
 import type { ScreenBox } from './boxRig';
 import { loadGlbTemplate } from './glbCache';
 import { LabelLayer, inView } from './labels';
-import { Lift, LiftOutline, pillBox } from './liftOut';
+import { Lift, LiftOutline, frameStep, pillBox } from './liftOut';
+import { idleSlice } from './glbCache';
 import { reopenedSavedId } from '../lib/flow';
 import { setStageArrived } from '../hud/hudStore';
 import type { LabelItem } from './labels';
@@ -91,9 +92,11 @@ const DIM_TO = 0.3;
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
 /** For the overlay: ticked every frame, and which part is at a viewport point (null when the eye is not up). */
-export const eyeStage: { tick: (now: number) => void; pickAt: (x: number, y: number) => string | null } = {
+export const eyeStage: { tick: (now: number) => void; pickAt: (x: number, y: number) => string | null; warm: () => boolean } = {
   tick: () => undefined,
   pickAt: () => null,
+  /** its shaders are compiled (#125, for the overlay's open measurement) */
+  warm: () => false,
 };
 
 /**
@@ -242,6 +245,8 @@ class EyeStageCtl {
   /** building has started / finished (all models settled) */
   private loading = false;
   private settled = false;
+  /** the sliced shader warm-up has finished (#125) */
+  private warmed = false;
   private initTimer: ReturnType<typeof setTimeout> | null = null;
   /** an open has started (for MAX_WAIT_MS), the eye was open last frame, something is on the canvas */
   private sessionAt = 0;
@@ -330,6 +335,7 @@ class EyeStageCtl {
     }, INIT_DELAY_MS);
     eyeStage.tick = this.tick;
     eyeStage.pickAt = this.pickAt;
+    eyeStage.warm = () => this.warmed;
   }
 
   detach(): void {
@@ -337,6 +343,7 @@ class EyeStageCtl {
     this.initTimer = null;
     eyeStage.tick = () => undefined;
     eyeStage.pickAt = () => null;
+    eyeStage.warm = () => false;
     setStageArrived('eye', false);
     this.outline?.dispose();
     this.outline = null;
@@ -387,7 +394,7 @@ class EyeStageCtl {
     }
     this.settled = true;
     setStatus('eye-models', null);
-    this.warmUp();
+    void this.warmUp();
   }
 
   /** His models, each in its own holder; added as they arrive (normally at once: they are preloaded). */
@@ -452,44 +459,80 @@ class EyeStageCtl {
    * Compile the shaders now, while nothing is shown, in each variant the eye will need: as built,
    * double-sided (the cutaway) and dimmed (another part highlighted). Without this the first open
    * would stop for a moment while they compile. The canvas is invisible and cleared afterwards.
+   * #125: in slices (textures a few at a time, then per variant a compile that the browser runs in
+   * parallel where it can, and one draw in the next slice), so the warm-up itself never stalls the
+   * view. If the eye is opened meanwhile it stops, puts the materials back, and the open compiles.
    */
-  private warmUp(): void {
+  private async warmUp(): Promise<void> {
     const r = this.renderer;
     if (!r) return;
     const t0 = performance.now();
-    try {
+    const mats = this.parts.flatMap((p) => p.mats);
+    const busy = () => !this.host || this.renderer !== r || this.wasOn || !this.lift.done;
+    const set = (side: THREE.Side | null, dim: boolean) => {
+      for (const m of mats) {
+        m.mat.side = side ?? m.baseSide;
+        const d = dim && !m.transmissive;
+        m.mat.transparent = d;
+        m.mat.depthWrite = !d;
+        m.mat.needsUpdate = true;
+        m.dimmed = false;
+      }
+    };
+    const frame = () => {
       this.resize();
       const ppu = Math.max(50, 0.3 * this.vh);
       Object.assign(this.camera, { left: -this.vw / 2 / ppu, right: this.vw / 2 / ppu, top: this.vh / 2 / ppu, bottom: -this.vh / 2 / ppu });
       this.camera.position.set(0, 0, 20);
       this.camera.updateProjectionMatrix();
-      const mats = this.parts.flatMap((p) => p.mats);
-      const set = (side: THREE.Side, dim: boolean) => {
-        for (const m of mats) {
-          m.mat.side = side;
-          const d = dim && !m.transmissive;
-          m.mat.transparent = d;
-          m.mat.depthWrite = !d;
-          m.mat.needsUpdate = true;
-        }
-        r.render(this.scene, this.camera);
-      };
-      r.render(this.scene, this.camera);
-      set(THREE.DoubleSide, false);
-      set(THREE.DoubleSide, true);
+    };
+    try {
+      const textures = new Set<THREE.Texture>();
       for (const m of mats) {
-        m.mat.side = m.baseSide;
-        m.mat.transparent = false;
-        m.mat.depthWrite = true;
-        m.mat.needsUpdate = true;
-        m.dimmed = false;
+        for (const v of Object.values(m.mat as unknown as Record<string, unknown>)) if (v instanceof THREE.Texture) textures.add(v);
       }
+      let k = 0;
+      for (const t of textures) {
+        if (k++ % 3 === 0) {
+          await idleSlice();
+          if (busy()) return;
+        }
+        r.initTexture(t);
+      }
+      const variants: [THREE.Side | null, boolean][] = [
+        [null, false],
+        [THREE.DoubleSide, false],
+        [THREE.DoubleSide, true],
+      ];
+      for (const [side, dim] of variants) {
+        await idleSlice();
+        if (busy()) return;
+        frame();
+        set(side, dim);
+        await r.compileAsync(this.scene, this.camera);
+        await idleSlice();
+        if (busy()) return;
+        set(side, dim); // (nothing else touches them while the eye is closed)
+        frame();
+        r.render(this.scene, this.camera);
+      }
+      await idleSlice();
+      if (busy()) return;
+      set(null, false);
       this.cutSides = false;
+      frame();
       r.render(this.scene, this.camera);
       r.clear();
-      devLog(`Eye ready: ${this.parts.length} models, shaders compiled in ${Math.round(performance.now() - t0)} ms`);
+      this.warmed = true;
+      devLog(`Eye ready: ${this.parts.length} models, shaders compiled in ${Math.round(performance.now() - t0)} ms (sliced)`);
     } catch (e) {
       devLog(`Eye: shader warm-up failed (${errorText(e)}); it compiles on first open instead`, 'warn');
+    } finally {
+      if (!this.warmed && this.renderer === r) {
+        // stopped (opened, or failed): as built, as an open expects
+        set(null, false);
+        this.cutSides = false;
+      }
     }
   }
 
@@ -619,7 +662,7 @@ class EyeStageCtl {
   }
 
   tick = (now: number): void => {
-    const dt = this.lastNow ? Math.min(0.1, Math.max(0, (now - this.lastNow) / 1000)) : 1 / 60;
+    const dt = frameStep(now, this.lastNow); // at most MAX_STEP_S (#125)
     this.lastNow = now;
     this.resize();
     const w = this.vw;

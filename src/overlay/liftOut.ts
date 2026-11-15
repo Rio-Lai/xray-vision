@@ -16,6 +16,8 @@
  *     first half, it shrinks and settles (ease in-out) into the object's current box, or the saved
  *     pill, fading over the last AWAY_FADE_S. Opened again while going away, it rises from there.
  * prefers-reduced-motion: no outline and no travel; a short cross-fade in place on the stage instead.
+ * Time advances at most MAX_STEP_S per frame (#125): after a late frame it carries on from where it
+ * was instead of jumping ahead. OpenMeter measures how smooth the first two seconds of an open were.
  *
  * Pure apart from reading the reduced-motion setting; update() allocates nothing.
  */
@@ -46,6 +48,16 @@ export const AWAY_CLOSE = 0.55;
 export const AWAY_FADE_S = 0.15;
 /** prefers-reduced-motion: the cross-fade in and out (s). */
 export const REDUCED_FADE_S = 0.25;
+/**
+ * The most an animation step advances in one frame (s), for the lift, the put-away and the stage
+ * springs: a late frame (a stall) does not jump them ahead. Idle timers stay on real time.
+ */
+export const MAX_STEP_S = 1 / 30;
+
+/** A frame's animation step (s) from two frame times (ms): at most MAX_STEP_S; 1/60 for the first. */
+export function frameStep(now: number, last: number): number {
+  return last ? Math.min(MAX_STEP_S, Math.max(0, (now - last) / 1000)) : 1 / 60;
+}
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
@@ -131,7 +143,7 @@ export class Lift {
    * renderer gave up waiting): the model appears only once ready.
    */
   update(dtIn: number, on: boolean, ready: boolean): void {
-    const dt = Math.min(0.1, Math.max(0, dtIn));
+    const dt = Math.min(MAX_STEP_S, Math.max(0, dtIn));
     if (on && (this.phase === 'idle' || this.phase === 'away')) this.startOut();
     else if (!on && (this.phase === 'out' || this.phase === 'up')) this.startAway();
     this.t += dt;
@@ -236,6 +248,56 @@ export class Lift {
       this.opacity = 0;
       this.spreadK = 0;
     }
+  }
+}
+
+/** How long after a model is asked for its frames are watched (ms). */
+export const OPEN_WINDOW_MS = 2000;
+
+/** The last open's measurement, for the debug panel (D); '' until one has finished. */
+export const openReport = { text: '' };
+
+/**
+ * #125: the longest gap between frames in the OPEN_WINDOW_MS after a model was asked for, and
+ * whether its models were warm. The overlay calls frame() every frame, start() when a model is asked
+ * for (or arrives unasked) and note() when its parts list is known.
+ */
+export class OpenMeter {
+  private at = -1;
+  private last = 0;
+  private worst = 0;
+  private what = '';
+  private warm: boolean | null = null;
+
+  /** A model was asked for. Ignored while an open is being measured. */
+  start(now: number): void {
+    if (this.at >= 0) return;
+    this.at = now;
+    this.worst = 0;
+    this.what = '';
+    this.warm = null;
+  }
+
+  /** Its parts list arrived: what it is and whether its models were warm (the first note counts). */
+  note(what: string, warm: boolean): void {
+    if (this.at < 0 || this.warm !== null) return;
+    this.what = what;
+    this.warm = warm;
+  }
+
+  /** Every frame (ms). Returns the report once, when the window has passed. */
+  frame(now: number): string | null {
+    const prev = this.last;
+    this.last = now;
+    if (this.at < 0) return null;
+    // Every frame that began inside the window counts, the one that crosses its end too.
+    if (prev && prev >= this.at && prev - this.at < OPEN_WINDOW_MS) this.worst = Math.max(this.worst, now - prev);
+    if (now - this.at < OPEN_WINDOW_MS) return null;
+    this.at = -1;
+    const warm = this.warm === null ? 'no model' : this.warm ? 'warm' : 'cold';
+    const text = `last open: ${this.what || '-'}, longest frame gap ${Math.round(this.worst)} ms in the first ${OPEN_WINDOW_MS / 1000} s, models ${warm}`;
+    openReport.text = text;
+    return text;
   }
 }
 

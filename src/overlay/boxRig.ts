@@ -25,7 +25,9 @@
  * appears exactly over the real object, seen from above as the camera sees it, fully opaque, then
  * rises, tilts to a three-quarter view and grows to the middle of the view on one ease-out curve in
  * ~1 s, its parts separating only as it arrives; a model already loaded is there from the start, a
- * late one cross-fades in place), where it turns with store.modelYaw /
+ * late one cross-fades in place; #125: until it appears, everything it will show is drawn each frame
+ * invisibly, and it appears only after one such frame with all its models, so the first frame it is
+ * seen on never compiles shaders or uploads textures), where it turns with store.modelYaw /
  * modelPitch (critically damped springs; a very slow idle drift is added by the caller) and is drawn
  * store.modelZoom times its stage size (eased by the same kind of spring, about its middle). Explode
  * lifts the layers apart along the object's own up axis (see stageLayout.ts): at ~0.12 the parts
@@ -52,7 +54,7 @@ import {
   partDims,
   projectedHalfHeight,
 } from './explodeLayout';
-import { loadGlbTemplate } from './glbCache';
+import { loadGlbTemplate, rigMaterial } from './glbCache';
 import { Lift } from './liftOut';
 import { STAGE_MIN_EXPLODE, panPx } from '../stage/modelControl';
 import { STAGE_ELEVATION, nearestTurn, springStep, stageAspect, stageDepthScale, stageFit, stageLayout, stageStack } from './stageLayout';
@@ -145,6 +147,8 @@ interface StageState {
   lift: Lift;
   /** time spent waiting for models before the lift (s) */
   waited: number;
+  /** BoxRig.attachSerial when the last invisible frame was drawn (#125): all of them were drawn by then */
+  drawnSerial: number;
   /** it lifts out of a saved pill: the start point does not follow the object */
   fromPill: boolean;
   /** the turn it starts with on the object (a whole number of turns: as the camera sees it) */
@@ -207,6 +211,8 @@ interface GlbMat {
   /** the material's own emissive colour object (tinted on highlight) and its original value */
   emissive: THREE.Color | null;
   emissiveBase: THREE.Color | null;
+  /** the material's own depth write (off while it is drawn invisibly) */
+  depthWrite: boolean;
 }
 
 let shadowTex: THREE.CanvasTexture | null = null;
@@ -247,6 +253,9 @@ export class BoxRig {
   private lostFor = 0;
   private presence = 1;
   private disposed = false;
+  /** counts models attached (#125), and whether this frame draws the unshown model invisibly */
+  private attachSerial = 0;
+  private priming = false;
   /** reused by outline() */
   private readonly outlineOut = { box: { cx: 0, cy: 0, w: 0, h: 0 }, drawn: 0, opacity: 0 };
   private axis: Teardown['explode_axis'];
@@ -430,12 +439,10 @@ export class BoxRig {
       if (!mesh.isMesh) return;
       const src = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       const cloned = src.map((m) => {
-        const c = m.clone();
+        const c = rigMaterial(m); // as the warm-up compiled it (glbCache.ts)
         const em = (c as unknown as { emissive?: unknown }).emissive;
         const emissive = em instanceof THREE.Color ? em : null;
-        mats.push({ mat: c, base: m.opacity ?? 1, emissive, emissiveBase: emissive ? emissive.clone() : null });
-        c.transparent = true;
-        c.opacity = 0;
+        mats.push({ mat: c, base: m.opacity ?? 1, emissive, emissiveBase: emissive ? emissive.clone() : null, depthWrite: c.depthWrite });
         return c;
       });
       mesh.material = Array.isArray(mesh.material) ? cloned : cloned[0];
@@ -448,6 +455,7 @@ export class BoxRig {
     rig.glbFade = 0;
     rig.glbUrl = url;
     rig.glbHolder.add(wrapper);
+    this.attachSerial += 1;
     rig.shadow.visible = rig.shadowMat.map !== null;
     devLog(`Model for ${rig.part.id}: ${o.name}`);
   }
@@ -523,7 +531,8 @@ export class BoxRig {
     rig.edgeMat.color.copy(WHITE).lerp(ACCENT, rig.hl);
     rig.edgeMat.opacity = rig.vis * dimF * (glass * (EDGE_OPACITY + (1 - EDGE_OPACITY) * rig.hl) + gf * rig.hl);
     rig.tilt.scale.setScalar(1 + 0.03 * rig.hl);
-    rig.tilt.visible = rig.vis > 0.004;
+    // Not shown yet: drawn anyway (at opacity 0, no depth), so it is compiled and uploaded before it shows.
+    rig.tilt.visible = rig.vis > 0.004 || (this.priming && !(this.meshOnly && !rig.glb));
 
     if (rig.glb) {
       // Fill the part's box like the placeholder does: the box is the part as the camera sees it
@@ -539,6 +548,8 @@ export class BoxRig {
       else rig.glbHolder.scale.set(sx, sy, sz);
       for (const gm of rig.glbMats) {
         gm.mat.opacity = gm.base * rig.vis * gf * dimF;
+        gm.mat.colorWrite = !this.priming;
+        gm.mat.depthWrite = this.priming ? false : gm.depthWrite;
         if (gm.emissive && gm.emissiveBase) gm.emissive.copy(gm.emissiveBase).lerp(ACCENT, GLB_HL_TINT * rig.hl);
       }
       // Soft shadow just behind the model, slightly low, so it lifts off the dimmed frame.
@@ -561,6 +572,7 @@ export class BoxRig {
   /** Freeze / follow: the parts sit over the object on screen, then fly into the stack. */
   private updateScreen(input: BoxFrameInput): { labels: LabelItem[]; bounds: StackBounds } {
     const { now, dt, vw, vh } = input;
+    this.priming = false;
     this.anim.update(now, dt, input.explodeTarget);
     if (this.stageActive) {
       // Switched away from stage mode (hidden M key): back to the flat screen layout.
@@ -706,7 +718,7 @@ export class BoxRig {
       // Start facing the camera exactly as the real object does (a whole number of turns).
       const yaw0 = nearestTurn(sf.yaw);
       const fromPill = !!sf.startBox;
-      this.stage = { layout, lift: new Lift(), waited: 0, fromPill, yaw0, yaw: yaw0, yawV: 0, pitch: 0, pitchV: 0, zoom: 1, zoomV: 0, panX: 0, panXV: 0, panY: 0, panYV: 0, from: { cx: from.cx, cy: from.cy, w: from.w, h: from.h } };
+      this.stage = { layout, lift: new Lift(), waited: 0, drawnSerial: -1, fromPill, yaw0, yaw: yaw0, yawV: 0, pitch: 0, pitchV: 0, zoom: 1, zoomV: 0, panX: 0, panXV: 0, panY: 0, panYV: 0, from: { cx: from.cx, cy: from.cy, w: from.w, h: from.h } };
     }
     const st = this.stage;
     // The lift (liftOut.ts): it appears once the models that are loading have arrived (or after
@@ -714,8 +726,14 @@ export class BoxRig {
     let loading = false;
     for (const rig of this.parts) if (rig.loadingUrl !== null) loading = true;
     if (!st.lift.shown) st.waited += dt;
-    st.lift.update(dt, !sf.putAway, !loading || st.waited >= STAGE_MODEL_WAIT_S);
+    // #125: and only once a frame has been drawn (invisibly) with every model attached so far, so the
+    // first frame it shows on is never the one that compiles their shaders (the wait counts clamped
+    // steps: a long compile frame keeps the outline up instead of using up the wait).
+    const drawn = st.drawnSerial === this.attachSerial;
+    st.lift.update(dt, !sf.putAway, (!loading && drawn) || st.waited >= STAGE_MODEL_WAIT_S);
     if (!st.lift.shown) for (const rig of this.parts) if (rig.glb) rig.glbFade = 1;
+    this.priming = !st.lift.shown;
+    if (this.priming) st.drawnSerial = this.attachSerial;
     // Explode: at most the analysed amount until it has arrived (shown only from the last third of
     // the rise, through spreadK), then what was asked ("explode it" opens once it is up).
     const asked = sf.putAway ? 0 : input.explodeTarget;
@@ -779,7 +797,7 @@ export class BoxRig {
 
     // One soft shadow on the "ground" under the model (not while it still sits on the real object).
     if (this.groundShadow && this.groundMat) {
-      this.groundShadow.visible = p * L01 > 0.01;
+      this.groundShadow.visible = p * L01 > 0.01 || this.priming;
       this.groundShadow.position.set(0, -0.04 * lay.H, stack.bottom - 6);
       this.groundShadow.scale.set(lay.W * 1.25, lay.H * 1.35, 1);
       this.groundMat.opacity = STAGE_SHADOW_OPACITY * p * smoothstep(0.3, 1, L01);

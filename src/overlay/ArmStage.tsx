@@ -40,7 +40,7 @@ import { smoothstep } from './explodeAnimator';
 import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_SIZE, STAGE_TURN_OMEGA, TOP_MARGIN } from './boxRig';
 import type { ScreenBox } from './boxRig';
 import { LabelLayer, inView } from './labels';
-import { Lift, LiftOutline, pillBox } from './liftOut';
+import { Lift, LiftOutline, frameStep, pillBox } from './liftOut';
 import { reopenedSavedId } from '../lib/flow';
 import { setStageArrived } from '../hud/hudStore';
 import type { LabelItem } from './labels';
@@ -214,7 +214,7 @@ class ArmStageCtl {
 
   /** Every frame, before his renderer draws: store -> arm inputs, and the glide. */
   drive = (now: number, w: number, h: number): ArmXrayDrive => {
-    const dt = this.lastNow ? Math.min(0.1, Math.max(0, (now - this.lastNow) / 1000)) : 1 / 60;
+    const dt = frameStep(now, this.lastNow); // at most MAX_STEP_S (#125)
     this.lastNow = now;
     const s = useStore.getState();
     const on = isArmTeardown(s.teardown);

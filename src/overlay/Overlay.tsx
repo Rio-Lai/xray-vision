@@ -34,10 +34,11 @@ import { BoxRig } from './boxRig';
 import type { ScreenBox } from './boxRig';
 import { HandRig } from './handRig';
 import { LabelLayer } from './labels';
-import { LiftOutline, pillBox } from './liftOut';
+import { LiftOutline, OpenMeter, frameStep, pillBox } from './liftOut';
 import type { LabelItem, StackBounds } from './labels';
 import { ObjectLabelLayer } from './objectLabels';
-import { preloadTeardownMeshes } from './glbCache';
+import { GlbWarmer, idleSlice, preloadTeardownMeshes } from './glbCache';
+import { armMeshesPreloaded, preloadArmMeshes } from '../biology/arm/ArmXray';
 import { modelControl } from '../stage/modelControl';
 import { FLAT_YAW_LIMIT, faceNear, faceOf, stageYawOffset } from '../stage/turnLimit';
 import { gestureLive } from '../detect/gestureDriver';
@@ -56,8 +57,12 @@ const DWELL_MS = 1200;
  * tutor asked about it) by itself a second after every explode.
  */
 const DWELL_ENABLED = urlFlag('dwell');
-/** Load the demo laptop's real models this long after start, in the background. */
+/**
+ * Warm the stored models (#125) this long after start, once camera frames are flowing (something
+ * detected or the detector timed), or at the latest after WARM_LATEST_MS; only while the tab is visible.
+ */
 const PRELOAD_DELAY_MS = 2500;
+const WARM_LATEST_MS = 10000;
 /** Stage: the model starts turning slowly by itself after this long without any input... */
 const IDLE_MS = 4000;
 /** ...at this speed (rad/s)... */
@@ -135,8 +140,16 @@ class OverlayEngine {
   private dwellFired = false;
   private readonly canvas: HTMLCanvasElement;
   private envTex: THREE.Texture | null = null;
-  private preloadTimer: ReturnType<typeof setTimeout> | null = null;
-  private disposed = false;
+  /** #125: the warm-up of the stored models, when the engine started, and whether it has begun */
+  private readonly warmer: GlbWarmer;
+  private readonly bornAt = performance.now();
+  private warmStarted = false;
+  /** the rig's own materials (glass, edges, shadows) are compiled */
+  private rigWarm = false;
+  /** #125: how smooth the last open was (debug panel), and the request seen last frame */
+  private readonly meter = new OpenMeter();
+  private lastTdStatus = '';
+  private opened: Teardown | null = null;
 
   constructor(host: HTMLDivElement, labelHost: HTMLDivElement) {
     this.canvas = document.createElement('canvas');
@@ -178,23 +191,62 @@ class OverlayEngine {
     } catch (e) {
       devLog(`No environment light: ${errorText(e)}`, 'warn');
     }
-    // The demo laptop's models, parsed once in the background so the first explode shows them at once.
-    this.preloadTimer = setTimeout(() => {
-      this.preloadTimer = null;
-      void (async () => {
-        // The demo laptop first, then the hand (nothing to load until its models exist), then the eye.
-        for (const id of [DEMO_IDENTIFY.laptop.object_id, DEMO_IDENTIFY.hand.object_id, DEMO_IDENTIFY.eye.object_id]) {
-          if (this.disposed) return;
-          const n = await preloadTeardownMeshes(id, () => this.disposed);
-          if (n > 0) devLog(`Preloaded ${n} models for ${id}`);
-        }
-      })();
-    }, PRELOAD_DELAY_MS);
+    this.warmer = new GlbWarmer(this.renderer, this.scene, this.camera);
 
     this.labels = new LabelLayer(labelHost);
     this.outline = new LiftOutline(labelHost);
     this.handRig = new HandRig(this.scene);
     this.resize();
+  }
+
+  /**
+   * #125: the stored models, warmed one slice at a time (glbCache.ts) so their first open does not
+   * stop the view: the laptop's rig materials and its models (parsed, compiled, uploaded, drawn
+   * once), then the hand's and the eye's models parsed (the eye compiles its own), then the arm's.
+   */
+  private async warmUp(): Promise<void> {
+    const w = this.warmer;
+    const id = DEMO_IDENTIFY.laptop.object_id;
+    const t0 = performance.now();
+    let td: Teardown | null = null;
+    try {
+      const r = await fetch(`/cache/${encodeURIComponent(id)}.json`);
+      if (r.ok && !(r.headers.get('content-type') ?? '').includes('text/html')) td = (await r.json()) as Teardown;
+    } catch {
+      td = null; // no stored laptop: nothing to warm
+    }
+    let n = 0;
+    if (td && Array.isArray(td.parts)) {
+      await idleSlice();
+      if (w.cancelled) return;
+      try {
+        // A copy of the rig that is never drawn: its materials compile the rig's own programs.
+        await w.compile(new BoxRig(td, new THREE.Scene()).root);
+        this.rigWarm = true;
+      } catch (e) {
+        devLog(`Warm-up: rig materials not compiled (${errorText(e)})`, 'warn');
+      }
+      for (const p of td.parts) {
+        if (w.cancelled) return;
+        if (p.mesh_url && (await w.warmUrl(p.mesh_url))) n += 1;
+      }
+      devLog(`Warmed ${n} models for ${id} in ${Math.round(performance.now() - t0)} ms (sliced)`);
+    }
+    for (const other of [DEMO_IDENTIFY.hand.object_id, DEMO_IDENTIFY.eye.object_id]) {
+      if (w.cancelled) return;
+      const k = await preloadTeardownMeshes(other, () => w.cancelled);
+      if (k > 0) devLog(`Preloaded ${k} models for ${other}`);
+    }
+    if (w.cancelled) return;
+    const a = await preloadArmMeshes(idleSlice, () => w.cancelled);
+    if (a > 0) devLog(`Preloaded ${a} arm models`);
+  }
+
+  /** Were this parts list's models warm when it opened (#125)? */
+  private modelsWarm(td: Teardown): boolean {
+    if (isArmTeardown(td)) return armMeshesPreloaded();
+    if (isEyeTeardown(td)) return eyeStage.warm();
+    return this.rigWarm && td.parts.every((p) => !p.mesh_url || this.warmer.isWarm(p.mesh_url));
   }
 
   private onContextLost = (e: Event): void => {
@@ -247,6 +299,7 @@ class OverlayEngine {
       }
       this.dwellPart = null;
       this.rigObjectId = null;
+      if (td) this.opened = td;
       if (td && wantsBoxRig(td, s)) this.createRig(td, s);
     }
     if (td && this.boxRig) this.boxRig.syncMeshes(td);
@@ -373,12 +426,29 @@ class OverlayEngine {
   }
 
   tick(now: number): void {
-    const dt = this.lastNow ? Math.min(0.1, Math.max(0, (now - this.lastNow) / 1000)) : 1 / 60;
+    // At most MAX_STEP_S per frame (#125): a late frame does not jump the lift or the springs ahead.
+    const dt = frameStep(now, this.lastNow);
     this.lastNow = now;
     this.resize();
     const s = useStore.getState();
+    // #125: the warm-up starts a few seconds in, once frames are flowing, while the tab is visible.
+    const age = now - this.bornAt;
+    if (!this.warmStarted && age >= PRELOAD_DELAY_MS && !document.hidden && (live.objects.length > 0 || live.stats.objMs > 0 || age >= WARM_LATEST_MS)) {
+      this.warmStarted = true;
+      void this.warmUp();
+    }
+    // #125: watch the frames of an open, from the request (or the parts list, if it came unasked).
+    const report = this.meter.frame(now);
+    if (report) console.info(`[overlay] ${report}`);
+    if (s.teardownStatus === 'loading' && this.lastTdStatus !== 'loading') this.meter.start(now);
+    this.lastTdStatus = s.teardownStatus;
     stageYawOffset.value = 0; // set again by stageYaw while a box-rig model is on stage
     if (s.teardown !== this.teardownRef) this.onTeardown(s.teardown);
+    if (this.opened) {
+      this.meter.start(now);
+      this.meter.note(this.opened.object_id, this.modelsWarm(this.opened));
+      this.opened = null;
+    }
     const td = s.teardown;
     this.syncHandRig(td, s);
     const hl = highlightSet(s);
@@ -462,7 +532,9 @@ class OverlayEngine {
 
     this.labels.update(labelItems, bounds, vw, vh);
     this.updateDwell(now, td);
+    this.warmer.beforeRender();
     this.renderer.render(this.scene, this.camera);
+    this.warmer.afterRender();
   }
 
   private updateDwell(now: number, td: Teardown | null): void {
@@ -492,8 +564,7 @@ class OverlayEngine {
   }
 
   dispose(): void {
-    this.disposed = true;
-    if (this.preloadTimer) clearTimeout(this.preloadTimer);
+    this.warmer.dispose();
     this.envTex?.dispose();
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.boxRig?.dispose();
