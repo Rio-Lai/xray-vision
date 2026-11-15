@@ -2,15 +2,16 @@
  * The explode pipeline. Plain functions over the store, safe to call from
  * keyboard handlers, the HUD and the voice client tools.
  */
-import { useStore, type SceneObject } from '../state/store';
+import { useStore, type AppState, type SceneObject } from '../state/store';
 import type { IdentifyResponse, Lens, Teardown } from '../../shared/teardown';
-import { isDemoObject, kindOf, mockIdentify } from '../../shared/demo';
+import { DEMO_IDENTIFY, isDemoObject, kindOf, mockIdentify } from '../../shared/demo';
 import { partPrompt } from '../../shared/prompts';
 import { ApiError, SERVER_DOWN_MESSAGE, api, isServerDown, isTimeout, type ServerFlags } from './api';
 import { voiceBridge } from '../voice/bridge';
 import { stageTeardownFor } from '../stage/armTeardown';
 import { setBusyText } from '../hud/hudStore';
 import { centreDistance, centreRegion, inCentre, pinObject, pinnedIdent, unpinObject } from '../detect/centre';
+import { findSaved, keptTeardown, mayKeepPicture, noteAnalysedShot, saveOpened, savedItems, type SavedItem } from './saved';
 
 /**
  * How long "analyse this" waits for Claude to name a detected object before it goes on with the
@@ -47,6 +48,8 @@ const CENTRE_SCAN = '(centre)';
 let runId = 0;
 /** Which scene object the current teardown belongs to. */
 let explodedSceneId: string | null = null;
+/** That scene object as it was when it was analysed (#97: its label and box are saved with it, even once it is out of view). */
+let explodedTarget: SceneObject | null = null;
 
 export interface ExplodeResult {
   ok: boolean;
@@ -58,6 +61,9 @@ export interface ExplodeResult {
  * while the scene object still carries that name (a new track reusing the id has no name yet).
  */
 const corrected = new Map<string, IdentifyResponse>();
+
+/** Saved models being brought back (#97), by the scene id pinned for them (one at a time, like the pinned object). */
+const reopening = new Map<string, SavedItem>();
 
 /** The explode in progress, so a second "explode this" for the same object joins it instead of cancelling it. */
 let inFlight: { sceneId: string; promise: Promise<ExplodeResult> } | null = null;
@@ -151,6 +157,15 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   store.setTeardownStatus('loading');
   // Which server prompt to use comes from the object itself, never from a UI setting.
   const kind = kindOf(target.label, target.anchor);
+  // #97: a saved model being brought back keeps the picture it was saved with. Anything else: its crop
+  // now, the moment it is analysed, is its picture if it is put away (never an eye, a hand or a person),
+  // and is also what identify gets below, so no second crop is taken.
+  const reopen = reopening.get(target.id) ?? null;
+  const shot =
+    !reopen && mayKeepPicture(target.anchor, kind, target.label, target.name)
+      ? useStore.getState().camera?.captureCrop(target.box) ?? null
+      : null;
+  if (!reopen) noteAnalysedShot(target.id, shot);
 
   // 1. Identify. The detector's label gives a first guess (shared/demo.ts).
   const guess = mockIdentify(target.label, kind);
@@ -167,12 +182,12 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
     // ask Claude in the background; its answer is checked once the model is shown (step 5, #84). The
     // server answers a hand or an eye itself without asking Claude, so neither is sent at all: no
     // picture of a face leaves the laptop for an eye (#94).
-    if (target.anchor !== 'hand' && target.anchor !== 'face') background = identifyInBackground(target, kind);
+    if (target.anchor !== 'hand' && target.anchor !== 'face') background = identifyInBackground(target, kind, shot);
   } else {
     // Anything else waits for Claude, but at most IDENTIFY_TIMEOUT_MS. Any failure except
     // "server not running" (a time-out included) goes on with the detector's label.
     try {
-      const crop = useStore.getState().camera?.captureCrop(target.box) ?? null;
+      const crop = shot ?? useStore.getState().camera?.captureCrop(target.box) ?? null;
       if (crop) {
         ident = await api.identify({ image: crop, lens: kind, hint: target.label }, { timeoutMs: IDENTIFY_TIMEOUT_MS });
       }
@@ -187,7 +202,9 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   // 2. Teardown (server is cache-first).
   let td: Teardown;
   try {
-    td = await api.teardown({ object_id: ident.object_id, name: ident.name, lens: kind });
+    // A saved live (AI-estimated) model reopens from the parts list kept with it (#97); else the server's cache answers.
+    const kept = reopen?.kind === 'live' ? keptTeardown(reopen.id) : null;
+    td = kept ?? (await api.teardown({ object_id: ident.object_id, name: ident.name, lens: kind }));
   } catch (err) {
     console.warn(`[flow] teardown for ${ident.object_id} failed`, err);
     return fail(teardownFailMessage(err, ident.name));
@@ -200,12 +217,13 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   // 3. Show it.
   const s = useStore.getState();
   explodedSceneId = target.id;
+  explodedTarget = target;
   s.setTeardown(td);
   s.setExplode(1);
   voiceBridge.sendContextualUpdate(describeTeardown(td));
 
   // 4. Real meshes in the background. Not for hands: the hand overlay draws from landmarks and ignores mesh_url.
-  if (td.anchor !== 'hand') void generateMeshes(td, myRun);
+  if (td.anchor !== 'hand') void generateMeshes(td, myRun, reopen !== null);
 
   // 5. A cached object opened from its label: what Claude says it is, when it answers (#84).
   if (background) {
@@ -285,8 +303,8 @@ async function analyseCentre(): Promise<ExplodeResult> {
  * Resolves null on any failure. No client time limit: the server's identify call has its own
  * (server/lib/claude.ts).
  */
-function identifyInBackground(target: SceneObject, kind: Lens): Promise<(IdentifyResponse & ServerFlags) | null> {
-  const crop = useStore.getState().camera?.captureCrop(target.box) ?? null;
+function identifyInBackground(target: SceneObject, kind: Lens, shot: string | null): Promise<(IdentifyResponse & ServerFlags) | null> {
+  const crop = shot ?? useStore.getState().camera?.captureCrop(target.box) ?? null;
   if (!crop) return Promise.resolve(null);
   return api.identify({ image: crop, lens: kind, hint: target.label }).catch((err: unknown) => {
     console.warn('[flow] background identify failed; keeping the cached object', err);
@@ -372,6 +390,7 @@ async function switchTeardown(target: SceneObject, opened: Teardown, ident: Iden
   s.highlightPart(null);
   s.showStep(null);
   explodedSceneId = target.id;
+  explodedTarget = target;
   s.setTeardown(td); // keeps the explode amount
   voiceBridge.sendContextualUpdate(
     `Correction: this is not the ${opened.name} after all. The earlier parts list is replaced; forget its parts.\n\n${describeTeardown(td)}`,
@@ -387,13 +406,26 @@ async function switchTeardown(target: SceneObject, opened: Teardown, ident: Iden
  */
 export const MAX_LIVE_MESHES = 4;
 
-/** Two fal jobs at a time. Stops on mock mode, skips failures silently. Live objects: at most MAX_LIVE_MESHES. */
-async function generateMeshes(td: Teardown, myRun: number) {
+/** Outermost first, then largest: the order live parts get fal models in. */
+function meshOrder(parts: Teardown['parts']): Teardown['parts'] {
+  const volume = (p: Teardown['parts'][number]) => p.size[0] * p.size[1] * p.size[2];
+  return [...parts].sort((a, b) => a.layer - b.layer || volume(b) - volume(a));
+}
+
+/**
+ * Two fal jobs at a time. Stops on mock mode, skips failures silently. Live objects: at most MAX_LIVE_MESHES.
+ * `reopened` (#97, a saved live model brought back): only the parts it asked fal for the first time
+ * (the server has those models cached), never more.
+ */
+async function generateMeshes(td: Teardown, myRun: number, reopened = false) {
   let queue = td.parts.filter((p) => !p.mesh_url);
-  if (td.source === 'live' && queue.length > MAX_LIVE_MESHES) {
-    const volume = (p: Teardown['parts'][number]) => p.size[0] * p.size[1] * p.size[2];
+  if (td.source === 'live' && reopened) {
+    queue = meshOrder(td.parts)
+      .slice(0, MAX_LIVE_MESHES)
+      .filter((p) => !p.mesh_url);
+  } else if (td.source === 'live' && queue.length > MAX_LIVE_MESHES) {
     const wanted = queue.length;
-    queue = [...queue].sort((a, b) => a.layer - b.layer || volume(b) - volume(a)).slice(0, MAX_LIVE_MESHES);
+    queue = meshOrder(queue).slice(0, MAX_LIVE_MESHES);
     console.info(`[flow] ${td.object_id}: asking fal for ${queue.length} of ${wanted} part models (${wanted - queue.length} skipped, MAX_LIVE_MESHES)`);
   }
   let stop = false;
@@ -444,13 +476,91 @@ export function pickPart(partId: string): void {
 function putAway(): void {
   runId++;
   explodedSceneId = null;
+  explodedTarget = null;
   inFlight = null;
   unpinObject();
+  reopening.clear();
   useStore.getState().resetView();
 }
 
-export function resetAll(): void {
+/** #97: save the open parts list (if any) with the scene object it came out of. */
+function saveOpen(): SavedItem | null {
+  const s = useStore.getState();
+  const td = s.teardown;
+  if (!td) return null;
+  const sceneId = explodedSceneId ?? s.selectedObjectId;
+  const obj = (sceneId ? s.objects.find((o) => o.id === sceneId) : undefined) ?? (explodedTarget?.id === sceneId ? explodedTarget : undefined);
+  try {
+    return saveOpened(td, { id: sceneId, label: obj?.label, name: obj?.name, box: obj?.box });
+  } catch (err) {
+    console.warn('[flow] could not save the model', err);
+    return null;
+  }
+}
+
+/** "Put it away": saves what was open (#97), then resets. Returns what was saved, if anything. */
+export function resetAll(): SavedItem | null {
+  const saved = saveOpen();
   putAway();
   setBusyText(null);
-  voiceBridge.sendContextualUpdate('The view was reset. Nothing is exploded now.');
+  voiceBridge.sendContextualUpdate(
+    saved
+      ? `The view was reset and the ${saved.name} was saved: explode with object_id "${saved.id}" brings it back. ` +
+          'Nothing is exploded now; for "analyse this", call explode without object_id.'
+      : 'The view was reset. Nothing is exploded now.',
+  );
+  return saved;
+}
+
+/* ---------- bringing a saved model back (#97) ---------- */
+
+/** Pin a scene object for a saved model (as centre.ts / eyeTeardown.ts do), where it was when it was open. */
+function pinSaved(item: SavedItem): SceneObject {
+  const eye = item.glyph === 'eye';
+  const hand = !eye && item.anchor === 'hand';
+  // The arm reopens as the arm: the hand's parts list becomes the arm's on stage (stageTeardownFor).
+  const ident: IdentifyResponse = eye
+    ? DEMO_IDENTIFY.eye
+    : hand
+      ? DEMO_IDENTIFY.hand
+      : { object_id: item.id, name: item.name, confidence: 1, summary: '' };
+  const obj = pinObject(item.box, ident, { label: eye ? 'eye' : hand ? 'hand' : item.label, anchor: eye ? 'face' : hand ? 'hand' : 'box' });
+  reopening.clear();
+  reopening.set(obj.id, item);
+  return obj;
+}
+
+/** Whether a scene object in view is the same thing as a saved model. */
+function isSameThing(o: SceneObject, item: SavedItem): boolean {
+  if (item.glyph === 'eye') return o.anchor === 'face';
+  if (item.anchor === 'hand') return o.anchor === 'hand';
+  if (o.anchor !== 'box') return false;
+  const name = item.name.toLowerCase();
+  return (
+    (o.name ?? '').toLowerCase() === name ||
+    o.label.toLowerCase() === item.label.toLowerCase() ||
+    mockIdentify(o.label, o.lens).object_id === item.id
+  );
+}
+
+/**
+ * For explode's `object_id` (#97): a saved id or name ("macbook", "the watch", "bring back the eye",
+ * case-insensitive, partial). The same thing in view wins (its scene id); else the saved model is
+ * pinned in view, so it opens even when the object is not there. undefined: `objectId` names a
+ * scene object, or nothing saved matches (resolve it as before).
+ */
+export function resolveSavedObjectId(objectId: string, s: Pick<AppState, 'objects'>): string | undefined {
+  const raw = objectId.trim();
+  if (s.objects.some((o) => o.id === raw)) return undefined;
+  const item = findSaved(raw);
+  if (!item) return undefined;
+  const same = s.objects.find((o) => isSameThing(o, item));
+  return same ? same.id : pinSaved(item).id;
+}
+
+/** Open a saved model by its id (the saved pills; the wearer uses voice). */
+export function bringBack(id: string): Promise<ExplodeResult> {
+  const item = savedItems().find((i) => i.id === id);
+  if (!item) return Promise.resolve({ ok: false, message: 'Nothing is saved by that name.' });
+  return explodeObject(pinSaved(item).id);
 }

@@ -5,7 +5,10 @@
  */
 import { useStore, type FingerName, type HandState } from '../state/store';
 import type { ClientToolName, Teardown, TeardownPart } from '../../shared/teardown';
-import { explodeObject, resetAll } from '../lib/flow';
+import { explodeObject, resetAll, resolveSavedObjectId } from '../lib/flow';
+// #97: saved models ("put it away" keeps them; explode with a saved id or name brings one back)
+import { describeSaved } from '../lib/saved';
+import { shortName } from '../hud/names';
 import { armPose } from '../biology/arm/tour';
 import { startArmLive } from '../biology/arm/armLive';
 import { ARM_MUSCLE_IDS, armLayerNames, armPartExtras, armStepExtras, isArmTeardown, resolveObjectId } from '../stage/armTeardown';
@@ -120,6 +123,7 @@ const tools: Record<ClientToolName, Tool> = {
       explode_amount: s.explodeAmount,
       highlighted_part_id: s.highlightedPartId,
       active_step: s.activeStep,
+      saved: describeSaved(),
     });
   },
 
@@ -137,7 +141,9 @@ const tools: Record<ClientToolName, Tool> = {
     const s = useStore.getState();
     // "arm-hand" (Kash's arm) means the hand in view: the arm is how a hand is shown on stage.
     const asked = str(p, 'object_id');
-    const objectId = asked === undefined ? undefined : resolveEyeObjectId(asked, s) ?? resolveObjectId(asked, s);
+    const resolved = asked === undefined ? undefined : resolveEyeObjectId(asked, s) ?? resolveObjectId(asked, s);
+    // #97: not in view (or not a scene id): a saved model with that id or name, brought back
+    const objectId = asked !== undefined && (resolved === null || resolved === asked) ? resolveSavedObjectId(asked, s) ?? resolved : resolved;
     if (objectId === null) return 'No hand in view. Ask the user to hold a hand in front of the camera, then call explode again.';
     if (amount !== undefined && amount <= 0) {
       s.setExplode(0);
@@ -221,8 +227,8 @@ const tools: Record<ClientToolName, Tool> = {
   },
 
   async reset_view() {
-    resetAll();
-    return 'View reset.';
+    const saved = resetAll();
+    return saved ? `Put away. Saved ${shortName(saved.name)}.` : 'View reset.';
   },
 
   async set_overlay(p) {

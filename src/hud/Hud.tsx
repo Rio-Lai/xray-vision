@@ -25,6 +25,8 @@ import type { GestureTuning } from '../detect/gestures';
 import { gestureTuning, gestureTuningUrl, setGestureTuning } from '../detect/gestureTuning';
 import { isPinnedId } from '../detect/centre';
 import { shortName } from './names';
+import { SavedRow } from './SavedRow';
+import { savedAgo, useSaved } from '../lib/saved';
 
 /** Something is open: exploded in freeze / follow, or any model on stage (even at explode 0). */
 function isShowing(s: AppState): boolean {
@@ -375,6 +377,7 @@ function DebugPanel() {
   const tdStatus = useStore((s) => s.teardownStatus);
   const yaw = useStore((s) => s.modelYaw);
   const pitch = useStore((s) => s.modelPitch);
+  const saved = useSaved((s) => s.items);
   if (!visible) return null;
   const st = live.stats;
   const lines: string[] = [];
@@ -386,6 +389,9 @@ function DebugPanel() {
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} | input ${modelControl.describe()}`);
   lines.push(`look ${LOOK === 'kit' ? 'kit (Figma Make interface kit, #86; ?look=classic for the previous look)' : 'classic (?look=classic; drop it for the Figma Make kit)'}`);
   lines.push(...gestureLines(performance.now()));
+  lines.push(
+    `saved ${saved.length}${saved.length ? `: ${saved.map((i) => `${shortName(i.name)} (${i.kind}, ${savedAgo(i.savedAt)})`).join(', ')}` : ''} | ?saved=clear forgets them (#97)`,
+  );
   for (const n of st.notes) lines.push(n);
   for (const [key, l] of Object.entries(status)) lines.push(`[${l.level}] ${key}: ${l.text}`);
   lines.push(`focused: ${focused ?? '-'}   selected: ${selected ?? '-'}`);
@@ -432,6 +438,7 @@ export function Hud() {
       <style>{HUD_CSS}</style>
       <ExplodedTitle />
       <StatusPill />
+      <SavedRow />
       <PartCard />
       <StepCard />
       <DebugPanel />
