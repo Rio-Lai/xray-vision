@@ -8,15 +8,15 @@
  *   3. the API server, which then also serves dist/ on its own port (BLOWFISH_SERVE_DIST=1), behind
  *      this run's access code (BLOWFISH_PHONE_CODE from .env, or a fresh random one)
  *   4. a Cloudflare quick tunnel to that port: https://<random>.trycloudflare.com, the https iOS needs
- *      for the camera and microphone. cloudflared comes from the `cloudflared` npm package (it
- *      downloads the right binary), else from PATH, else the official release is downloaded into .bin/
+ *      for the camera and microphone. cloudflared is got only now, never on npm install: one already
+ *      installed (brew, PATH), else the official release, downloaded once into .bin/
  *   5. prints the phone link, its QR code and what to do on the phone
  *
  * While it runs the Mac is kept awake (caffeinate). Ctrl-C stops the server and the tunnel.
  * Plain Node (no build step); `npm run phone` puts node_modules/.bin on PATH.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -141,55 +141,94 @@ async function serverAnswers(port) {
 // --------------------------------------------------------------------------------------------
 // cloudflared
 
-/** The official release binary, downloaded into .bin/ (gitignored). Returns the path or null. */
+const DOWNLOAD_TIMEOUT_MS = 180_000;
+const MB = 1024 * 1024;
+
+/** The first file called "cloudflared" under dir (the macOS .tgz holds just the binary). */
+function findExtracted(dir) {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    const st = statSync(p);
+    if (st.isFile() && name === 'cloudflared') return p;
+    if (st.isDirectory()) {
+      const inner = findExtracted(p);
+      if (inner) return inner;
+    }
+  }
+  return null;
+}
+
+/**
+ * The official release binary from github.com/cloudflare/cloudflared, into .bin/ (gitignored), only when
+ * `npm run phone` needs it. Prints its progress, gives up after DOWNLOAD_TIMEOUT_MS, and leaves nothing
+ * half-downloaded behind. Returns the path, or null.
+ */
 async function downloadRelease(dest) {
   const asset = releaseAsset();
   if (!asset) return null;
   const url = `https://github.com/cloudflare/cloudflared/releases/latest/download/${asset.file}`;
-  say(`  Downloading cloudflared from github.com/cloudflare/cloudflared (once, about 40 MB)...`);
+  const dir = dirname(dest);
+  const part = join(dir, `${asset.file}.part`);
+  const unpack = join(dir, 'cloudflared-unpack');
+  const cleanUp = () => {
+    for (const p of [part, unpack]) rmSync(p, { recursive: true, force: true });
+  };
+  say('  Downloading cloudflared (the tunnel to the phone) from github.com/cloudflare/cloudflared, once...');
   try {
-    mkdirSync(dirname(dest), { recursive: true });
-    const res = await fetch(url, { signal: AbortSignal.timeout(180_000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (asset.tgz) {
-      const tgz = `${dest}.tgz`;
-      writeFileSync(tgz, buf);
-      const r = spawnSync('tar', ['-xzf', tgz, '-C', dirname(dest)], { encoding: 'utf8' });
-      rmSync(tgz, { force: true });
-      if (r.status !== 0) throw new Error(`tar failed: ${(r.stderr || '').trim()}`);
-      const extracted = join(dirname(dest), 'cloudflared');
-      if (extracted !== dest) renameSync(extracted, dest);
-    } else {
-      writeFileSync(dest, buf);
+    mkdirSync(dir, { recursive: true });
+    cleanUp();
+    const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    const total = Number(res.headers.get('content-length')) || 0;
+    const chunks = [];
+    let got = 0;
+    let shown = 0;
+    for await (const chunk of res.body) {
+      chunks.push(chunk);
+      got += chunk.length;
+      if (got - shown >= 10 * MB) {
+        shown = got;
+        say(`    ${(got / MB).toFixed(0)} MB${total ? ` of ${(total / MB).toFixed(0)} MB` : ''}`);
+      }
     }
+    writeFileSync(part, Buffer.concat(chunks));
+    if (asset.tgz) {
+      mkdirSync(unpack, { recursive: true });
+      const r = spawnSync('tar', ['-xzf', part, '-C', unpack], { encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`could not unpack it (${(r.stderr || '').trim() || `tar exit ${r.status}`})`);
+      const extracted = findExtracted(unpack);
+      if (!extracted) throw new Error('the download had no cloudflared in it');
+      rmSync(dest, { force: true });
+      renameSync(extracted, dest);
+    } else {
+      rmSync(dest, { force: true });
+      renameSync(part, dest);
+    }
+    cleanUp();
     chmodSync(dest, 0o755);
-    return works(dest) ? dest : null;
+    if (works(dest)) {
+      say(`    done (${(got / MB).toFixed(0)} MB, kept in .bin/ for next time)`);
+      return dest;
+    }
+    rmSync(dest, { force: true });
+    say('  The downloaded cloudflared does not run on this Mac.');
+    return null;
   } catch (e) {
-    say(`  Could not download cloudflared: ${e instanceof Error ? e.message : String(e)}`);
+    cleanUp();
+    const why = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError') ? 'it took too long' : e instanceof Error ? e.message : String(e);
+    say(`  Could not download cloudflared: ${why}.`);
     return null;
   }
 }
 
+/**
+ * cloudflared, got only when `npm run phone` runs (never on npm install): one already installed (the
+ * brew locations, then PATH), else the copy in .bin/ from an earlier run, else the official release.
+ */
 async function findCloudflared() {
-  // (a) the cloudflared npm package (a devDependency): it fetches the right binary for this Mac on npm install
-  try {
-    const cf = require('cloudflared');
-    if (cf && typeof cf.bin === 'string') {
-      if (!existsSync(cf.bin) && typeof cf.install === 'function') {
-        say('  Getting cloudflared (once)...');
-        await cf.install(cf.bin);
-      }
-      if (existsSync(cf.bin) && works(cf.bin)) return cf.bin;
-    }
-  } catch {
-    /* not installed, or its download failed: try the next way */
-  }
-  // (b) one already installed (brew install cloudflared)
   for (const p of ['/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared', 'cloudflared']) {
     if ((p === 'cloudflared' || existsSync(p)) && works(p)) return p;
   }
-  // (c) the official release, into .bin/
   const local = join(root, '.bin', 'cloudflared');
   if (existsSync(local) && works(local)) return local;
   return downloadRelease(local);
@@ -328,7 +367,9 @@ async function main() {
   say('  On the phone:');
   say('    1. Open the link in Safari, tap "Tap to start", allow the camera and the microphone.');
   say('    2. Turn the phone sideways, then plug in the glasses.');
-  say('    3. Full screen: Share > Add to Home Screen, then open Blowfish from the home screen.');
+  say('    3. Optional, for full screen: Share > Add to Home Screen, then open Blowfish from there.');
+  say('       That icon only works until this window stops. After a restart of npm run phone there');
+  say('       is a new link: open it in Safari, then Add to Home Screen again.');
   say('');
   say('  If Safari cannot find the page, wait 20 seconds and reload. Keep this Mac awake,');
   say('  plugged in and online, with the lid open. Ctrl-C here stops everything.');

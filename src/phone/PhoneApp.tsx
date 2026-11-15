@@ -238,7 +238,8 @@ html.bf-phone {
   --bf-phone-bottom: max(10px, env(safe-area-inset-bottom));
   --bf-phone-column: 64px;
 }
-html.bf-phone .bf-card { padding: 12px 14px; border-radius: 16px; max-height: calc(100vh - 2 * var(--bf-phone-top) - 8px); overflow: hidden; }
+html.bf-phone .bf-card { padding: 12px 14px; border-radius: 16px; overflow: hidden;
+  max-height: calc(100vh - 2 * var(--bf-phone-top) - 8px); max-height: calc(100dvh - 2 * var(--bf-phone-top) - 8px); }
 html.bf-phone .bf-card__name { margin-bottom: 6px; }
 html.bf-phone .bf-card__safety { margin-top: 8px; padding-top: 8px; gap: 8px; }
 html.bf-phone .bf-progress { margin: 6px 0 8px; }
