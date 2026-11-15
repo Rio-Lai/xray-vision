@@ -18,6 +18,8 @@
  *    lines through LabelLayer, click to pick (the overlay asks `solidStage.pickAt`), the lift-out and
  *    put-away from liftOut.ts, free turning (store.modelYaw / modelPitch: a solid is not limited, see
  *    turnLimit.ts), zoom and pan from the store (eased), and a slow idle sway once nothing has touched it.
+ *  - It appears only after one frame has been drawn with its solids at opacity 0 (their shaders are
+ *    compiled then, never on a visible frame), and its lift and springs run on the clamped step (frameStep, #125).
  *  - Per frame it allocates nothing but the label list; everything is disposed when the parts list changes
  *    and when the overlay goes.
  */
@@ -36,7 +38,7 @@ import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_SIZE, STAGE_TU
 import type { ScreenBox } from './boxRig';
 import { LabelLayer, inView } from './labels';
 import type { LabelItem } from './labels';
-import { Lift, LiftOutline, pillBox } from './liftOut';
+import { Lift, LiftOutline, frameStep, pillBox } from './liftOut';
 import { reopenedSavedId } from '../lib/flow';
 import { springStep } from './stageLayout';
 import { isSolidTeardown } from './stageState';
@@ -150,6 +152,8 @@ class SolidStageCtl {
   private parts: SolidPart[] = [];
   private meshes: THREE.Object3D[] = [];
   private sig = '';
+  /** one frame has been drawn with these solids at opacity 0, so their shaders are compiled before they show (#125) */
+  private primed = false;
   private layout: SolidLayout | null = null;
   private labels: LabelLayer | null = null;
   private outline: LiftOutline | null = null;
@@ -269,6 +273,7 @@ class SolidStageCtl {
     this.meshes = [];
     this.layout = null;
     this.sig = '';
+    this.primed = false;
   }
 
   /** Build the solids for a parts list (once per list; details arriving later change nothing here). */
@@ -375,7 +380,7 @@ class SolidStageCtl {
   }
 
   tick = (now: number): void => {
-    const dt = this.lastNow ? Math.min(0.1, Math.max(0, (now - this.lastNow) / 1000)) : 1 / 60;
+    const dt = frameStep(now, this.lastNow); // at most MAX_STEP_S (#125)
     this.lastNow = now;
     const s = useStore.getState();
     const td = s.teardown;
@@ -435,7 +440,8 @@ class SolidStageCtl {
       const start = saved !== null ? pillBox(saved) : box ?? { cx: w / 2, cy: h / 2, w: 0.2 * h, h: 0.3 * h };
       this.from = { cx: start.cx, cy: start.cy, w: start.w, h: start.h };
     }
-    this.lift.update(dt, on, true);
+    // it appears only once a frame has been drawn with its solids invisible (no shader compile on a visible frame)
+    this.lift.update(dt, on, this.primed);
     const goal = !on ? box ?? pillBox(this.savedId) : this.lift.follow && !this.fromPill ? box : null;
     if (goal) {
       const k = 1 - Math.exp(-dt * 12);
@@ -520,12 +526,13 @@ class SolidStageCtl {
       p.mat.emissiveIntensity = 0.08 + 0.3 * p.hl;
       p.edgeMat.color.copy(WHITE).lerp(ACCENT, p.hl);
       p.edgeMat.opacity = op * (EDGE_OPACITY + (1 - EDGE_OPACITY) * p.hl) * dimF;
-      p.holder.visible = op > 0.004;
+      p.holder.visible = op > 0.004 || !this.primed;
     }
 
     if (this.renderer) {
       this.renderer.domElement.style.opacity = '1';
       this.renderer.render(this.scene, cam);
+      this.primed = true;
     }
     this.updateLabels(on, w, h);
   };
