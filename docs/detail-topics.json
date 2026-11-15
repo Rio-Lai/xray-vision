@@ -1,8 +1,92 @@
 [
-  { "topic": "battery cell composition with electrons flowing between anode and cathode during discharge", "object": "MacBook Air 13-inch" },
-  { "topic": "how the forearm flexor tendons curl a finger", "object": "Human arm and hand" },
-  { "topic": "how the eye's lens focuses light on the retina", "object": "Human eye" },
-  { "topic": "DualShock controller touchpad ribbon cable" },
-  { "topic": "label wrapping machine putting the label on a drinks bottle" },
-  { "topic": "spongy mesophyll inside a leaf" }
+  {
+    "id": "battery",
+    "topic": "battery cell composition with electrons flowing between anode and cathode during discharge",
+    "object": "MacBook Air 13-inch",
+    "objects": ["macbook", "laptop", "notebook", "computer", "mac", "battery", "batteries"],
+    "any": [["battery", "batteries", "lithium", "lipo", "anode", "anodes", "cathode", "cathodes", "electrolyte", "electrode", "electrodes"]],
+    "none": [
+      "charge", "charging", "charged", "charger", "recharge", "recharging", "recharged", "rechargeable",
+      "manufacture", "manufacturing", "manufactured", "made", "make", "making", "assembly", "assemble", "assembled", "built", "production", "produce", "produced", "factory",
+      "recycle", "recycling", "recycled", "dispose", "disposal", "mine", "mining",
+      "safety", "safe", "danger", "dangerous", "fire", "explode", "explosion", "thermal", "runaway", "heat", "hot", "overheat", "overheating",
+      "swell", "swelling", "swollen", "bulge", "bulging", "puffy",
+      "replace", "replacing", "replacement", "repair", "remove", "removal", "degrade", "degradation", "glue", "glued", "adhesive",
+      "connect", "connected", "connection", "connector", "port", "usb", "magsafe", "cost", "price"
+    ]
+  },
+  {
+    "id": "tendons",
+    "topic": "how the forearm flexor tendons curl a finger",
+    "object": "Human arm and hand",
+    "objects": ["arm", "hand", "hands", "finger", "fingers", "forearm", "wrist", "tendon", "tendons", "flexor"],
+    "any": [
+      ["tendon", "tendons", "flexor", "flexors", "finger", "fingers", "forearm", "hand", "hands"],
+      ["tendon", "tendons", "flexor", "flexors", "curl", "curling", "bend", "bending", "bent", "flex", "flexing", "move", "moves", "moving", "movement", "pull", "pulls", "pulling", "grip", "gripping", "grasp", "close", "closing", "cable", "cables", "pulley", "pulleys"]
+    ],
+    "none": [
+      "injury", "injuries", "injured", "injure", "tear", "tearing", "torn", "rupture", "ruptured", "pain", "painful", "hurt", "ache", "sore", "sprain", "strain", "broken", "break", "fracture",
+      "tendonitis", "tendinitis", "inflammation", "swelling", "arthritis", "carpal", "tunnel", "syndrome", "trigger", "surgery", "heal", "healing",
+      "nerve", "nerves", "extensor", "extensors", "extend", "extending", "extension", "straighten", "straightening",
+      "bone", "bones", "skeleton", "phalanx", "phalanges", "metacarpal", "metacarpals", "carpals"
+    ]
+  },
+  {
+    "id": "eye-lens",
+    "topic": "how the eye's lens focuses light on the retina",
+    "object": "Human eye",
+    "objects": ["eye", "eyes", "eyeball", "vision", "sight"],
+    "any": [["lens", "lenses", "focus", "focuses", "focusing", "focused", "accommodation", "accommodate", "accommodating", "see", "seeing", "sight", "vision", "light retina", "light eye"]],
+    "none": [
+      "detect", "detects", "detecting", "detection", "rod", "rods", "cone", "cones", "photoreceptor", "photoreceptors",
+      "colour", "colours", "color", "colors", "tear", "tears", "crying", "cry", "iris", "pupil", "pupils", "dilate", "dilation",
+      "disease", "cataract", "cataracts", "glaucoma", "macular", "degeneration", "blind", "blindness", "night",
+      "glasses", "spectacles", "contact", "contacts", "lasik", "laser", "surgery",
+      "myopia", "hyperopia", "presbyopia", "astigmatism", "short", "shortsighted", "nearsighted", "farsighted", "longsighted",
+      "nerve", "brain", "camera", "phone", "iphone", "telescope", "microscope", "magnifying", "projector", "photo", "computer"
+    ]
+  },
+  {
+    "id": "ribbon-cable",
+    "topic": "DualShock controller touchpad ribbon cable",
+    "objects": ["dualshock", "dual shock", "controller", "gamepad", "playstation", "ps4", "ps5", "joypad"],
+    "any": [
+      ["ribbon", "cable", "cables", "connect", "connects", "connected", "connection", "connector", "ffc", "fpc", "wire", "wires", "wiring"],
+      ["touchpad", "touch pad", "ribbon", "flex cable", "flat cable", "ffc", "fpc"]
+    ],
+    "none": [
+      "capacitive", "capacitance", "sense", "senses", "sensing", "sensor", "sensors", "detect", "detects", "detecting",
+      "manufacture", "manufacturing", "manufactured", "made", "make", "making", "assembly", "assembled", "production", "produced", "factory",
+      "button", "buttons", "stick", "sticks", "joystick", "thumbstick", "rumble", "vibration", "vibrate", "motor", "motors", "trigger", "triggers",
+      "battery", "charge", "charging", "usb", "speaker", "gyro", "bluetooth", "wireless", "lightbar", "light bar"
+    ]
+  },
+  {
+    "id": "label-machine",
+    "topic": "label wrapping machine putting the label on a drinks bottle",
+    "any": [
+      ["label", "labels", "labelling", "labeling", "labeller", "labeler"],
+      ["wrap", "wraps", "wrapping", "wrapped", "wrapper", "put", "puts", "putting", "apply", "applies", "applied", "applying", "application", "applicator", "machine", "machines", "stick", "sticks", "sticking", "stuck", "attach", "attached", "attaching", "glue", "glued", "bottle", "bottles", "go", "goes", "get", "gets", "roll", "rolling", "conveyor", "sleeve", "shrink"]
+    ],
+    "none": [
+      "blow", "blown", "blowing", "mould", "moulding", "moulded", "mold", "molding", "molded", "preform",
+      "cap", "caps", "lid", "screw", "recycle", "recycling", "recycled", "recyclable",
+      "print", "printed", "printing", "printer", "ink", "design", "designed", "logo",
+      "made", "make", "making", "manufacture", "manufacturing", "manufactured", "fill", "filled", "filling",
+      "read", "say", "says", "ingredient", "ingredients"
+    ]
+  },
+  {
+    "id": "spongy-mesophyll",
+    "topic": "spongy mesophyll inside a leaf",
+    "any": [
+      ["spongy", "mesophyll", "leaf"],
+      ["spongy", "mesophyll", "inside", "interior", "internal", "inner", "cross", "section", "air", "space", "spaces", "gas", "gases", "exchange", "structure", "layer", "layers", "tissue", "tissues", "cell", "cells", "anatomy"]
+    ],
+    "none": [
+      "palisade", "photosynthesis", "photosynthesise", "photosynthesize", "photosynthetic", "light", "chloroplast", "chloroplasts", "chlorophyll", "thylakoid", "thylakoids",
+      "stoma", "stomata", "stomatal", "guard", "root", "roots", "stem", "stems", "xylem", "phloem", "vein", "veins", "cuticle", "epidermis",
+      "colour", "colours", "color", "colors", "autumn", "fall", "falling", "shape", "grow", "growing", "growth"
+    ]
+  }
 ]

@@ -12,11 +12,12 @@
  * nothing else changes.
  */
 import { MODEL_PAN_MAX, useStore } from '../state/store';
-import { DetailSceneSchema, SAMPLE_DETAIL, type DetailScene } from '../../shared/detail';
+import { DetailSceneSchema, SAMPLE_DETAIL, type DetailAnswerFlags, type DetailScene } from '../../shared/detail';
 import { urlParam } from '../camera/frame';
 import { PAN_UNIT_VH } from '../stage/modelControl';
 import { WIDE_DETAIL_SPLIT, isShortWide } from '../phone/viewport';
 import { ApiError, SERVER_DOWN_MESSAGE, api, isServerDown, isTimeout } from './api';
+import { devLog } from '../hud/hudStore';
 
 const MODE = urlParam('detail');
 /** `?detail=1` (or `true`, or `mock`): the whole feature is on. Off by default. */
@@ -107,6 +108,16 @@ export async function openDetail(topic: string, ctx: { object?: string; part?: s
       const parsed = DetailSceneSchema.safeParse(raw);
       if (!parsed.success) throw new Error(`the detail model did not match the schema: ${parsed.error.issues[0]?.message ?? ''}`);
       scene = parsed.data;
+      // where it came from, for the debug panel only (DetailAnswerFlags: the schema drops these fields)
+      const flags = (raw && typeof raw === 'object' ? raw : {}) as DetailAnswerFlags;
+      const secs = typeof flags.seconds === 'number' ? flags.seconds : null;
+      devLog(
+        flags.cached === 'premade'
+          ? `Detail: pre-made ${flags.premade ?? ''} for "${t}"`
+          : flags.cached
+            ? `Detail: kept (${flags.cached}) for "${t}"`
+            : `Detail: built live in ${secs ?? '?'} s for "${t}"`,
+      );
     }
     // closed, put away or replaced while it was being built
     if (!current()) return { ok: false, superseded: true };
