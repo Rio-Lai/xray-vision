@@ -49,7 +49,7 @@ Browser --/api--> Local server (Express, 127.0.0.1)
 
 - **Fast things run on the laptop:** camera, detection, gestures and drawing, every frame. **Slow things run in the background and are cached:** Claude and fal. Turning and exploding the model is three.js moving meshes; nothing is generated per frame.
 - **Voice:** one ElevenLabs Agents session listens to the microphone, decides what to say and which tool to call, and speaks the answer. The agent drives the app through nine client tools that run in the browser: `get_scene`, `set_overlay`, `select_object`, `explode`, `highlight_part`, `show_step`, `reset_view`, `rotate_model`, `get_pose`. After each explode the app sends the agent the parts list as a contextual update, so it knows exactly which parts exist.
-- **Analyse:** "this" is the thing in the middle of the view. The stored MacBook and the hand open at once from the on-device label, and Claude checks the name in the background; if Claude is confident it is something else, the app says so and switches to that object's parts. Any other detected thing is cropped and sent to Claude, which names it (at most 4 s, then the on-device label is used). If nothing is detected in the middle, the middle of the view itself is sent to Claude, so "analyse this" works on things the detector does not know. Its parts list (parts, layers, sizes, positions, one-line explanations, safety notes, repair steps) comes from the cache or, for a new object, from Claude. The model is shown in **stage mode** (the default): it glides to the middle of the view over the live video and turns slowly when idle. Placeholder glass shapes appear at once and are replaced by 3D models as they arrive.
+- **Analyse:** "this" is the thing in the middle of the view. The stored MacBook and the hand open at once from the on-device label, and Claude checks the name in the background; if Claude is confident it is something else, the app says so and switches to that object's parts. Any other detected thing is cropped and sent to Claude, which names it (at most 6 s, then the on-device label is used). If nothing is detected in the middle, the middle of the view itself is sent to Claude, so "analyse this" works on things the detector does not know. Its parts list (parts, layers, sizes, positions, one-line explanations, safety notes, repair steps) comes from the cache or, for a new object, from Claude. The model is shown in **stage mode** (the default): it glides to the middle of the view over the live video and turns slowly when idle. Placeholder glass shapes appear at once and are replaced by 3D models as they arrive.
 - **Gestures:** MediaPipe's Hand Landmarker gives 21 points per hand, for up to two hands, every frame. A pinch must hold briefly, with the other fingers open, before it counts, so a typing or resting hand does not move the model. One pinching hand dragging turns the model; two pinching hands moving apart or together open or close it.
 - **Hands as the subject:** the same 21 landmarks drive the muscle and tendon overlay live on the real hand, and each fingertip's movement relative to its knuckle decides which muscles light up on a key press. The 3D hand and forearm model for the stage is still being made; until it lands, the hand's layers stay on the real hand.
 - **Cache first:** `public/cache/<object_id>.json` holds the demo parts lists and `public/cache/meshes/<object_id>/` their 3D models. Anything generated live goes to `.cache-live/` (gitignored) and is shown as "AI-estimated". With no API keys the server answers from the cache, so the app runs from a fresh clone.
@@ -76,7 +76,7 @@ Check which keys the server sees (booleans only): http://localhost:5173/api/heal
 
 | `.env` | What it does |
 | --- | --- |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` | Claude for identify and parts lists (default model `claude-sonnet-5-5`, effort `low`). Without a key, only cached objects can be analysed. |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT`, `ANTHROPIC_IDENTIFY_EFFORT` | Claude for identify and parts lists (default model `claude-opus-5-5`). `ANTHROPIC_EFFORT` is the parts-list effort (default `medium`), `ANTHROPIC_IDENTIFY_EFFORT` the effort for naming an object (default `low`, so it answers within the 6 s limit); each is `low`, `medium`, `high`, `xhigh`, `max`, or `none` for older models that reject effort. Without a key, only cached objects can be analysed. |
 | `FAL_KEY`, `FAL_IMAGE_MODEL`, `FAL_3D_MODEL`, `FAL_TEXTURED` | fal for part images and 3D models. Textured by default; `FAL_TEXTURED=0` makes plain white meshes. Without a key, parts without a cached model stay as placeholder shapes. |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID` | The voice tutor. Without them, voice is off. |
 | `MOCK=1` | Answer every route from the cache, even with keys set (this turns voice off too). |
@@ -111,7 +111,7 @@ Needs the network:
 - Claude: naming an object exactly, and the parts list for an object that is not cached. The MacBook and the hand never wait for it: they open at once from the detector's label ("laptop", "hand"), and Claude's exact name is filled in if it answers.
 - live fal models for a new object's parts (cached parts never ask fal; hands never do).
 
-If the Wi-Fi is slow rather than off, leave the keys in: the MacBook and the hand still open at once, and for any other object "analyse this" waits at most 4 seconds for Claude to name it before it goes on with the detector's label. Only a new object's parts list and its fal models are slow on a slow network. Do not use `MOCK=1`: it turns voice off too.
+If the Wi-Fi is slow rather than off, leave the keys in: the MacBook and the hand still open at once, and for any other object "analyse this" waits at most 6 seconds for Claude to name it before it goes on with the detector's label. Only a new object's parts list and its fal models are slow on a slow network. Do not use `MOCK=1`: it turns voice off too.
 
 ## Developer fallback
 
@@ -162,7 +162,7 @@ URL options:
 
 ## APIs, models and datasets
 
-- **Anthropic Claude** (Messages API, `@anthropic-ai/sdk`), model from `ANTHROPIC_MODEL`, default `claude-sonnet-5-5`: names the object from a camera crop (vision) and writes the parts list JSON, which is checked against a zod schema.
+- **Anthropic Claude** (Messages API, `@anthropic-ai/sdk`), model from `ANTHROPIC_MODEL`, default `claude-opus-5-5`: names the object from a camera crop (vision) and writes the parts list JSON, which is checked against a zod schema. Each live part comes with a short `visual` phrase (what it looks like on its own), which leads that part's fal image prompt.
 - **ElevenLabs Agents** (`@elevenlabs/react`, signed URL from `GET /v1/convai/conversation/get-signed-url`): speech to text, the tutor conversation, text to speech, and the nine client tools.
 - **fal** (`@fal-ai/client`):
   - `fal-ai/flux/schnell`: text to image, one picture per part (`FAL_IMAGE_MODEL`)

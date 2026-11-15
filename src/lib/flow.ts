@@ -16,8 +16,9 @@ import { centreDistance, centreRegion, inCentre, pinObject, pinnedIdent, unpinOb
  * How long "analyse this" waits for Claude to name a detected object before it goes on with the
  * detector's label, as it does when identify fails (#84). On slow Wi-Fi the call could otherwise
  * take a minute or two. The server's identify call has a matching limit (server/lib/claude.ts).
+ * 6 s since Opus names objects (#95; 4 s with Sonnet); the server stops at 7 s.
  */
-export const IDENTIFY_TIMEOUT_MS = 4_000;
+export const IDENTIFY_TIMEOUT_MS = 6_000;
 
 /**
  * A cached object opened at once from its detector label (the MacBook from "laptop") switches to
