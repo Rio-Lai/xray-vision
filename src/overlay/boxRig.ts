@@ -42,7 +42,7 @@
  */
 import * as THREE from 'three';
 import type { Teardown, TeardownPart } from '../../shared/teardown';
-import { FIT_EVEN } from '../camera/frame';
+import { FIT_EVEN, PHONE_MODE } from '../camera/frame';
 import { devLog } from '../hud/hudStore';
 import { ExplodeAnimator, smoothstep } from './explodeAnimator';
 import {
@@ -80,14 +80,20 @@ const GLB_FADE_S = 0.6;
 const GLB_HL_TINT = 0.35;
 const SHADOW_OPACITY = 0.45;
 const MODEL_MAX_DEPTH = 2;
+/*
+ * Phone mode (?phone=1): the page is about 1400 x 646 CSS px (src/phone/viewport.ts), much shorter than the
+ * laptop's, with a small title and short captions (src/phone/PhoneApp.tsx), so the stage keeps less room at the
+ * top and bottom, the model is a larger share of the height, and the label columns are a little wider (the
+ * Dynamic Island's side is lost). Without the flag the laptop's numbers, as before. labels.ts has the same margins.
+ */
 /** Room kept for the label columns left and right of the stack. */
-export const LABEL_SIDE_MAX_PX = 290;
-export const LABEL_SIDE_FRAC = 0.2;
-export const TOP_MARGIN = 70;
+export const LABEL_SIDE_MAX_PX = PHONE_MODE ? 310 : 290;
+export const LABEL_SIDE_FRAC = PHONE_MODE ? 0.22 : 0.2;
+export const TOP_MARGIN = PHONE_MODE ? 56 : 70;
 /** Bottom-centre space for the voice pill, captions and status pill. */
-export const BOTTOM_MARGIN = 150;
+export const BOTTOM_MARGIN = PHONE_MODE ? 120 : 150;
 /** Stage: the assembled model's widest extent (any yaw), as a fraction of the view height. */
-export const STAGE_SIZE = 0.56;
+export const STAGE_SIZE = PHONE_MODE ? 0.66 : 0.56;
 /** Stage: model units across the object's box (its depth: stageAspect, the object's real proportion). */
 const STAGE_UNITS = 600;
 /** Stage: the lift waits at most this long for the models still loading (s); the rest cross-fade in place. */
