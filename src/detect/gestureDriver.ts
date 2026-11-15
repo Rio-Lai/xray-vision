@@ -1,11 +1,14 @@
 /**
  * Runs the gesture recogniser (gestures.ts) once per animation frame on the tracked hands and
- * turns its output into model control (#121):
- *  - drag (one pinch) and globe (two open hands) -> modelControl.turn (inertia on release);
+ * turns its output into model control (#121, Rio's mapping of 15 Nov):
+ *  - one-hand pinch (drag) and fist grab -> modelControl.panBy: the model follows the hand on screen
+ *    (panGain times); with ?pinchturn=1 a pinch turns it instead (modelControl.turn, inertia on release);
+ *  - globe (two open hands) -> modelControl.turn;
  *  - two-hand pinch apart / together -> modelControl.setExplode and, past fully open, setZoom
- *    (spreadExplodeZoom, #109); moved together the same way -> modelControl.panBy (the model follows
- *    the hands on screen, panGain times);
- *  - burst (fist <-> open hand, quickly) -> burstAction: open one stage further, close one stage back.
+ *    (spreadExplodeZoom, #109); moved together the same way (?pan=1) -> panBy;
+ *  - sweep (a flat hand from the top of the frame down) -> closes the exploded view (STAGE_MIN_EXPLODE);
+ *  - burst (?burst=1: fist <-> open hand, quickly) -> burstAction: open one stage further, close one back.
+ * It tells the recogniser where the model is on screen (modelBox), so an open hand over it can grab it.
  * Active only while a model is on stage; any free hand can gesture, including one that is itself the
  * subject of the current teardown, but not one that is typing or resting on the laptop (#107: it
  * passes key presses and laptop boxes to the recogniser).
@@ -14,9 +17,10 @@
  */
 import { MODEL_ZOOM_MAX, useStore } from '../state/store';
 import type { FingerName } from '../state/store';
-import { frameSize, getCoverMap } from '../camera/frame';
+import { frameSize, getCoverMap, viewToFrame } from '../camera/frame';
 import { devLog } from '../hud/hudStore';
-import { PAN_UNIT_VH, STAGE_MIN_EXPLODE, modelControl, stageInputActive } from '../stage/modelControl';
+import { PAN_UNIT_VH, STAGE_MIN_EXPLODE, modelControl, panPx, stageInputActive } from '../stage/modelControl';
+import { BOTTOM_MARGIN, STAGE_SIZE, TOP_MARGIN } from '../overlay/boxRig';
 import { live } from './live';
 import { GestureRecognizer, burstAction, spreadExplodeZoom } from './gestures';
 import type { GestureContext, GestureHandInput, GestureOutput } from './gestures';
@@ -58,7 +62,28 @@ const REST_LABELS = new Set(['laptop', 'keyboard']);
 
 const inputs: GestureHandInput[] = [];
 const restBoxes: NonNullable<GestureContext['restBoxes']> = [];
-const ctx: GestureContext = { enabled: false, explode: 0, minExplode: STAGE_MIN_EXPLODE, restBoxes };
+const modelBox = { x: 0, y: 0, w: 0, h: 0 };
+const ctx: GestureContext = { enabled: false, explode: 0, minExplode: STAGE_MIN_EXPLODE, restBoxes, modelBox: null };
+/** The model counts as this much bigger than its normal size for "over the model" (a hand near it can grab it). */
+const GRAB_BOX_GROW = 1.35;
+const sweepHint = { at: -1e9 };
+
+/** Where the model on stage is (every stage renderer: centre of the free area plus pan, STAGE_SIZE times zoom), normalised frame coords. */
+function updateModelBox(s: ReturnType<typeof useStore.getState>): void {
+  const map = getCoverMap();
+  const vw = map.vw;
+  const vh = map.vh;
+  const availH = Math.max(100, vh - TOP_MARGIN - BOTTOM_MARGIN);
+  const cx = vw / 2 + panPx(s.modelPanX, vh);
+  const cy = TOP_MARGIN + availH / 2 + panPx(s.modelPanY, vh);
+  const half = (STAGE_SIZE * vh * Math.max(0.5, s.modelZoom) * GRAB_BOX_GROW) / 2;
+  const a = viewToFrame(map, cx - half, cy - half);
+  const b = viewToFrame(map, cx + half, cy + half);
+  modelBox.x = Math.min(a.x, b.x);
+  modelBox.y = Math.min(a.y, b.y);
+  modelBox.w = Math.abs(b.x - a.x);
+  modelBox.h = Math.abs(b.y - a.y);
+}
 
 function lastTypingPress(t: TrackedHand): number {
   let m = -1e9;
@@ -80,23 +105,31 @@ export function tickGestures(now: number): void {
     o.handSize = t.handSize;
     o.lastPressAt = lastTypingPress(t);
     o.seenAt = t.lastSeen;
+    o.world = t.world;
   }
   restBoxes.length = 0;
   for (const o of live.objects) if (REST_LABELS.has(o.label)) restBoxes.push(o.box);
   ctx.enabled = stageInputActive(s);
   ctx.explode = s.explodeAmount;
+  if (ctx.enabled) {
+    updateModelBox(s);
+    ctx.modelBox = modelBox;
+  } else {
+    ctx.modelBox = null;
+  }
   const out = recognizer.update(inputs, now, w, h, ctx, gestureTuning);
   gestureLive.out = out;
 
-  // Turning: one pinch dragging, or two open hands (the globe). Steps come with new camera frames.
-  const turning = out.mode === 'drag' || out.mode === 'globe';
+  // Turning: a pinch dragging with ?pinchturn=1, or two open hands (the globe). Steps come with new camera frames.
+  const turning = out.moved;
   if (out.moved) modelControl.turn(out.dYaw, out.dPitch, now);
   if (out.dragEnd === 'release') modelControl.release(now);
   else if (out.dragEnd === 'cancel') modelControl.stop();
   if (out.mode !== 'idle') modelControl.touch(now);
 
-  // Two hands pinching: apart / together opens and zooms, the same way moves it.
-  if (out.events.includes('two-start')) {
+  // Two hands pinching: apart / together opens and zooms, the same way moves it. A pinch or a grab
+  // moves it too: every move is measured from the model's pan when that gesture began.
+  if (out.events.includes('two-start') || out.events.includes('drag-start') || out.events.includes('grab-start')) {
     two.e0 = s.explodeAmount;
     two.z0 = s.modelZoom;
     two.px0 = s.modelPanX;
@@ -140,13 +173,25 @@ export function tickGestures(now: number): void {
     devLog(`Gesture: burst-${out.burst} -> ${a.hint ?? 'nothing (already at the end)'}`);
   }
 
+  // Sweep down: close the exploded view (back to the analysed state).
+  if (out.sweep) {
+    const closing = s.explodeAmount > STAGE_MIN_EXPLODE + 0.01;
+    if (closing) modelControl.setExplode(STAGE_MIN_EXPLODE, now);
+    modelControl.touch(now);
+    if (closing) sweepHint.at = now;
+    devLog(`Gesture: sweep down -> ${closing ? 'closed' : 'nothing (already closed)'}`);
+  }
+
   // The one-word cue.
   let hint: GestureHint | null = null;
-  if (out.mode === 'drag') hint = 'Turning';
+  if (out.mode === 'drag') hint = out.pan ? 'Moving' : 'Turning';
+  else if (out.mode === 'grab') hint = 'Moving';
   else if (out.mode === 'globe') hint = now - recognizer.globeMovedAt < GLOBE_HINT_MS ? 'Turning' : null;
   else if (out.mode === 'spread') hint = two.hint;
   else if (out.mode === 'pan') hint = 'Moving';
-  if (!turning && out.mode !== 'spread' && out.mode !== 'pan' && now - burstHint.at < BURST_HINT_MS) hint = burstHint.word;
+  const busy = turning || out.pan || out.mode === 'spread';
+  if (!busy && now - burstHint.at < BURST_HINT_MS) hint = burstHint.word;
+  if (!busy && now - sweepHint.at < BURST_HINT_MS) hint = 'Closing';
   gestureLive.hint = ctx.enabled ? hint : null;
 
   if (out.events.length > 0) {
@@ -154,7 +199,7 @@ export function tickGestures(now: number): void {
     for (const e of out.events) {
       if (e === 'pinch' || e === 'unpinch') continue;
       shown = true;
-      if (e === 'spread-start' || e === 'pan-start' || e === 'globe-start') devLog(`Gesture: ${e}`);
+      if (e === 'spread-start' || e === 'pan-start' || e === 'globe-start' || e === 'grab-start') devLog(`Gesture: ${e}`);
     }
     if (shown) {
       gestureLive.last = out.events.join(', ');

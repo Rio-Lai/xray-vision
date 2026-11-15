@@ -23,6 +23,8 @@ export interface RawHand {
   handedness: 'left' | 'right';
   score: number;
   landmarks: Landmark[];
+  /** MediaPipe's metric 3D landmarks (metres, around the hand), when it gives them */
+  world?: Landmark[];
 }
 
 export const FINGERS: FingerName[] = ['thumb', 'index', 'middle', 'ring', 'pinky'];
@@ -131,6 +133,11 @@ export interface TrackedHand {
   lastUpdate: number;
   /** wrist -> middle MCP distance in frame px */
   handSize: number;
+  /**
+   * smoothed metric 3D landmarks (MediaPipe worldLandmarks), or null: the hand's real shape however it
+   * is turned (a pinch seen from behind the hand, a fist edge-on), used for the gesture shapes
+   */
+  world: Landmark[] | null;
 }
 
 function newDyn(): FingerDyn {
@@ -250,6 +257,7 @@ export class HandTracker {
     const id = r.handedness === 'left' ? 'hand-left' : 'hand-right';
     let h = this.hands.find((x) => x.id === id);
     const rawLm = r.landmarks.slice(0, 21).map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 }));
+    const rawWorld = r.world && r.world.length >= 21 ? r.world.slice(0, 21).map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 })) : null;
     if (!h) {
       h = {
         id,
@@ -262,6 +270,7 @@ export class HandTracker {
         lastSeen: now,
         lastUpdate: now,
         handSize: 1,
+        world: rawWorld,
       };
       this.hands.push(h);
     } else {
@@ -269,6 +278,7 @@ export class HandTracker {
       const jump = Math.hypot((rawLm[0].x - h.lm[0].x) * fw, (rawLm[0].y - h.lm[0].y) * fh);
       if (jump > h.handSize * 1.2 || now - h.lastSeen > DROP_AFTER_MS) {
         h.lm = rawLm;
+        h.world = rawWorld;
         for (const f of FINGERS) h.dyn[f].prevRel = null;
       } else {
         for (let i = 0; i < 21; i++) {
@@ -277,6 +287,16 @@ export class HandTracker {
           a.x += (b.x - a.x) * LM_ALPHA;
           a.y += (b.y - a.y) * LM_ALPHA;
           a.z += (b.z - a.z) * LM_ALPHA;
+        }
+        if (!rawWorld || !h.world) h.world = rawWorld;
+        else {
+          for (let i = 0; i < 21; i++) {
+            const a = h.world[i];
+            const b = rawWorld[i];
+            a.x += (b.x - a.x) * LM_ALPHA;
+            a.y += (b.y - a.y) * LM_ALPHA;
+            a.z += (b.z - a.z) * LM_ALPHA;
+          }
         }
       }
       h.score += (r.score - h.score) * 0.3;

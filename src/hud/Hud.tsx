@@ -331,9 +331,13 @@ const GESTURE_SLIDERS: { key: NumKey; label: string; min: number; max: number; s
 
 const GESTURE_TOGGLES: { key: BoolKey; label: string }[] = [
   { key: 'enabled', label: 'Hand gestures on' },
+  { key: 'pinchTurns', label: 'One-hand pinch turns it (off: it moves it)' },
+  { key: 'grab', label: 'Open hand over it, then a fist: grab and move it' },
+  { key: 'sweep', label: 'Flat hand swept down from the top: close it' },
   { key: 'twoHand', label: 'Two hands pinch and pull apart to open, then zoom' },
-  { key: 'pan', label: 'Two hands pinch and move the same way to move it' },
   { key: 'globe', label: 'Two open hands turn it like a globe' },
+  { key: 'world', label: 'Hand shape from the 3D hand (off: from the image)' },
+  { key: 'pan', label: 'Two hands pinch and move the same way to move it' },
   { key: 'burst', label: 'Fist opening quickly opens (open hand closing closes)' },
 ];
 
@@ -386,7 +390,7 @@ function gestureLines(now: number): string[] {
   const ago = gestureLive.lastAt ? `${((now - gestureLive.lastAt) / 1000).toFixed(1)}s ago` : '';
   const on = (b: boolean, name: string) => `${name} ${b ? 'on' : 'OFF'}`;
   lines.push(
-    `gestures ${t.enabled ? 'on' : 'OFF'} (${[on(t.burst, 'burst'), on(t.globe, 'globe'), on(t.twoHand, 'two-hand'), on(t.pan, 'pan')].join(', ')}) | mode ${out?.mode ?? '-'} | cue ${gestureLive.hint ?? '-'} | last ${gestureLive.last} ${ago}`,
+    `gestures ${t.enabled ? 'on' : 'OFF'} (${[t.pinchTurns ? 'pinch turns' : 'pinch moves', on(t.grab, 'grab'), on(t.sweep, 'sweep'), on(t.globe, 'globe'), on(t.twoHand, 'two-hand'), on(t.world, '3D shape'), on(t.burst, 'burst'), on(t.pan, 'pan')].join(', ')}) | mode ${out?.mode ?? '-'} | cue ${gestureLive.hint ?? '-'} | last ${gestureLive.last} ${ago}`,
   );
   for (const h of out?.hands ?? []) {
     const pinch = h.pinched ? (h.stale ? 'PINCH (let go first)' : 'PINCH') : '';
@@ -394,7 +398,7 @@ function gestureLines(now: number): string[] {
     const why = h.why ? `${h.why} (${((now - h.whyAt) / 1000).toFixed(1)}s ago)` : '-';
     lines.push(
       `  ${h.key} ${h.id.padEnd(10)} ${h.shape.toUpperCase().padEnd(5)} doing ${(h.doing || '-').padEnd(8)} size ${h.size.toFixed(2)} ${free}${h.inFrame ? '' : ', at the edge'}${h.held ? ', HELD (no frame)' : ''} ${pinch}`,
-      `     pinch ${h.pinchDist.toFixed(2)} reach ${h.reach.toFixed(2)} open ${h.open.toFixed(2)} rest ${h.restOpen.toFixed(2)} | last fist<->open ${Math.round(h.lastChangeMs)} ms, ${h.lastChangeRate.toFixed(1)}/s | why: ${why}`,
+      `     ${h.world ? '3D' : 'image'} pinch ${h.pinchDist.toFixed(2)} reach ${h.reach.toFixed(2)} open ${h.open.toFixed(2)} open3D ${h.openW.toFixed(2)} rest ${h.restOpen.toFixed(2)} | last fist<->open ${Math.round(h.lastChangeMs)} ms, ${h.lastChangeRate.toFixed(1)}/s | why: ${why}`,
     );
   }
   return lines;

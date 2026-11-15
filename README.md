@@ -20,7 +20,7 @@ There are no modes, tabs or menus. One flow, driven by voice:
 1. **Clean view.** You see exactly what the camera sees, with only a small voice pill at the bottom.
 2. **"Hey Blowfish, overlay on."** Each thing Blowfish recognises (laptop, phone, hand, mug...) gets a small, quiet label on the object.
 3. **"Analyse this."** "This" is whatever is in the centre of your view. A 3D model of it lifts out of the real object and floats in the middle of the view, assembled, with its parts just separated. The camera view keeps playing behind it, slightly dimmed and blurred. Nothing freezes.
-4. **Your hands are the controller.** Pinch (thumb and index finger) and drag to turn the model like a globe. Pinch with both hands and move them apart to explode it into its parts; bring them together to close it. Voice does the same: "explode it", "put it back together", "turn it around".
+4. **Your hands are the controller.** Pinch (thumb and index finger) and move to slide the model; or hold an open hand over it and make a fist to grab it. Two open hands turn it like a globe. Pinch with both hands and move them apart to explode it into its parts (then zoom); bring them together to close it, or sweep a flat hand down from the top of the view. Voice does the same: "explode it", "put it back together", "turn it around", "move it left", "recentre it".
 5. **Questions.** "Tell me about the battery." "How would I replace it?" The tutor highlights the part it is talking about, says its safety note, and walks through the steps.
 6. **Living things.** Look at a hand typing and ask "Which muscles move my finger?" The tendons and forearm muscles are drawn over the real hand, follow it live and light up with each key press.
 7. **"Put it away." / "Overlay off."** The model drops back into its object; then back to the clean view.
@@ -122,12 +122,12 @@ While a model is on stage. Hands work only once a hand has been in view for a mo
 
 | | Turn | Open / close | Zoom | Move | Centre |
 | --- | --- | --- | --- | --- | --- |
-| **Hands** | Pinch (thumb to index) and drag; or both hands open, move them like spinning a globe (both sideways, both up or down, or one hand pushed away while the other comes closer) | A fist opening quickly to a spread hand opens it; an open hand snapping shut to a fist closes it back to analysed. Or pinch with both hands and pull apart / bring together | A quick fist-to-open on an open model zooms in a step, open-to-fist zooms back; two-hand pinch pulled apart past fully open | Pinch with both hands and move them the same way | |
+| **Hands** | Both hands open, move them like spinning a globe (both sideways, both up or down, or one hand pushed away while the other comes closer); `?pinchturn=1`: pinch and drag | Pinch with both hands and pull apart / bring together; a flat open hand swept down from the top of the view closes it | Two-hand pinch pulled apart past fully open (together zooms back) | Pinch (thumb to index) and move; or an open hand over the model, then a fist: it follows the fist until you open the hand | |
 | **Mouse, trackpad** | Drag | Wheel | Trackpad pinch (wheel + Ctrl) | Shift-drag or right-drag | Double-click |
 | **Keys** | | `A` analyse, `E` explode, `R` put away | `+` / `-` | Shift + arrow keys | `0` |
-| **Voice** | "turn it around" | "explode it", "put it back together", "put it away" | "zoom in", "closer" | | |
+| **Voice** | "turn it around" | "explode it", "put it back together", "collapse it", "put it away" | "zoom in", "closer", "normal size" | "move it left / right / up / down" | "recentre it" |
 
-Hands never open something from nothing and never put it away (voice and `R` do). A gesture misbehaving on the rig: `?burst=0`, `?globe=0`, `?twohand=0`, `?pan=0`, or `?gestures=0` for all of them. `?mock=gesture` plays each hand gesture in turn with scripted hands.
+Hands never open something from nothing and never put it away (voice and `R` do). The pinch, the fist and the open hand are read from MediaPipe's 3D hand (its world landmarks), so they work with the hand seen from behind or pointing away from the head camera (`?world=0`: from the image, as before). The ring sits between the thumb and index fingertips (at the palm for a fist) and fills as soon as a pinch counts. A gesture misbehaving on the rig: `?grab=0`, `?sweep=0`, `?globe=0`, `?twohand=0`, or `?gestures=0` for all of them; `?burst=1` brings back the fist-flick open / close, `?pan=1` the two-hand move. `?mock=gesture` plays each hand gesture in turn with scripted hands.
 
 ## Developer fallback
 
@@ -155,7 +155,7 @@ Mouse and keys for the model on stage: see "Controls" above. A click without dra
 URL options:
 
 - `?mock=1` (or `?mock=laptop`, `?mock=hand`): no camera or vision models needed; a fake laptop, phone and typing hand (`hand` puts the hand in the centre of view). Fake data: never film it for the product shots.
-- `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands play every hand control in turn: pinch turn, two-hand open then zoom, two-hand move, globe turn, fist burst open, burst close
+- `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands play every hand control in turn: pinch move, two-hand open then zoom, fist grab and move, globe turn, two-hand open, sweep down to close
 - `?mock=eye`: a fake face in the middle of the view, to open the eye without a camera
 - `?look=classic`: the interface as it was before the Figma Make kit, to compare or fall back
 - `?lift=0`: the model cross-fades in on the stage instead of lifting out of the real object (a fallback if the transition misbehaves)
@@ -168,7 +168,7 @@ URL options:
 - `?hands=raw`: use if left and right hands look swapped
 - `?mic=<part of the name>`: pick the microphone, for example `?mic=c920` or `?mic=iphone` (remembered)
 - `?ptt=1` / `?ptt=0`: push-to-talk only on / off (remembered)
-- Gesture tuning: `?pinch=0.3&unpinch=0.45&hold=90&reach=1&rot=1.1&spread=1&burstms=400&globegain=1.3`; `?burst=0`, `?globe=0`, `?twohand=0`, `?pan=0` turn one gesture off, `?gestures=0` all of them. URL values override the debug panel sliders (saved in this browser).
+- Gesture tuning: `?pinch=0.3&unpinch=0.45&hold=90&reach=1&rot=1.1&spread=1&burstms=400&globegain=1.3&pangain=1`; `?grab=0`, `?sweep=0`, `?globe=0`, `?twohand=0` turn one gesture off, `?gestures=0` all of them; `?pinchturn=1`, `?burst=1`, `?pan=1`, `?world=0` as above. URL values override the debug panel sliders (saved in this browser).
 - Key-press tuning: `?press=0.6&release=0.15&extend=1.2`
 
 ## Scripts

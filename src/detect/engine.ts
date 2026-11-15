@@ -121,6 +121,8 @@ interface FaceSource {
 }
 interface LooseHandResult {
   landmarks?: { x: number; y: number; z?: number }[][];
+  /** metric 3D landmarks (metres, around the hand's centre): the hand's shape whatever way it faces */
+  worldLandmarks?: { x: number; y: number; z?: number }[][];
   handedness?: LooseCategory[][];
   handednesses?: LooseCategory[][];
 }
@@ -151,9 +153,11 @@ function parseDetections(res: unknown, vw: number, vh: number): RawDetection[] {
 function parseHands(res: unknown): RawHand[] {
   const r = (res ?? {}) as LooseHandResult;
   const lms = r.landmarks ?? [];
+  const wls = r.worldLandmarks ?? [];
   const hd = r.handedness ?? r.handednesses ?? [];
   const out: RawHand[] = [];
   lms.forEach((lm, i) => {
+    const wl = wls[i];
     if (!lm || lm.length < 21) return;
     const cat = hd[i]?.[0];
     const name = (cat?.categoryName || cat?.displayName || 'Right').toLowerCase();
@@ -164,6 +168,7 @@ function parseHands(res: unknown): RawHand[] {
       handedness: isLeft ? 'left' : 'right',
       score: cat?.score ?? 0.9,
       landmarks: lm.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 })),
+      world: wl && wl.length >= 21 ? wl.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 })) : undefined,
     });
   });
   return out;

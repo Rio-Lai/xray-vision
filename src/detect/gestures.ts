@@ -22,10 +22,22 @@
  * fist never does; ends above pinchOff for releaseMs), fist (openness <= fistMax), open
  * (openness >= globeOpenMin), other.
  *
+ * World landmarks (Rio, 15 Nov): when the hand tracker has MediaPipe's metric 3D landmarks
+ * (GestureHandInput.world) and `world` is on, the pinch distance, the reach and a second openness
+ * (openW) come from them instead of the image: the hand's real shape, so a pinch seen from behind the
+ * hand or a hand pointing away from the head camera still counts. Positions always come from the image.
+ *
  * Gestures (only while `enabled`, i.e. a model is on stage):
- *  - drag: one hand pinching turns the model like a globe, rotGain radians per hand size its palm
- *    moves (right = turn right, down = tip the top towards you); on release the caller coasts. A
+ *  - drag: one hand pinching moves the model with the pinch point (panX / panY since the pinch began,
+ *    panGain times), or with `pinchTurns` turns it like a globe, rotGain radians per hand size its palm
+ *    moves (right = turn right, down = tip the top towards you; on release the caller coasts). A
  *    lone pinch waits DRAG_DELAY_MS for a second one (and while the other hand has no new frame).
+ *  - grab: an open hand over the model (GestureContext.modelBox) that closes to a fist within
+ *    GRAB_ARM_MS holds the model: it follows the fist (panX / panY since the grab, panGain times)
+ *    until the hand opens again.
+ *  - sweep: a flat open hand moved down from the top of the frame (palm from above SWEEP_TOP to below
+ *    SWEEP_BOTTOM, at least SWEEP_MIN_DY, within SWEEP_MAX_MS of leaving the top, mostly straight
+ *    down) -> `sweep`: the caller closes the exploded view.
  *  - two hands pinching: undecided ('two') until the hands have moved TWO_DECIDE_HS. Then locked for
  *    that pinch: apart / together ('spread') -> spreadDelta = spreadGain * log2(distance / distance at
  *    the start), which opens, then zooms (spreadExplodeZoom, #109); moved together in the same direction
@@ -36,7 +48,7 @@
  *    too. A dead zone (globeDeadZone hand sizes per second) keeps still hands still. Ends when either
  *    hand pinches, closes or leaves; leaving the frame gives back the last GLOBE_UNDO_MS of tipping
  *    (lowering both hands after a turn does not tip the model).
- *  - burst: one raised, free hand, held as a fist for FIRM_MS, opens to a spread hand (openness >=
+ *  - burst (off by default since the grab): one raised, free hand, held as a fist for FIRM_MS, opens to a spread hand (openness >=
  *    spreadMin) within burstMs -> 'open'; a held spread hand closing to a fist within burstMs -> 'close'.
  *    The openness must change at BURST_MIN_RATE or faster at some point (a flick, not a relax) and the
  *    new shape must hold BURST_CONFIRM_MS. Not from a hand moving faster than BURST_MAX_SPEED (a wave),
@@ -67,6 +79,8 @@ export interface GestureHandInput {
   lm: GestureLandmark[];
   /** wrist -> middle MCP in frame px */
   handSize: number;
+  /** 21 metric 3D landmarks (MediaPipe worldLandmarks), when known: the shapes come from these (`world`) */
+  world?: GestureLandmark[] | null;
   /** when this hand last pressed a key (same clock as `now`): a typing hand does not gesture */
   lastPressAt?: number;
   /**
@@ -90,6 +104,10 @@ export interface GestureTuning {
   releaseMs: number;
   /** the index fingertip must reach at least this far from the wrist (hand sizes) for a pinch: not a fist */
   pinchReachMin: number;
+  /** pinch, reach and openness from the 3D world landmarks when the tracker has them (else the image) */
+  world: boolean;
+  /** one-hand pinch turns the model (true) instead of moving it (false, the default) */
+  pinchTurns: boolean;
   /** radians per hand size of pinch-drag */
   rotGain: number;
   /** explode change per doubling of the two-hand distance */
@@ -98,8 +116,12 @@ export interface GestureTuning {
   twoHand: boolean;
   /** two-hand pinch moved together in the same direction moves the model */
   pan: boolean;
-  /** the model moves this many times the hands' on-screen motion */
+  /** the model moves this many times the hand's on-screen motion (pinch, grab, two-hand pan) */
   panGain: number;
+  /** open hand over the model, then a fist: grab it and move it */
+  grab: boolean;
+  /** flat hand swept down from the top of the frame: close the exploded view */
+  sweep: boolean;
   /** one-hand fist -> spread opens (spread -> fist closes) */
   burst: boolean;
   /** openness at or below this is a fist */
@@ -133,12 +155,16 @@ export const GESTURE_TUNING_DEFAULTS: GestureTuning = {
   holdMs: 90,
   releaseMs: 100,
   pinchReachMin: 1.0,
+  world: true,
+  pinchTurns: false,
   rotGain: 1.1,
   spreadGain: 1.0,
   twoHand: true,
-  pan: true,
+  pan: false,
   panGain: 1,
-  burst: true,
+  grab: true,
+  sweep: true,
+  burst: false,
   fistMax: 0.95,
   spreadMin: 1.4,
   burstMs: 400,
@@ -193,6 +219,21 @@ const Z_WEIGHT = 0.5;
 const MAX_STEP_HS = 0.6;
 /** A lone pinch waits this long for a second one before it starts turning the model. */
 const DRAG_DELAY_MS = 150;
+/** A fist grabs the model if the hand was open over it at most this long before (ms). */
+const GRAB_ARM_MS = 900;
+/** Sweep: the palm starts above this share of the frame height, ends below SWEEP_BOTTOM, moves at least SWEEP_MIN_DY. */
+const SWEEP_TOP = 0.38;
+const SWEEP_BOTTOM = 0.6;
+const SWEEP_MIN_DY = 0.28;
+/** ...within this long of leaving the top (ms): lowering a hand slowly is not a sweep. */
+const SWEEP_MAX_MS = 1100;
+/** ...and mostly straight down: sideways at most this share of the way down. */
+const SWEEP_STRAIGHT = 0.8;
+/** No second sweep this soon (ms), and none just after another gesture moved the model. */
+const SWEEP_REFRACTORY_MS = 1000;
+const SWEEP_QUIET_MS = 500;
+const WHY_SWEEP = 'sweep: CLOSE fired';
+const WHY_GRAB = 'grab: holding (open the hand to let go)';
 /** Palm centre: wrist and the four knuckles (they do not move when the fingers open or close). */
 const PALM = [0, 5, 9, 13, 17];
 const TIPS = [4, 8, 12, 16, 20];
@@ -216,7 +257,7 @@ const GLOBE_SHOW_MS = 300;
 /** A hand in a globe that is not turning anything (its marker stays hollow). */
 const GLOBE_STILL_DOING = 'globe (still)';
 
-export type GestureMode = 'idle' | 'drag' | 'two' | 'spread' | 'pan' | 'globe';
+export type GestureMode = 'idle' | 'drag' | 'grab' | 'two' | 'spread' | 'pan' | 'globe';
 export type GestureEvent =
   | 'pinch'
   | 'unpinch'
@@ -228,6 +269,9 @@ export type GestureEvent =
   | 'two-end'
   | 'globe-start'
   | 'globe-end'
+  | 'grab-start'
+  | 'grab-end'
+  | 'sweep'
   | 'burst-open'
   | 'burst-close';
 /** The coarse shape of a hand. */
@@ -242,6 +286,10 @@ export interface HandGestureInfo {
   id: string;
   pinchDist: number;
   open: number;
+  /** openness from the world landmarks (= open without them) */
+  openW: number;
+  /** the pinch, reach and openW came from the world landmarks this frame */
+  world: boolean;
   restOpen: number;
   reach: number;
   pinched: boolean;
@@ -267,10 +315,10 @@ export interface HandGestureInfo {
   lastChangeRate: number;
 }
 
-/** A small marker for each free raised hand (the on-screen cue). */
+/** A small marker for each free hand (the on-screen cue). */
 export interface GestureMark {
   key: string;
-  /** palm centre, normalised frame coords */
+  /** between the thumb and index fingertips (the palm centre for a fist), normalised frame coords */
   x: number;
   y: number;
   /** filled: the hand is doing something */
@@ -289,7 +337,10 @@ export interface GestureOutput {
    * the start), unclamped; spreadExplodeZoom turns it into the explode amount and the zoom.
    */
   spreadDelta: number | null;
-  /** While two hands pinch and move together (mode 'pan'): their common move since the start, frame px. */
+  /**
+   * While one hand pinches (mode 'drag', not pinchTurns), a fist holds it (mode 'grab') or two hands
+   * pinch and move together (mode 'pan'): the move since that gesture began, frame px.
+   */
   panX: number;
   panY: number;
   pan: boolean;
@@ -297,6 +348,8 @@ export interface GestureOutput {
   moved: boolean;
   /** a burst fired this frame */
   burst: 'open' | 'close' | null;
+  /** a sweep down fired this frame: close the exploded view */
+  sweep: boolean;
   events: GestureEvent[];
   /** markers for the on-screen cue: free raised hands (and any hand doing something) */
   marks: GestureMark[];
@@ -311,6 +364,8 @@ export interface GestureContext {
   minExplode: number;
   /** laptop and keyboard boxes in view, normalised frame coords: a small hand resting on one does not gesture */
   restBoxes?: { x: number; y: number; w: number; h: number }[];
+  /** where the model on stage is, normalised frame coords (with a margin): an open hand here can grab it */
+  modelBox?: { x: number; y: number; w: number; h: number } | null;
 }
 
 /** One Euro filter for one value: cutoff (Hz) = minCut + beta * |speed / scale|. */
@@ -362,6 +417,8 @@ interface HandTrack {
   fs: Euro;
   fo: Euro;
   fp: Euro;
+  /** openW */
+  fw: Euro;
   fpx: Euro;
   fpy: Euro;
   cx: number;
@@ -370,12 +427,21 @@ interface HandTrack {
   /** ln(hand size), smoothed (the globe's depth cue) */
   lnS: number;
   open: number;
+  openW: number;
+  world: boolean;
   pinchDist: number;
   px: number;
   py: number;
   reach: number;
   restOpen: number;
   size: number;
+  /** last time it was open over the model (a fist soon after grabs it) */
+  armedAt: number;
+  /** the sweep in progress: where (normalised) and when it began, -1 = none */
+  sweepAt: number;
+  sweepX0: number;
+  sweepY0: number;
+  sweepReady: boolean;
   raised: boolean;
   inFrame: boolean;
   /** palm centre inside the frame (GLOBE_EDGE) */
@@ -438,6 +504,9 @@ function onBox(x: number, y: number, boxes: GestureContext['restBoxes']): boolea
 interface Features {
   pinchDist: number;
   open: number;
+  openW: number;
+  /** pinch, reach and openW are from the world landmarks */
+  world: boolean;
   restOpen: number;
   reach: number;
   px: number;
@@ -446,7 +515,9 @@ interface Features {
   cy: number;
 }
 
-function featuresInto(f: Features, lm: GestureLandmark[], handSize: number, fw: number, fh: number): Features {
+const d3 = (a: GestureLandmark, b: GestureLandmark) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
+function featuresInto(f: Features, lm: GestureLandmark[], handSize: number, fw: number, fh: number, world?: GestureLandmark[] | null): Features {
   const hs = Math.max(8, handSize);
   const t = lm[4];
   const i = lm[8];
@@ -468,12 +539,24 @@ function featuresInto(f: Features, lm: GestureLandmark[], handSize: number, fw: 
   f.cy = (cy / PALM.length) * fh;
   f.px = ((t.x + i.x) / 2) * fw;
   f.py = ((t.y + i.y) / 2) * fh;
+  f.openW = f.open;
+  f.world = false;
+  // The hand's real 3D shape, whichever way it faces the camera (metres; wrist -> middle MCP ~ 9 cm).
+  const wsz = world && world.length >= 21 ? d3(world[0], world[9]) : 0;
+  if (wsz > 0.02 && wsz < 0.3) {
+    f.world = true;
+    f.pinchDist = d3(world![4], world![8]) / wsz;
+    f.reach = d3(world![8], world![0]) / wsz;
+    let ow = 0;
+    for (const k of TIPS) ow += d3(world![k], world![0]);
+    f.openW = ow / (TIPS.length * wsz);
+  }
   return f;
 }
 
 /** Features of one hand: pinch distance, openness, rest openness, reach (hand sizes), pinch point and palm centre (frame px). */
-export function handFeatures(lm: GestureLandmark[], handSize: number, fw: number, fh: number): Features {
-  return featuresInto({ pinchDist: 0, open: 0, restOpen: 0, reach: 0, px: 0, py: 0, cx: 0, cy: 0 }, lm, handSize, fw, fh);
+export function handFeatures(lm: GestureLandmark[], handSize: number, fw: number, fh: number, world?: GestureLandmark[] | null): Features {
+  return featuresInto({ pinchDist: 0, open: 0, openW: 0, world: false, restOpen: 0, reach: 0, px: 0, py: 0, cx: 0, cy: 0 }, lm, handSize, fw, fh, world);
 }
 
 /** Remember the palm and size now (the next drag / globe step is measured from here). */
@@ -569,6 +652,7 @@ const WHY_TWO_WAIT = 'two hands: apart = zoom, same way = move';
 const WHY_TWO_SPREAD = 'two hands: apart / together (open, zoom)';
 const WHY_TWO_PAN = 'two hands: moving together (pan)';
 const WHY_DRAG = 'pinch: turning';
+const WHY_DRAG_PAN = 'pinch: moving';
 const WHY_STALE = 'pinch: let go and pinch again';
 
 export class GestureRecognizer {
@@ -577,6 +661,14 @@ export class GestureRecognizer {
   private nextKey = 1;
   private mode: GestureMode = 'idle';
   private dragKey = '';
+  /** the current drag moves the model (one-hand pinch) rather than turning it */
+  private dragPans = false;
+  private dragX0 = 0;
+  private dragY0 = 0;
+  private grabKey = '';
+  private grabX0 = 0;
+  private grabY0 = 0;
+  private lastSweepAt = -1e9;
   private twoA: HandTrack | null = null;
   private twoB: HandTrack | null = null;
   private twoD0 = 1;
@@ -604,7 +696,7 @@ export class GestureRecognizer {
   private lostHs = 1;
   private wasEnabled = false;
   private readonly used: boolean[] = [];
-  private readonly f: Features = { pinchDist: 0, open: 0, restOpen: 0, reach: 0, px: 0, py: 0, cx: 0, cy: 0 };
+  private readonly f: Features = { pinchDist: 0, open: 0, openW: 0, world: false, restOpen: 0, reach: 0, px: 0, py: 0, cx: 0, cy: 0 };
   private readonly out: GestureOutput = {
     mode: 'idle',
     dYaw: 0,
@@ -616,6 +708,7 @@ export class GestureRecognizer {
     pan: false,
     moved: false,
     burst: null,
+    sweep: false,
     events: [],
     marks: [],
     hands: [],
@@ -626,6 +719,7 @@ export class GestureRecognizer {
     this.tracks.length = 0;
     this.mode = 'idle';
     this.dragKey = '';
+    this.grabKey = '';
     this.twoA = this.twoB = this.globeA = this.globeB = null;
     this.globeSince = -1;
   }
@@ -644,6 +738,7 @@ export class GestureRecognizer {
         fs: new Euro(1.0, 2),
         fo: new Euro(1.5, 0.6),
         fp: new Euro(2.5, 0.5),
+        fw: new Euro(1.5, 0.6),
         fpx: new Euro(1.2, 0.8),
         fpy: new Euro(1.2, 0.8),
         info: {} as HandGestureInfo,
@@ -661,6 +756,12 @@ export class GestureRecognizer {
     t.hs = 8;
     t.lnS = Math.log(8);
     t.open = 1.2;
+    t.openW = 1.2;
+    t.world = false;
+    t.armedAt = -1e9;
+    t.sweepAt = -1;
+    t.sweepX0 = t.sweepY0 = 0;
+    t.sweepReady = false;
     t.pinchDist = 1;
     t.reach = 1.2;
     t.restOpen = 1.2;
@@ -698,6 +799,8 @@ export class GestureRecognizer {
       id,
       pinchDist: 0,
       open: 0,
+      openW: 0,
+      world: false,
       restOpen: 0,
       reach: 0,
       pinched: false,
@@ -731,7 +834,7 @@ export class GestureRecognizer {
 
   /** One new camera frame for a hand: smoothed features, eligibility, pinch and openness states. */
   private sample(t: HandTrack, h: GestureHandInput, ts: number, fw: number, fh: number, ctx: GestureContext, tu: GestureTuning, enabled: boolean, justEnabled: boolean): void {
-    const f = featuresInto(this.f, h.lm, h.handSize, fw, fh);
+    const f = featuresInto(this.f, h.lm, h.handSize, fw, fh, tu.world ? h.world : null);
     const first = !t.init;
     const dt = first ? 1 / 30 : Math.min(0.1, Math.max(1 / 240, (ts - t.freshAt) / 1000));
     const hsRaw = Math.max(8, h.handSize);
@@ -741,6 +844,7 @@ export class GestureRecognizer {
       t.fy.reset(f.cy);
       t.fs.reset(Math.log(hsRaw));
       t.fo.reset(f.open);
+      t.fw.reset(f.openW);
       t.fp.reset(f.pinchDist);
       t.fpx.reset(f.px);
       t.fpy.reset(f.py);
@@ -755,6 +859,13 @@ export class GestureRecognizer {
     t.cy = t.fy.step(f.cy, dt, t.hs);
     t.prevOpen = first ? f.open : t.open;
     t.open = t.fo.step(f.open, dt);
+    // (switching between image and world shapes, e.g. ?world toggled, starts the filters again)
+    if (f.world !== t.world) {
+      t.fw.reset(f.openW);
+      t.fp.reset(f.pinchDist);
+      t.world = f.world;
+    }
+    t.openW = t.fw.step(f.openW, dt);
     t.pinchDist = t.fp.step(f.pinchDist, dt);
     t.px = t.fpx.step(f.px, dt, t.hs);
     t.py = t.fpy.step(f.py, dt, t.hs);
@@ -888,6 +999,42 @@ export class GestureRecognizer {
         t.cand = null;
       }
     }
+
+    // Open over the model: a fist soon after grabs it.
+    const nx = t.cx / fw;
+    const ny = t.cy / fh;
+    const openNow = !t.pinched && !this.fistNow(t, tu) && Math.max(t.open, t.openW) >= tu.globeOpenMin;
+    const mb = ctx.modelBox;
+    if (openNow && mb && nx >= mb.x && nx <= mb.x + mb.w && ny >= mb.y && ny <= mb.y + mb.h) t.armedAt = ts;
+
+    // The sweep: a flat open hand from the top of the frame down (a hand just come into view counts).
+    const flat = openNow && t.blocked !== 'typing' && t.blocked !== 'resting';
+    if (!tu.sweep || !enabled || !flat) {
+      t.sweepAt = -1;
+    } else if (ny <= SWEEP_TOP) {
+      // at the top: a sweep starts from here (the last moment it was up here)
+      t.sweepAt = ts;
+      t.sweepX0 = nx;
+      t.sweepY0 = ny;
+    } else if (t.sweepAt >= 0) {
+      const down = ny - t.sweepY0;
+      if (ts - t.sweepAt > SWEEP_MAX_MS) {
+        t.sweepAt = -1;
+      } else if (ny >= SWEEP_BOTTOM && down >= SWEEP_MIN_DY && Math.abs(nx - t.sweepX0) * fw <= SWEEP_STRAIGHT * down * fh) {
+        t.sweepReady = true;
+        t.sweepAt = -1;
+      }
+    }
+  }
+
+  /** A fist by the image or by the 3D shape. */
+  private fistNow(t: HandTrack, tu: GestureTuning): boolean {
+    return t.isFist || (t.world && t.openW <= tu.fistMax);
+  }
+
+  /** Still a fist, with hysteresis (a grab ends only when both say the hand opened). */
+  private stillFist(t: HandTrack, tu: GestureTuning): boolean {
+    return t.open <= tu.fistMax + OPEN_HYST || (t.world && t.openW <= tu.fistMax + OPEN_HYST);
   }
 
   /** The hand reached the other shape `ms` after leaving a firm one: a burst candidate, or a reason it is not. */
@@ -916,6 +1063,7 @@ export class GestureRecognizer {
     out.pan = false;
     out.moved = false;
     out.burst = null;
+    out.sweep = false;
     out.events.length = 0;
     out.marks.length = 0;
     out.hands.length = 0;
@@ -1009,6 +1157,18 @@ export class GestureRecognizer {
       }
     }
 
+    // 3b. Sweep down (idle only): close the exploded view.
+    for (const t of this.tracks) {
+      if (!t.sweepReady) continue;
+      t.sweepReady = false;
+      if (!enabled || this.mode !== 'idle' || now - this.lastSweepAt < SWEEP_REFRACTORY_MS || now - this.actionAt < SWEEP_QUIET_MS) continue;
+      this.lastSweepAt = now;
+      out.sweep = true;
+      out.events.push('sweep');
+      this.why(t, WHY_SWEEP, now);
+      this.globeSince = -1;
+    }
+
     // 4. Per-hand info and the markers.
     out.mode = this.mode;
     for (const t of this.tracks) {
@@ -1017,11 +1177,13 @@ export class GestureRecognizer {
       inf.id = t.id;
       inf.pinchDist = t.pinchDist;
       inf.open = t.open;
+      inf.openW = t.openW;
+      inf.world = t.world;
       inf.restOpen = t.restOpen;
       inf.reach = t.reach;
       inf.pinched = t.pinched;
       inf.stale = t.stale;
-      inf.shape = t.pinched ? 'pinch' : t.isFist ? 'fist' : t.open >= tu.globeOpenMin ? 'open' : 'other';
+      inf.shape = t.pinched ? 'pinch' : this.fistNow(t, tu) ? 'fist' : Math.max(t.open, t.openW) >= tu.globeOpenMin ? 'open' : 'other';
       inf.size = t.size;
       inf.raised = t.raised;
       inf.inFrame = t.inFrame;
@@ -1029,10 +1191,13 @@ export class GestureRecognizer {
       inf.held = !t.fresh && now - t.freshAt > 45;
       inf.doing = this.doing(t, now);
       out.hands.push(inf);
-      if (enabled && t.blocked === null && (t.raised || inf.doing !== '')) {
-        t.mark.x = t.cx / fw;
-        t.mark.y = t.cy / fh;
-        t.mark.active = inf.doing !== '' && inf.doing !== GLOBE_STILL_DOING;
+      if (enabled && t.blocked === null) {
+        // At the fingertips (where the pinch happens); at the palm for a fist (the grab).
+        const atPalm = (this.mode === 'grab' && t.key === this.grabKey) || inf.shape === 'fist';
+        t.mark.x = (atPalm ? t.cx : t.px) / fw;
+        t.mark.y = (atPalm ? t.cy : t.py) / fh;
+        // filled as soon as a pinch counts, and while the hand is doing something
+        t.mark.active = (inf.doing !== '' && inf.doing !== GLOBE_STILL_DOING) || (t.pinched && !t.stale);
         out.marks.push(t.mark);
       }
     }
@@ -1043,7 +1208,9 @@ export class GestureRecognizer {
     if (now - t.burstAt < BURST_SHOW_MS) return 'burst';
     switch (this.mode) {
       case 'drag':
-        return t.key === this.dragKey ? 'turning' : '';
+        return t.key === this.dragKey ? (this.dragPans ? 'moving' : 'turning') : '';
+      case 'grab':
+        return t.key === this.grabKey ? 'grabbing' : '';
       case 'two':
       case 'spread':
       case 'pan':
@@ -1060,6 +1227,7 @@ export class GestureRecognizer {
   private busyWith(t: HandTrack): boolean {
     return (
       (this.mode === 'drag' && t.key === this.dragKey) ||
+      (this.mode === 'grab' && t.key === this.grabKey) ||
       ((this.mode === 'two' || this.mode === 'spread' || this.mode === 'pan') && (t === this.twoA || t === this.twoB)) ||
       (this.mode === 'globe' && (t === this.globeA || t === this.globeB))
     );
@@ -1087,13 +1255,18 @@ export class GestureRecognizer {
   private endMode(now: number, reason: 'release' | 'cancel'): void {
     const out = this.out;
     if (this.mode === 'drag' || this.mode === 'globe') {
-      out.dragEnd = reason;
+      // (a pinch that moved the model just stops: nothing coasts)
+      if (!(this.mode === 'drag' && this.dragPans)) out.dragEnd = reason;
       out.events.push(this.mode === 'drag' ? 'drag-end' : 'globe-end');
+    } else if (this.mode === 'grab') {
+      out.events.push('grab-end');
     } else if (this.mode !== 'idle') {
       out.events.push('two-end');
     }
     this.mode = 'idle';
     this.dragKey = '';
+    this.dragPans = false;
+    this.grabKey = '';
     this.twoA = this.twoB = this.globeA = this.globeB = null;
     this.globeSince = -1;
     void now;
@@ -1128,6 +1301,12 @@ export class GestureRecognizer {
       } else if (nLive >= 2 && tu.twoHand && la && lb) {
         this.endMode(now, 'cancel');
         this.startTwo(la, lb, now);
+      } else if (this.dragPans) {
+        // The model follows the pinch point.
+        out.pan = true;
+        out.panX = (t.px - this.dragX0) * tu.panGain;
+        out.panY = (t.py - this.dragY0) * tu.panGain;
+        if (t.fresh) this.actionAt = now;
       } else {
         if (t.fresh) {
           const dx = capStep((t.cx - t.gx) / t.hs);
@@ -1140,6 +1319,19 @@ export class GestureRecognizer {
           if (out.dYaw !== 0 || out.dPitch !== 0) this.actionAt = now;
         }
       }
+      return;
+    }
+
+    if (this.mode === 'grab') {
+      const t = this.find(this.grabKey);
+      if (!t || !tu.grab || t.blocked !== null || t.pinched || !this.stillFist(t, tu)) {
+        this.endMode(now, 'release');
+        return;
+      }
+      out.pan = true;
+      out.panX = (t.cx - this.grabX0) * tu.panGain;
+      out.panY = (t.cy - this.grabY0) * tu.panGain;
+      if (t.fresh) this.actionAt = now;
       return;
     }
 
@@ -1248,16 +1440,34 @@ export class GestureRecognizer {
     if (nLive >= 1 && la && now - la.pinchAt >= DRAG_DELAY_MS && !otherHeld) {
       this.mode = 'drag';
       this.dragKey = la.key;
+      this.dragPans = !tu.pinchTurns;
+      this.dragX0 = la.px;
+      this.dragY0 = la.py;
       la.gx = la.cx;
       la.gy = la.cy;
       out.events.push('drag-start');
-      this.why(la, WHY_DRAG, now);
+      this.why(la, this.dragPans ? WHY_DRAG_PAN : WHY_DRAG, now);
       this.globeSince = -1;
       return;
     }
     if (nLive > 0) {
       this.globeSince = -1;
       return;
+    }
+    // The grab: a hand that was open over the model a moment ago is now a fist.
+    if (tu.grab) {
+      for (const t of this.tracks) {
+        if (t.blocked !== null || t.pinched || !t.fresh || !this.fistNow(t, tu) || now - t.armedAt > GRAB_ARM_MS) continue;
+        this.mode = 'grab';
+        this.grabKey = t.key;
+        this.grabX0 = t.cx;
+        this.grabY0 = t.cy;
+        t.armedAt = -1e9;
+        out.events.push('grab-start');
+        this.why(t, WHY_GRAB, now);
+        this.globeSince = -1;
+        return;
+      }
     }
     // The globe: the first two hands that are not blocked.
     let ga: HandTrack | null = null;
