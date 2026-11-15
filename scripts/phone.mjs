@@ -11,6 +11,7 @@
  *      for the camera and microphone. cloudflared is got only now, never on npm install: one already
  *      installed (brew, PATH), else the official release, downloaded once into .bin/
  *   5. prints the phone link, its QR code and what to do on the phone
+ *      (`npm run phone -- detail=1 dpr=1` adds those switches to the link)
  *
  * While it runs the Mac is kept awake (caffeinate). Ctrl-C stops the server and the tunnel.
  * Plain Node (no build step); `npm run phone` puts node_modules/.bin on PATH.
@@ -20,7 +21,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, stat
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findTunnelUrl, isTunnelReady, makeCode, phoneLink, releaseAsset } from './phone-lib.mjs';
+import { extraParams, findTunnelUrl, isTunnelReady, makeCode, phoneLink, releaseAsset } from './phone-lib.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
@@ -349,7 +350,8 @@ async function main() {
   if (stopping) return;
 
   // 5. the link
-  const link = phoneLink(url, code);
+  // (`npm run phone -- detail=1` adds switches to the link, e.g. the detail explainer)
+  const link = phoneLink(url, code, extraParams(process.argv.slice(2)));
   say('');
   say('  ============================================================================');
   say('  Blowfish is ready for the iPhone. Open this link on the phone (or scan the QR');

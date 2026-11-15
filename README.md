@@ -201,7 +201,7 @@ URL options:
 
 - `npm run dev`: checks both ports are free, then starts the API server and Vite together
 - `npm run dev:server`, `npm run dev:web`: one at a time
-- `npm run phone`: the app on an iPhone through a Cloudflare tunnel, with a printed link and QR code (see "On an iPhone")
+- `npm run phone`: the app on an iPhone through a Cloudflare tunnel, with a printed link and QR code (see "On an iPhone"); `npm run phone -- detail=1` adds switches to the printed link (here the detail explainer)
 - `npm run typecheck`, `npm run build`: what CI runs on every pull request
 - `npm run fetch-models`: download the MediaPipe models and wasm into `public/models/` (run once)
 - `npm run check`: check every key against its provider, the voice agent's tools, ports, models and cache (see "Demo day")
