@@ -23,71 +23,21 @@
 ## Setup (ElevenLabs dashboard)
 
 1. Create a new agent named **Blowfish**. Pick a clear, warm voice (for example a calm British or American conversational voice; avoid dramatic or "narrator" voices). Turn on **authentication** so the app connects with a signed URL.
-2. Paste the **system prompt** and **first message** below.
+2. Paste the **system prompt** from `docs/agent/system-prompt.md` and the **first message** from `docs/agent/first-message.txt`, or run `npm run agent:prompt` (dry run) then `npm run agent:prompt -- --apply` (see below).
 3. Add exactly the nine **client tools** below (the ninth, `rotate_model`, was added in #58). Names must match exactly. Tick **Wait for response** on every one. There is no `set_lens` (lenses were removed in #32).
 4. In the agent's **Advanced** settings keep **interruptions** on (the user can talk over Blowfish and it stops), and keep the turn timeout short.
 5. Put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in your local `.env` (never commit it; share with Rio privately for the demo laptop), then restart `npm run dev`. `GET /api/health` should report `keys.elevenlabs: true`.
 
-## System prompt (final)
+## System prompt and first message
 
-This is the text pasted into the agent. If you change it in the dashboard, change it here too.
+One source of truth, in the repo: **`docs/agent/system-prompt.md`** (the whole file is the prompt) and **`docs/agent/first-message.txt`** ("Blowfish ready."). Change them there, never only in the dashboard.
 
-```
-You are Blowfish, a calm, friendly tutor that gives people X-ray vision for the physical world.
-The user wears AR glasses with a camera. They look at a real thing (a gadget, or their own hand)
-and you show and explain what is inside it. They cannot touch a screen: they talk to you, and they can
-use their hands in the air to turn the model and pull it apart.
+How Blowfish talks (#96, `docs/PROJECT.md` section 1): after an action tool it says the reply's `say` line exactly and stops ("MacBook Air 13-inch exploded."). It explains, tours and walks through steps only when asked ("tell me about...", "teach me...", "how does... work", "walk me through..."), and stops at once on "shorter", "stop" or an interruption. "Stop" no longer turns the overlay off ("overlay off" or "clean view" does).
 
-Who you listen to:
-- Only act on speech addressed to you as "Blowfish" ("Hey Blowfish, ...") or a direct follow-up
-  to something you just said within the last few seconds. The room is noisy and full of other people
-  talking; ignore their conversations completely. Do not answer, comment on, or call tools for speech
-  that is not meant for you, even if it mentions gadgets or muscles. Stay silent instead.
-- Speech recognition may mishear the name as "blow fish", "Bluefish" or "below fish": treat those as
-  "Blowfish". If you are not sure you were addressed, stay silent rather than ask.
+To put them into the agent:
 
-How you answer:
-- 2 to 3 short sentences. Plain, warm words. No lists, no markdown, no numbers you were not given.
-- Stop talking as soon as the user interrupts.
-- If you do not know, say so. Never invent part names; use only the parts you were given.
-
-What "this" means:
-- "This" always means the object in the centre of the user's view. Do not ask which object.
-
-Tools:
-- "Overlay on", "show me what you see", "start": call set_overlay with on true.
-- "Overlay off", "clean view", "stop": call set_overlay with on false.
-- "Analyse this", "what is inside this", "what's this made of": call explode with no object_id and
-  amount 0.12. A 3D model of it floats up in the middle of the view, assembled, parts just separated.
-  When it returns, say one short line that includes the gesture hint, only the first time in a
-  conversation: "Pinch to turn it, pull your hands apart to open it." Then give the short tour it
-  suggests: for each part in "tour", call highlight_part, then say one short sentence about it (and its
-  safety note if it has one). Then stop and wait for questions.
-- "Explode it", "explode this", "open it up", "pull it apart": call explode with no object_id and amount 1.
-  If nothing was on stage yet, this brings the model up too: give the gesture hint and tour as above.
-- "Put it back together", "close it up": call explode with no object_id and amount 0.12.
-- "Put it away", "close it", "reset", "put it back": call reset_view.
-- "Turn it left/right/up/down", "turn it around", "flip it": call rotate_model with direction left,
-  right, up, down or around. Add degrees only if the user says a number ("turn it 90 degrees").
-- Tool results may include "next" or "remember": follow them.
-- Before you talk about any part, call highlight_part with its id so it lights up. Answer from the
-  part's summary and details.
-- If a part has a safety note, always say it.
-- Step-by-step questions ("how would I replace the battery?"): call show_step with n 1, say that step in
-  one sentence, then call show_step with the next n, until the last step. Pause briefly between steps.
-- Muscle questions ("which muscles move my finger?", "what is working when I type?"): call get_pose,
-  then highlight_part with the first muscle id, then name the muscles in working_now in plain words.
-  If get_pose says the hand layers are not shown, call explode with no object_id first.
-- "What is this?" with nothing exploded: call get_scene and name the focused object in one sentence.
-- If you are unsure what the user can see, call get_scene.
-
-Other rules:
-- If a parts list has source "live", say once that the parts are AI-estimated.
-- Biology answers are educational, not medical advice. Say so if someone asks about pain or injury.
-- If a tool returns an error sentence, say that sentence briefly in your own words and move on.
-```
-
-First message: "Hi, I'm Blowfish. Look at something and say: Hey Blowfish, analyse this."
+- `npm run agent:prompt`: dry run. Reads the agent (your `.env` key and agent id), prints its name and whether its prompt and first message are the same as the repo's (lengths, first differing line). Changes nothing.
+- `npm run agent:prompt -- --apply`: saves the agent's whole config to `.agent-backup/<agent-id>-<time>.json` (gitignored), changes only the prompt text and the first message, reads the agent back and confirms both match and nothing else changed. Tools, voice and language are never sent. Untested against the live API so far: read what it prints. If it refuses or fails, paste the two files by hand.
 
 ## Client tools to enter in the dashboard
 
@@ -121,16 +71,27 @@ How to switch:
 
 Changes apply at once to a running session, and each one is logged in the hidden debug panel (**D**). The camera's microphone is closest to the wearer's mouth, so pick it on the rig. Code: `src/voice/pushToTalk.ts`.
 
-## Guided tour (how the tools help the tutor)
+## What the tools reply (#96: short by default)
 
-- `explode` returns JSON: the part ids, a suggested `tour` of three parts (the two outermost, then one with a safety note such as the battery) and a `next` instruction to highlight each one before mentioning it.
-- `highlight_part` returns the part's summary, details and safety note, plus `remember: "Say the safety note."` when there is one.
-- `show_step` also highlights the step's first part and tells the agent which step comes next.
+- Every action tool (`explode`, `set_overlay`, `reset_view`, `rotate_model`, `select_object`) returns JSON with `say`, the exact line to speak, and nothing that asks for more:
+
+  | Tool | `say` |
+  | --- | --- |
+  | `explode` | "<short name> analysed." (opened below 0.5, e.g. 0.12) or "<short name> exploded." (0.5 and above); a live list adds " Parts are AI-estimated."; "Put back together." when closing an open model; "Closed." for amount 0; on failure the flow's one plain sentence |
+  | `set_overlay` | "Labels on." / "Labels off." |
+  | `reset_view` | "Put away. Saved <short name>." or "View reset." |
+  | `rotate_model` | "Turned left." / "Turned right." / "Turned up." / "Turned down." / "Turned around."; "Nothing is open yet." |
+  | `select_object` | "Selected <name>." / "I cannot see that." |
+
+  The short name drops the bracketed details ("MacBook Air 13-inch", not "MacBook Air 13-inch (M3, 2024)").
+- `explode` also keeps the data for when the user asks: `part_ids`, `tour` (three parts: the two outermost, then one with a safety note such as the battery), for the arm `layers` and `steps`, for the eye `steps` (the path of light), and `if_asked`: what to do only if the user asks to be taught, toured or walked through (highlight each tour part; for the arm and the eye, `show_step` 1 to N). It no longer has `message` or `next`.
+- `highlight_part` (a teaching tool) returns the part's summary, details and safety note, and `present`: two or three short sentences (one in a tour), and the safety note when there is one.
+- `show_step` also highlights the step's first part; its `present` says to say the step in one short sentence and which step comes next if walking through.
 - `get_pose` returns `working_now` (muscle names) and says what to highlight. If no finger is moving it suggests the forearm flexors and asks the user to type. If the hand layers are not shown yet, it says to call `explode` first.
 
 ## What the app sends the agent
 
-After each explode, the app sends a contextual update listing the part ids, names, one-line summaries, safety notes and steps (`describeTeardown` in `src/lib/flow.ts`). It also sends it again when a session connects while something is already exploded. Clicking a part in the overlay sends a user message "Tell me about the <part name>."
+After each explode, the app sends a contextual update listing the part ids, names, one-line summaries, safety notes and steps, ending "For questions only: do not describe these parts or steps unless the user asks." (`describeTeardown` in `src/lib/flow.ts`). It also sends it again when a session connects while something is already exploded. Clicking a part in the overlay sends a user message "Tell me about the <part name>."
 
 ## SDK notes (checked against the published @elevenlabs/react 1.22.1 / @elevenlabs/client 1.36.1 types)
 
@@ -146,7 +107,7 @@ After each explode, the app sends a contextual update listing the part ids, name
 1. `npm run dev`, open http://localhost:5173 in Chrome, allow camera and microphone. `GET /api/health` shows `keys.elevenlabs: true`.
 2. Press **V** (or click the pill). The pill goes Connecting -> Listening; the console has no errors.
 3. "Hey Blowfish, overlay on" -> `set_overlay` runs and labels appear.
-4. Look at the laptop: "Hey Blowfish, analyse this" -> the model floats up assembled and Blowfish gives the gesture hint once, then the tour; the pill shows Speaking and captions appear.
-5. "Turn it around" -> `rotate_model` turns it. "Explode it" -> it spreads fully. "Put it back together" -> assembled again.
-6. "Put it away" -> it clears.
+4. Look at the laptop: "Hey Blowfish, analyse this" -> the model floats up assembled and Blowfish says only "MacBook Air 13-inch analysed."; the pill shows Speaking and captions appear. "Tell me about the battery" -> it lights up and Blowfish answers in two or three sentences with the safety note, then stops.
+5. "Turn it around" -> "Turned around." "Explode it" -> "MacBook Air 13-inch exploded." "Put it back together" -> "Put back together."
+6. "Put it away" -> it clears: "Put away. Saved MacBook Air 13-inch."
 7. Remove the keys from `.env` and restart: the app loads, the pill says "Voice off", nothing crashes.
