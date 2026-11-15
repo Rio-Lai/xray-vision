@@ -10,14 +10,15 @@
  * the last FLOOR_WINDOW_MS). The agent's microphone is open only while the level is MARGIN_DB or more
  * above the floor (and for HANGOVER_MS after, so the ends of words and the gaps between them get
  * through); otherwise it is muted and ElevenLabs hears silence. The bar is THINKING_EXTRA_DB higher
- * while Blowfish is working on a command and SPEAKING_EXTRA_DB higher while it speaks
+ * while Blowfish is working on a command and SPEAKING_EXTRA_DB higher while it speaks, and then the
+ * sound must also last SUSTAIN_MS before the microphone opens (short bangs never interrupt it)
  * (voiceLock.ts voicePhase): only a clear, close voice interrupts then. The bar always stays between
  * MIN_DB and MAX_DB, so a very quiet room still needs real speech and a very loud one never shuts
  * the wearer out.
  *
  * Fails open: no microphone for the gate, a suspended audio context, or no signal at all leaves the
  * agent's microphone open (as before the gate). Holding Space or a mouse side button always talks.
- * `?gate=0` turns it off; `?gatedb=12` sets MARGIN_DB. `?lock=1` (the hard lock) replaces it.
+ * `?gate=0` turns it off; `?gatedb=12` sets MARGIN_DB, `?gatespeak=12` the extra while it speaks. `?lock=1` (the hard lock) replaces it.
  * The level, floor and bar are in the debug panel (D).
  */
 import { devLog } from '../hud/hudStore';
@@ -39,12 +40,22 @@ export const GATE_ON = !PHONE_MODE && !LOCK_COMMANDS && !(gateParam !== null && 
 const marginParam = Number(param('gatedb'));
 /** Speech must be this much above the room's noise floor (dB). */
 const MARGIN_DB = Number.isFinite(marginParam) && marginParam > 0 && marginParam < 40 ? marginParam : 12;
-/** ...this much more while Blowfish is working on a command, and while it speaks. */
-const THINKING_EXTRA_DB = 6;
-const SPEAKING_EXTRA_DB = 4;
-/** The bar never goes below or above these (dBFS). */
+/**
+ * ...this much more while Blowfish is working on a command, and while it speaks (`?gatespeak=` sets
+ * the speaking one). Raised from 6 / 4 (Rio, 15 Nov): room sounds still cut its answers off.
+ */
+const speakParam = Number(param('gatespeak'));
+const THINKING_EXTRA_DB = 8;
+const SPEAKING_EXTRA_DB = Number.isFinite(speakParam) && speakParam >= 0 && speakParam < 40 ? speakParam : 12;
+/** The bar never goes below or above these (dBFS); the top is higher while Blowfish thinks or speaks. */
 const MIN_DB = -62;
 const MAX_DB = -30;
+const MAX_DB_BUSY = -22;
+/**
+ * While Blowfish thinks or speaks, the sound must stay above the bar this long before the microphone
+ * opens (ms): a clap, a cough or a door is over sooner; someone really talking over it is not.
+ */
+const SUSTAIN_MS = 180;
 /** Open this long after the last loud moment (ms): word endings and short gaps get through. */
 const HANGOVER_MS = 700;
 /** The noise floor is the 20th percentile of the last this-many ms. */
@@ -72,6 +83,8 @@ const g = {
   idx: 0,
   startedAt: 0,
   lastLoudAt: -1e9,
+  /** since when the level has been above the bar without a break (-1 = it is below) */
+  loudSince: -1,
   open: true,
   level: -120,
   floor: -120,
@@ -114,10 +127,17 @@ function tick(): void {
 
   const phase = voicePhase();
   const extra = phase === 'thinking' ? THINKING_EXTRA_DB : phase === 'speaking' ? SPEAKING_EXTRA_DB : 0;
-  g.bar = Math.min(MAX_DB, Math.max(MIN_DB, g.floor + MARGIN_DB + extra));
+  const busy = phase !== 'listening';
+  g.bar = Math.min(busy ? MAX_DB_BUSY : MAX_DB, Math.max(MIN_DB, g.floor + MARGIN_DB + extra));
 
   const now = performance.now();
-  if (db >= g.bar) g.lastLoudAt = now;
+  if (db >= g.bar) {
+    if (g.loudSince < 0) g.loudSince = now;
+    // (already open: any loud moment keeps it open; shut while busy: only a sustained one opens it)
+    if (g.open || !busy || now - g.loudSince >= SUSTAIN_MS) g.lastLoudAt = now;
+  } else {
+    g.loudSince = -1;
+  }
   const warm = now - g.startedAt < WARMUP_MS;
   const noSignal = g.peak < SILENT_DB;
   const open = warm || noSignal || now - g.lastLoudAt <= HANGOVER_MS;
@@ -153,6 +173,7 @@ export async function startGate(): Promise<void> {
     g.idx = 0;
     g.startedAt = performance.now();
     g.lastLoudAt = -1e9;
+    g.loudSince = -1;
     g.open = true;
     g.timer = window.setInterval(tick, POLL_MS);
     devLog(`Voice: noise gate on (speech ${MARGIN_DB} dB above the room; ?gate=0 off, ?gatedb= to change)`);

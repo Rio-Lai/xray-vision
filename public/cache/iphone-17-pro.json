@@ -4,6 +4,11 @@
   "lens": "engineering",
   "anchor": "box",
   "explode_axis": "z",
+  "dimensions_mm": [
+    71.9,
+    150.0,
+    8.75
+  ],
   "source": "cached",
   "parts": [
     {
