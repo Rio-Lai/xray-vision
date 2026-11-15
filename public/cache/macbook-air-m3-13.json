@@ -5,6 +5,7 @@
   "anchor": "box",
   "explode_axis": "z",
   "source": "cached",
+  "dimensions_mm": [304.1, 215, 11.3],
   "parts": [
     {
       "id": "display-assembly",
