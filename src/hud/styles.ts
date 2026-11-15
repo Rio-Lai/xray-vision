@@ -71,10 +71,18 @@ export const CLASSIC_HUD_CSS = `
 .bf-focusglow.on { opacity: 1; }
 
 /* ---- the pinch cue: one tiny soft dot at an active pinch point (hand gestures) ---- */
-.bf-pinch { position: absolute; left: 0; top: 0; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
-  background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.16), 0 0 14px rgba(255, 255, 255, 0.45);
-  opacity: 0; transition: opacity 140ms ease-out; will-change: transform, opacity; }
-.bf-pinch.on { opacity: 0.9; }
+/* Hand cue (#121, src/overlay/pinchDots.ts): a small ring at each free raised hand's palm, filled while it
+   does something, and one quiet word above the voice zone. */
+.bf-hand-mark { position: absolute; left: 0; top: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px; box-sizing: border-box;
+  border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.75); background: rgba(255, 255, 255, 0);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.25); opacity: 0; transition: opacity 160ms ease-out, background-color 120ms ease-out;
+  will-change: transform, opacity; }
+.bf-hand-mark.on { opacity: 0.8; }
+.bf-hand-mark.active { background: rgba(255, 255, 255, 0.9); }
+.bf-gesture-hint.bf-cue-hint { position: absolute; left: 50%; top: auto; transform: translateX(-50%); margin: 0;
+  color: rgba(255, 255, 255, 0.85); font-size: 18px; white-space: nowrap; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  opacity: 0; transition: opacity 180ms ease-out, bottom 200ms ease-out; }
+.bf-gesture-hint.bf-cue-hint.on { opacity: 1; }
 
 /* ---- part labels (exploded) ---- */
 .bf-plabel { position: absolute; left: 0; top: 0; will-change: transform, opacity; }

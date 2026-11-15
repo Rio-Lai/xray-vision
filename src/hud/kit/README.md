@@ -12,7 +12,7 @@ The stylesheets are injected with a `<style>` tag, as before (no CSS imports), s
 
 ## What moved
 
-- **Tokens:** all of `tokens.css`, values unchanged except two (below: quiet glass and the focus glow). Every colour, size, radius, blur, shadow and timing in `hud.ts` and `voice.ts` is a `--bf-*` variable, except the pinch dot (not in the kit) and the debug panel.
+- **Tokens:** all of `tokens.css`, values unchanged except two (below: quiet glass and the focus glow). Every colour, size, radius, blur, shadow and timing in `hud.ts` and `voice.ts` is a `--bf-*` variable, except the hand marker's 14 px size (not in the kit) and the debug panel.
 - **Markup and classes from `components.tsx`** (in `src/hud/Hud.tsx`): `TitlePill` (one pill, the neutral "AI-estimated" chip inside it), `PartCard` (kicker "Part N of M", name, summary, safety note with the inline warning glyph and hairline divider), `StepCard` (kicker, segmented progress line, sentence), `StatusPill` (looking / error variants, static dots).
 - **Label pills:** the pills drawn by `src/overlay/labels.ts` and `objectLabels.ts` carry `bf-label-pill` and the kit's state classes (`--focused`, `--highlight`); dots, stems, leader lines and the focus glow are styled to the kit's anatomy.
 - **Leader lines:** the kit's `PartLabel` shape: from the anchor dot to an elbow 32 px before the pill, then level, stopping 6 px short of the pill (`leaderPath` in `labels.ts`).
@@ -38,7 +38,7 @@ The stylesheets are injected with a `<style>` tag, as before (no CSS imports), s
 
 - `layout.ts` (`layoutPartLabels`): the app keeps its own part label layout (two columns beside the model, stacked so labels never overlap each other or the cards, bottom 150 px kept clear). Same layout rules as before.
 - `ObjectLabel` / `PartLabel` / `FocusGlow` React components: the app draws these imperatively every frame (no React), with the kit's classes and anatomy.
-- `GestureHint`: the app does not show a gesture hint today, and adding one would add something to the demo view; `.bf-gesture-hint` is in `hud.ts`, ready if wanted.
+- `GestureHint`: shown since #121 while a hand gesture does something (one word: Turning, Opening, Closing, Zooming, Moving), placed just above the voice zone (`.bf-cue-hint`) rather than at 76% of the height, so it never sits on the captions.
 - `PartLabel` `active` (warm muscle) state: the label layers have only quiet and highlighted; `.bf-label-pill--active` is in `hud.ts` but nothing sets it yet.
 - `StageScrim`, `ModelPlaceholder`, `HandPlaceholder`: the app has the real camera dim and the real three.js models.
 - The Make page (`page/App.tsx`) and its own stylesheet.

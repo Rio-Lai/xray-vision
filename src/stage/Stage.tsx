@@ -7,13 +7,15 @@
  *   D debug panel   F freeze   S next step   M tracking mode   Left/Right or [ ] previous/next part
  * Hidden mouse fallback while a model is on stage: drag turns it (with a little inertia), the
  * wheel opens and closes it, a trackpad pinch (the wheel with Ctrl, as Chrome sends it) and the
- * + / = and - keys zoom it (#109); a click without dragging picks a part.
- * Hand gestures (detect/gestures.ts) run every frame after detection: pinch-drag turns the model,
- * two hands pinching and pulling apart open it, and pulling further zooms in (tuning in the debug panel).
+ * + / = and - keys zoom it (#109); shift-drag or right-drag moves it, as do shift + arrow keys, and a
+ * double-click or the 0 key centres it at the normal size (#121); a click without dragging picks a part.
+ * Hand gestures (detect/gestures.ts) run every frame after detection: pinch-drag or two open hands
+ * turn the model, a fist opening quickly opens it, two hands pinching and pulling apart open it, then
+ * zoom in, and moved together the same way move it (README "Controls"; tuning in the debug panel).
  * `?overlay=1` starts with the overlay on.
  */
 import { useEffect, useRef } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useStore } from '../state/store';
 import type { TrackingMode } from '../state/store';
 import { explodeObject, pickPart, resetAll } from '../lib/flow';
@@ -26,7 +28,7 @@ import { Overlay } from '../overlay/Overlay';
 import type { OverlayHandle } from '../overlay/Overlay';
 import { Hud } from '../hud/Hud';
 import { devLog, setStatus, showToast, toggleDebug } from '../hud/hudStore';
-import { STAGE_MIN_EXPLODE, modelControl, stageInputActive } from './modelControl';
+import { PAN_UNIT_VH, STAGE_MIN_EXPLODE, modelControl, stageInputActive } from './modelControl';
 
 const MODES: TrackingMode[] = ['freeze', 'follow', 'stage'];
 /** Mouse fallback: radians per pixel dragged, and explode change per wheel pixel. */
@@ -35,8 +37,10 @@ const WHEEL_PER_PX = 0.0016;
 /** Trackpad pinch (wheel + Ctrl): zoom factor exp(-ZOOM_PER_PX * deltaY), one event capped at ZOOM_MAX_PX. */
 const ZOOM_PER_PX = 0.01;
 const ZOOM_MAX_PX = 25;
-/** One + or - key press zooms by this factor (held, it repeats). */
-const ZOOM_KEY_STEP = 1.25;
+/** One + or - key press zooms by this factor (held, it repeats): the real-size MacBook (#120) starts smaller. */
+const ZOOM_KEY_STEP = 1.3;
+/** One shift + arrow key press moves the model this many stage sizes (held, it repeats). */
+const PAN_KEY_STEP = 0.08;
 /** A press that moves less than this is a click (pick a part), not a drag. */
 const CLICK_SLOP_PX = 5;
 
@@ -99,8 +103,8 @@ function runExplode(amount = 1): void {
 export function Stage() {
   const overlayRef = useRef<OverlayHandle>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  /** The press in progress: where it started, the last point, and whether it became a drag. */
-  const pressRef = useRef<{ id: number; x0: number; y0: number; x: number; y: number; drag: boolean } | null>(null);
+  /** The press in progress: where it started, the last point, whether it became a drag, and whether it moves (pans) the model. */
+  const pressRef = useRef<{ id: number; x0: number; y0: number; x: number; y: number; drag: boolean; pan: boolean } | null>(null);
 
   // Developer convenience: ?overlay=1 starts with the overlay on; ?mock=gesture analyses the fake laptop by itself.
   useEffect(() => {
@@ -167,6 +171,21 @@ export function Stage() {
       if (isTypingTarget(e.target)) return;
       const s = useStore.getState();
       const key = e.key;
+      if (e.shiftKey && (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown')) {
+        // Shift + arrows move the model on stage (#121).
+        if (!stageInputActive(s)) return;
+        e.preventDefault();
+        const dx = key === 'ArrowLeft' ? -PAN_KEY_STEP : key === 'ArrowRight' ? PAN_KEY_STEP : 0;
+        const dy = key === 'ArrowUp' ? -PAN_KEY_STEP : key === 'ArrowDown' ? PAN_KEY_STEP : 0;
+        modelControl.panBy(dx, dy, performance.now());
+        return;
+      }
+      if (key === '0') {
+        if (!stageInputActive(s)) return;
+        e.preventDefault();
+        modelControl.centre(performance.now());
+        return;
+      }
       if (key === 'ArrowLeft' || key === '[') {
         e.preventDefault();
         cyclePart(-1);
@@ -251,10 +270,12 @@ export function Stage() {
   }, []);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
+    // left button: turn (shift: move); right button: move (#121)
+    if (e.button !== 0 && e.button !== 2) return;
     const t = e.target;
     if (t instanceof Element && t.closest('button, select, input, textarea, a, [data-xr-ui]')) return;
-    pressRef.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, drag: false };
+    const pan = e.button === 2 || e.shiftKey;
+    pressRef.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, drag: false, pan };
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -268,7 +289,11 @@ export function Stage() {
     if (!p.drag && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > CLICK_SLOP_PX && stageInputActive(useStore.getState())) {
       p.drag = true;
     }
-    if (p.drag) {
+    if (p.drag && p.pan) {
+      // Moving it: the model follows the pointer (store pan is in stage sizes).
+      const unit = Math.max(1, PAN_UNIT_VH * window.innerHeight);
+      modelControl.panBy((e.clientX - p.x) / unit, (e.clientY - p.y) / unit, performance.now());
+    } else if (p.drag) {
       // Like spinning a globe: drag right turns the front to the right, drag down tips the top towards you.
       modelControl.turn((e.clientX - p.x) * DRAG_RAD_PER_PX, (e.clientY - p.y) * DRAG_RAD_PER_PX, performance.now());
     }
@@ -280,15 +305,29 @@ export function Stage() {
     const p = pressRef.current;
     if (!p || p.id !== e.pointerId) return;
     pressRef.current = null;
-    if (p.drag) modelControl.release(performance.now());
-    else overlayRef.current?.pick(e.clientX, e.clientY);
+    if (p.drag && !p.pan) modelControl.release(performance.now());
+    else if (!p.drag && e.button === 0) overlayRef.current?.pick(e.clientX, e.clientY);
   };
 
   const onPointerCancel = (e: ReactPointerEvent<HTMLDivElement>) => {
     const p = pressRef.current;
     if (!p || p.id !== e.pointerId) return;
     pressRef.current = null;
-    if (p.drag) modelControl.release(performance.now());
+    if (p.drag && !p.pan) modelControl.release(performance.now());
+  };
+
+  /** No browser menu on the stage (right-drag moves the model); the debug panel and the voice UI keep theirs. */
+  const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const t = e.target;
+    if (t instanceof Element && t.closest('button, select, input, textarea, a, [data-xr-ui]')) return;
+    e.preventDefault();
+  };
+
+  /** A double-click centres the model at the normal size (#121). */
+  const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const t = e.target;
+    if (t instanceof Element && t.closest('button, select, input, textarea, a, [data-xr-ui]')) return;
+    modelControl.centre(performance.now());
   };
 
   return (
@@ -298,6 +337,8 @@ export function Stage() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
+      onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
       style={{
         position: 'fixed',
         inset: 0,

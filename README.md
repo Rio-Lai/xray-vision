@@ -51,7 +51,7 @@ Browser --/api--> Local server (Express, 127.0.0.1)
 - **Fast things run on the laptop:** camera, detection, gestures and drawing, every frame. **Slow things run in the background and are cached:** Claude and fal. Turning and exploding the model is three.js moving meshes; nothing is generated per frame.
 - **Voice:** one ElevenLabs Agents session listens to the microphone, decides what to say and which tool to call, and speaks the answer. The agent drives the app through ten client tools that run in the browser: `get_scene`, `set_overlay`, `select_object`, `explode`, `highlight_part`, `show_step`, `reset_view`, `rotate_model`, `get_pose`. After each explode the app sends the agent the parts list as a contextual update, so it knows exactly which parts exist.
 - **Analyse:** "this" is the thing in the middle of the view. The stored MacBook and the hand open at once from the on-device label, and Claude checks the name in the background; if Claude is confident it is something else, the app says so and switches to that object's parts. Any other detected thing is cropped and sent to Claude, which names it (at most 6 s, then the on-device label is used). If nothing is detected in the middle, the middle of the view itself is sent to Claude, so "analyse this" works on things the detector does not know. Its parts list (parts, layers, sizes, positions, one-line explanations, safety notes, repair steps) comes from the cache or, for a new object, from Claude. The model is shown in **stage mode** (the default): it glides to the middle of the view over the live video and turns slowly when idle. Placeholder glass shapes appear at once and are replaced by 3D models as they arrive.
-- **Gestures:** MediaPipe's Hand Landmarker gives 21 points per hand, for up to two hands, every frame. A pinch must hold briefly, with the other fingers open, before it counts, so a typing or resting hand does not move the model. One pinching hand dragging turns the model; two pinching hands moving apart or together open or close it.
+- **Gestures:** MediaPipe's Hand Landmarker gives 21 points per hand, for up to two hands, every frame. The app smooths them, follows each hand through dropped frames, and reads coarse shapes (fist, open hand, pinch) and whole-hand motion, which survive a head camera better than fingertips; a typing or resting hand is ignored. What each gesture does is in "Controls" below.
 - **Hands as the subject:** the same 21 landmarks drive the muscle and tendon overlay live on the real hand, and each fingertip's movement relative to its knuckle decides which muscles light up on a key press. The 3D hand and forearm model for the stage is still being made; until it lands, the hand's layers stay on the real hand.
 - **Cache first:** `public/cache/<object_id>.json` holds the demo parts lists and `public/cache/meshes/<object_id>/` their 3D models. Anything generated live goes to `.cache-live/` (gitignored) and is shown as "AI-estimated". With no API keys the server answers from the cache, so the app runs from a fresh clone.
 - **The rig:** a camera on the wearer's head (USB webcam on a cap, or an iPhone as a Continuity Camera) -> MacBook Pro running the app in Chrome -> XREAL Air 2 Pro glasses mirroring the screen, and the same screen on the projector. The wearer touches nothing.
@@ -114,6 +114,19 @@ Needs the network:
 
 If the Wi-Fi is slow rather than off, leave the keys in: the MacBook and the hand still open at once, and for any other object "analyse this" waits at most 6 seconds for Claude to name it before it goes on with the detector's label. Only a new object's parts list and its fal models are slow on a slow network. Do not use `MOCK=1`: it turns voice off too.
 
+## Controls
+
+While a model is on stage. Hands work only once a hand has been in view for a moment and is not typing or resting on the laptop; a small ring marks each hand Blowfish is following (filled while it is doing something), and one word ("Turning", "Opening", "Closing", "Zooming", "Moving") shows above the voice pill.
+
+| | Turn | Open / close | Zoom | Move | Centre |
+| --- | --- | --- | --- | --- | --- |
+| **Hands** | Pinch (thumb to index) and drag; or both hands open, move them like spinning a globe (both sideways, both up or down, or one hand pushed away while the other comes closer) | A fist opening quickly to a spread hand opens it; an open hand snapping shut to a fist closes it back to analysed. Or pinch with both hands and pull apart / bring together | A quick fist-to-open on an open model zooms in a step, open-to-fist zooms back; two-hand pinch pulled apart past fully open | Pinch with both hands and move them the same way | |
+| **Mouse, trackpad** | Drag | Wheel | Trackpad pinch (wheel + Ctrl) | Shift-drag or right-drag | Double-click |
+| **Keys** | | `A` analyse, `E` explode, `R` put away | `+` / `-` | Shift + arrow keys | `0` |
+| **Voice** | "turn it around" | "explode it", "put it back together", "put it away" | "zoom in", "closer" | | |
+
+Hands never open something from nothing and never put it away (voice and `R` do). A gesture misbehaving on the rig: `?burst=0`, `?globe=0`, `?twohand=0`, `?pan=0`, or `?gestures=0` for all of them. `?mock=gesture` plays each hand gesture in turn with scripted hands.
+
 ## Developer fallback
 
 Never shown on screen during the demo; voice does all of this. The keys show nothing on screen when they work.
@@ -135,12 +148,12 @@ Never shown on screen during the demo; voice does all of this. The keys show not
 | `P` | Push-to-talk only on / off: the microphone is muted unless you hold (remembered) |
 | `\` | Next microphone (remembered) |
 
-Mouse, while a model is on stage: drag turns it (with a little inertia), the wheel opens and closes it, and a click without dragging picks a part. A trackpad pinch (or the wheel with Ctrl) zooms, as do the `+` and `-` keys.
+Mouse and keys for the model on stage: see "Controls" above. A click without dragging picks a part.
 
 URL options:
 
 - `?mock=1` (or `?mock=laptop`, `?mock=hand`): no camera or vision models needed; a fake laptop, phone and typing hand (`hand` puts the hand in the centre of view). Fake data: never film it for the product shots.
-- `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands turn it and pull it apart
+- `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands play every hand control in turn: pinch turn, two-hand open then zoom, two-hand move, globe turn, fist burst open, burst close
 - `?mock=eye`: a fake face in the middle of the view, to open the eye without a camera
 - `?look=classic`: the interface as it was before the Figma Make kit, to compare or fall back
 - `?lift=0`: the model cross-fades in on the stage instead of lifting out of the real object (a fallback if the transition misbehaves)
@@ -153,7 +166,7 @@ URL options:
 - `?hands=raw`: use if left and right hands look swapped
 - `?mic=<part of the name>`: pick the microphone, for example `?mic=c920` or `?mic=iphone` (remembered)
 - `?ptt=1` / `?ptt=0`: push-to-talk only on / off (remembered)
-- Gesture tuning: `?pinch=0.25&unpinch=0.4&hold=70&rot=1.1&spread=0.9`; `?twohand=0` turns off the two-hand spread, `?burst=1` turns on fist-then-open-hand to explode, `?gestures=0` turns all gestures off. URL values override the debug panel sliders.
+- Gesture tuning: `?pinch=0.3&unpinch=0.45&hold=90&reach=1&rot=1.1&spread=1&burstms=400&globegain=1.3`; `?burst=0`, `?globe=0`, `?twohand=0`, `?pan=0` turn one gesture off, `?gestures=0` all of them. URL values override the debug panel sliders (saved in this browser).
 - Key-press tuning: `?press=0.6&release=0.15&extend=1.2`
 
 ## Scripts

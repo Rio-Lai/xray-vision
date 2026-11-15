@@ -12,6 +12,7 @@
  *  - store.explodeAmount -> his explode (0.12, the "analyse" amount, = assembled with the skin
  *    sleeve; 1 = every layer fanned out), modelYaw / modelPitch (+ the idle drift) -> his view,
  *    modelZoom (eased) -> his camera's zoom (sharp at any size; moved to zoom about the stage centre),
+ *    modelPanX / modelPanY (eased, #121) -> the canvas moves with the labels; the lift starts and ends on the hand,
  *    highlightedPartId and activeStep -> his layer focus and glow (as his tour did);
  *  - key presses and quick lifts from the app's hand tracker pulse that finger's flexor slip and
  *    tendon (his keystroke pulses);
@@ -31,7 +32,7 @@ import { loadArmTeardown } from '../biology/arm/types';
 import type { ArmFrame, ArmStep, ArmTeardown, FingerId, Keystroke } from '../biology/arm/types';
 import { ARM_RADIUS_M, armStageFrame } from '../stage/armStagePose';
 import { isArmTeardown, sentenceCase } from '../stage/armTeardown';
-import { STAGE_MIN_EXPLODE, modelControl } from '../stage/modelControl';
+import { STAGE_MIN_EXPLODE, modelControl, panPx } from '../stage/modelControl';
 import { boxToView, getCoverMap } from '../camera/frame';
 import { live } from '../detect/live';
 import { FINGERS } from '../detect/handTracker';
@@ -121,6 +122,11 @@ class ArmStageCtl {
   private zoom = 1;
   private zoomV = 0;
   private viewZoom = 1;
+  // pan (store.modelPanX / modelPanY, stage sizes), eased
+  private panX = 0;
+  private panXV = 0;
+  private panY = 0;
+  private panYV = 0;
   // key presses from the app's hand tracker
   private keys: Keystroke[] = [];
   private seenPress = new Map<string, number>();
@@ -263,12 +269,14 @@ class ArmStageCtl {
     [this.zoom, this.zoomV] = springStep(this.zoom, this.zoomV, on ? s.modelZoom : 1, STAGE_TURN_OMEGA, dt);
     this.viewZoom += (this.zoom - this.viewZoom) * ARM_VIEW_ZOOM_EASE;
     const sc = s0 + (1 - s0) * L;
+    [this.panX, this.panXV] = springStep(this.panX, this.panXV, on ? s.modelPanX : 0, STAGE_TURN_OMEGA, dt);
+    [this.panY, this.panYV] = springStep(this.panY, this.panYV, on ? s.modelPanY : 0, STAGE_TURN_OMEGA, dt);
     this.xf = {
       ox: w / 2,
       oy,
       s: sc,
-      tx: (this.from.cx - w / 2) * (1 - L),
-      ty: (this.from.cy - oy) * (1 - L) + sc * (1 - this.viewZoom) * (oy - h / 2),
+      tx: (this.from.cx - w / 2) * (1 - L) + panPx(this.panX, h) * L,
+      ty: (this.from.cy - oy) * (1 - L) + sc * (1 - this.viewZoom) * (oy - h / 2) + panPx(this.panY, h) * L,
     };
     if (this.wrap) {
       const st = this.wrap.style;
