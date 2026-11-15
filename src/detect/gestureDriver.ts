@@ -1,13 +1,17 @@
 /**
  * Runs the gesture recogniser (gestures.ts) once per animation frame on the tracked hands and
- * turns its output into model control (#121, Rio's mapping of 15 Nov):
- *  - one-hand pinch (drag) and fist grab -> modelControl.panBy: the model follows the hand on screen
- *    (panGain times); with ?pinchturn=1 a pinch turns it instead (modelControl.turn, inertia on release);
- *  - globe (two open hands) -> modelControl.turn;
- *  - two-hand pinch apart / together -> modelControl.setExplode and, past fully open, setZoom
- *    (spreadExplodeZoom, #109); moved together the same way (?pan=1) -> panBy;
- *  - sweep (a flat hand from the top of the frame down) -> closes the exploded view (STAGE_MIN_EXPLODE);
+ * turns its output into model control (#121, Rio's mapping of 15 Nov, second pass):
+ *  - one-hand pinch (drag) and the globe (two open hands) -> modelControl.turn (inertia on release);
+ *    with ?pinchturn=0 a pinch moves it instead;
+ *  - fist grab -> modelControl.panBy: the model follows the fist on screen (panGain times);
+ *  - two-hand pinch apart / together -> setZoom (the zoom follows the distance between the hands);
+ *    with ?twoopen=1 it opens first, then zooms (spreadExplodeZoom, #109); moved together the same way
+ *    (?pan=1) -> panBy;
+ *  - finger snap -> the exploded view opens (fully), or closes (analysed) if it is open;
+ *  - sweep (a flat hand from the top of the frame down) -> the model is put away (resetAll, as "put it away");
  *  - burst (?burst=1: fist <-> open hand, quickly) -> burstAction: open one stage further, close one back.
+ * The word under each hand's ring ("Rotating", "Panning", "Zooming", and "Exploding" / "Closing" for a
+ * snap) comes from the recogniser's marks; the snap's word is set here.
  * It tells the recogniser where the model is on screen (modelBox), so an open hand over it can grab it.
  * Active only while a model is on stage; any free hand can gesture, including one that is itself the
  * subject of the current teardown, but not one that is typing or resting on the laptop (#107: it
@@ -15,13 +19,14 @@
  * `gestureLive` is read by the overlay (the hand markers and the one-word hint) and the debug panel.
  * Allocation-free per frame: the recogniser's inputs and context are reused.
  */
-import { MODEL_ZOOM_MAX, useStore } from '../state/store';
+import { MODEL_ZOOM_MAX, MODEL_ZOOM_MIN, useStore } from '../state/store';
 import type { FingerName } from '../state/store';
 import { frameSize, getCoverMap, viewToFrame } from '../camera/frame';
 import { devLog } from '../hud/hudStore';
 import { PAN_UNIT_VH, STAGE_MIN_EXPLODE, modelControl, panPx, stageInputActive } from '../stage/modelControl';
 import { BOTTOM_MARGIN, STAGE_SIZE, TOP_MARGIN } from '../overlay/boxRig';
 import { live } from './live';
+import { resetAll } from '../lib/flow';
 import { GestureRecognizer, burstAction, spreadExplodeZoom } from './gestures';
 import type { GestureContext, GestureHandInput, GestureOutput } from './gestures';
 import { gestureTuning } from './gestureTuning';
@@ -47,9 +52,8 @@ const two = { e0: 0, z0: 1, px0: 0, py0: 0, e: -1, z: -1, hint: null as GestureH
 /** Changes smaller than these are tracking jitter: not written (as the recogniser does for explode). */
 const SPREAD_MIN_DE = 0.002;
 const SPREAD_MIN_DZ = 0.003;
-/** The cue stays this long after a burst (ms), and while a globe turn moved the model this recently. */
+/** The cue stays this long after a burst (ms). */
 const BURST_HINT_MS = 900;
-const GLOBE_HINT_MS = 300;
 const burstHint = { word: null as GestureHint | null, at: -1e9 };
 
 /**
@@ -66,7 +70,9 @@ const modelBox = { x: 0, y: 0, w: 0, h: 0 };
 const ctx: GestureContext = { enabled: false, explode: 0, minExplode: STAGE_MIN_EXPLODE, restBoxes, modelBox: null };
 /** The model counts as this much bigger than its normal size for "over the model" (a hand near it can grab it). */
 const GRAB_BOX_GROW = 1.35;
-const sweepHint = { at: -1e9 };
+/** The word under the ring of the hand that snapped, for a moment. */
+const SNAP_LABEL_MS = 900;
+const snapLabel = { key: '', text: '', until: -1e9 };
 
 /** Where the model on stage is (every stage renderer: centre of the free area plus pan, STAGE_SIZE times zoom), normalised frame coords. */
 function updateModelBox(s: ReturnType<typeof useStore.getState>): void {
@@ -137,8 +143,15 @@ export function tickGestures(now: number): void {
     two.e = two.z = -1;
     two.hint = null;
   }
-  if (out.spreadDelta !== null) {
-    // One motion: open up to 1, then zoom in; together: zoom back to 1, then close.
+  if (out.spreadDelta !== null && !gestureTuning.twoOpens) {
+    // Zoom only: the zoom follows the distance between the hands (twice as far apart = twice as big).
+    const zoom = Math.min(MODEL_ZOOM_MAX, Math.max(MODEL_ZOOM_MIN, two.z0 * Math.pow(2, out.spreadDelta / Math.max(0.05, gestureTuning.spreadGain))));
+    if (two.z < 0 || Math.abs(zoom - two.z) > SPREAD_MIN_DZ * zoom) {
+      two.z = zoom;
+      modelControl.setZoom(zoom, now);
+    }
+  } else if (out.spreadDelta !== null) {
+    // ?twoopen=1, one motion: open up to 1, then zoom in; together: zoom back to 1, then close.
     const ez = spreadExplodeZoom(two.e0, two.z0, out.spreadDelta, STAGE_MIN_EXPLODE, MODEL_ZOOM_MAX);
     if (two.z >= 0 && Math.abs(ez.zoom - two.z) > SPREAD_MIN_DZ * ez.zoom) two.hint = 'Zooming';
     else if (two.e >= 0 && Math.abs(ez.explode - two.e) > SPREAD_MIN_DE) two.hint = ez.explode > two.e ? 'Opening' : 'Closing';
@@ -173,25 +186,28 @@ export function tickGestures(now: number): void {
     devLog(`Gesture: burst-${out.burst} -> ${a.hint ?? 'nothing (already at the end)'}`);
   }
 
-  // Sweep down: close the exploded view (back to the analysed state).
-  if (out.sweep) {
-    const closing = s.explodeAmount > STAGE_MIN_EXPLODE + 0.01;
-    if (closing) modelControl.setExplode(STAGE_MIN_EXPLODE, now);
+  // Snap: open the exploded view, or close it if it is open.
+  if (out.snap) {
+    const open = s.explodeAmount >= 0.5;
+    modelControl.setExplode(open ? STAGE_MIN_EXPLODE : 1, now);
     modelControl.touch(now);
-    if (closing) sweepHint.at = now;
-    devLog(`Gesture: sweep down -> ${closing ? 'closed' : 'nothing (already closed)'}`);
+    snapLabel.key = out.snapKey;
+    snapLabel.text = open ? 'Closing' : 'Exploding';
+    snapLabel.until = now + SNAP_LABEL_MS;
+    devLog(`Gesture: snap -> ${open ? 'closed' : 'exploded'}`);
+  }
+  if (now < snapLabel.until) {
+    for (const m of out.marks) if (m.key === snapLabel.key) m.label = snapLabel.text;
   }
 
-  // The one-word cue.
-  let hint: GestureHint | null = null;
-  if (out.mode === 'drag') hint = out.pan ? 'Moving' : 'Turning';
-  else if (out.mode === 'grab') hint = 'Moving';
-  else if (out.mode === 'globe') hint = now - recognizer.globeMovedAt < GLOBE_HINT_MS ? 'Turning' : null;
-  else if (out.mode === 'spread') hint = two.hint;
-  else if (out.mode === 'pan') hint = 'Moving';
-  const busy = turning || out.pan || out.mode === 'spread';
-  if (!busy && now - burstHint.at < BURST_HINT_MS) hint = burstHint.word;
-  if (!busy && now - sweepHint.at < BURST_HINT_MS) hint = 'Closing';
+  // Sweep down: put the model away (saved, as "put it away").
+  if (out.sweep) {
+    devLog('Gesture: sweep down -> put away');
+    resetAll();
+  }
+
+  // The words now sit under each hand's ring (marks); the line above the voice pill is only for a burst (?burst=1).
+  const hint: GestureHint | null = !turning && !out.pan && out.mode !== 'spread' && now - burstHint.at < BURST_HINT_MS ? burstHint.word : null;
   gestureLive.hint = ctx.enabled ? hint : null;
 
   if (out.events.length > 0) {
@@ -199,7 +215,7 @@ export function tickGestures(now: number): void {
     for (const e of out.events) {
       if (e === 'pinch' || e === 'unpinch') continue;
       shown = true;
-      if (e === 'spread-start' || e === 'pan-start' || e === 'globe-start' || e === 'grab-start') devLog(`Gesture: ${e}`);
+      if (e === 'spread-start' || e === 'pan-start' || e === 'globe-start' || e === 'grab-start' || e === 'drag-start') devLog(`Gesture: ${e}`);
     }
     if (shown) {
       gestureLive.last = out.events.join(', ');

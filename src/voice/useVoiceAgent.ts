@@ -15,6 +15,7 @@ import { api, ApiError } from '../lib/api';
 import { describeTeardown } from '../lib/flow';
 import { clientTools, legacyClientTools } from './clientTools';
 import { lockOnCommand, noteAgentActivity, noteAgentSpeaking, releaseLock } from './voiceLock';
+import { startGate, stopGate } from './voiceGate';
 import { registerVoiceBridge, voiceBridge } from './bridge';
 import { resolveInputDeviceId, usePushToTalk } from './pushToTalk';
 
@@ -50,9 +51,12 @@ export const voiceOptions = {
   clientTools: toolsWithLock,
   onConnect: () => {
     useStore.getState().setVoiceStatus('connected');
+    // Background noise does not count as speech (voiceGate.ts).
+    void startGate();
   },
   onDisconnect: () => {
     releaseLock();
+    stopGate();
     registerVoiceBridge(null);
     useStore.getState().setVoiceStatus('disconnected');
     useStore.getState().setAgentSpeaking(false);
@@ -75,6 +79,7 @@ export const voiceOptions = {
     const status = typeof st === 'string' ? st : '';
     if (status === 'error' || status === 'disconnected') {
       releaseLock();
+      stopGate();
       registerVoiceBridge(null);
       useStore.getState().setVoiceStatus('disconnected');
       useStore.getState().setAgentSpeaking(false);

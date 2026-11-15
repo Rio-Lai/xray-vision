@@ -3,7 +3,8 @@
  *  - a small soft marker on each free hand (gestures.ts GestureMark), between its thumb and index
  *    fingertips (where a pinch happens; at the palm for a fist): a hollow ring while it is seen,
  *    filled as soon as a pinch counts and while it is doing something; nothing for ignored hands
- *    (typing, resting, just come into view); it fades out when the hand leaves;
+ *    (typing, resting, just come into view); it fades out when the hand leaves; under it, one small
+ *    word for what that hand is doing ("Rotating", "Panning", "Zooming", "Exploding", "Closing");
  *  - while a gesture is doing something, one word ("Turning", "Opening", "Closing", "Zooming",
  *    "Moving") just above the voice zone (the voice pill and its captions), never on top of them.
  * Normalised frame coords -> viewport through the cover map. Allocation-free per frame (nodes are
@@ -16,6 +17,9 @@ import type { CoverMap } from '../camera/frame';
 
 interface MarkNode {
   el: HTMLDivElement;
+  /** the word under the ring */
+  label: HTMLDivElement;
+  text: string;
   on: boolean;
   active: boolean;
   /** frame stamp when it was last in the marks */
@@ -74,8 +78,12 @@ export class HandCueLayer {
       if (!n) {
         const el = document.createElement('div');
         el.className = 'bf-hand-mark';
+        const label = document.createElement('div');
+        label.className = 'bf-hand-label';
+        label.setAttribute('aria-hidden', 'true');
+        el.appendChild(label);
         this.root.appendChild(el);
-        n = { el, on: false, active: false, seen: 0, offAt: 0 };
+        n = { el, label, text: '', on: false, active: false, seen: 0, offAt: 0 };
         this.nodes.set(m.key, n);
       }
       n.seen = stamp;
@@ -88,6 +96,12 @@ export class HandCueLayer {
       if (m.active !== n.active) {
         n.active = m.active;
         n.el.classList.toggle('active', m.active);
+      }
+      // (the last word stays in the node while it fades out, so it does not blink empty)
+      if (m.label !== n.text) {
+        if (m.label) n.label.textContent = m.label;
+        n.text = m.label;
+        n.label.classList.toggle('on', m.label !== '');
       }
     }
     this.sweepNow = now;

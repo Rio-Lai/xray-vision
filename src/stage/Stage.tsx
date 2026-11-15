@@ -111,7 +111,14 @@ export function Stage() {
     if (urlFlag('overlay')) useStore.getState().setOverlayOn(true);
     if (!MOCK_GESTURE) return;
     const id = setTimeout(() => runExplode(STAGE_MIN_EXPLODE), 1200);
-    return () => clearTimeout(id);
+    // (the loop's last gesture, the sweep, puts it away: analyse it again for the next loop)
+    const again = setInterval(() => {
+      if (!useStore.getState().teardown) runExplode(STAGE_MIN_EXPLODE);
+    }, 2000);
+    return () => {
+      clearTimeout(id);
+      clearInterval(again);
+    };
   }, []);
 
   // The single animation loop: detection first, then the overlay reads its results and renders.
