@@ -245,7 +245,10 @@ const KEYS: [string, string][] = [
   ['< >', 'previous / next part'],
   ['click', 'pick a part'],
   ['drag', 'turn the model (stage)'],
+  ['shift-drag / right-drag / shift+arrows', 'move it'],
   ['wheel', 'open / close it (stage)'],
+  ['pinch / + -', 'zoom'],
+  ['0 / double-click', 'centre, normal size'],
 ];
 
 const SLIDERS: { key: 'pressOn' | 'pressOff' | 'extendOn'; label: string; min: number; max: number; step: number }[] = [
@@ -310,20 +313,26 @@ const GESTURE_SLIDERS: { key: NumKey; label: string; min: number; max: number; s
   { key: 'pinchOff', label: 'Pinch ends above (hand sizes)', min: 0.1, max: 0.9, step: 0.01 },
   { key: 'holdMs', label: 'Hold before it counts (ms)', min: 0, max: 300, step: 5 },
   { key: 'releaseMs', label: 'Open before release (ms)', min: 0, max: 300, step: 5 },
-  { key: 'restOpenMin', label: 'Other fingers open at least (not a fist)', min: 0.5, max: 1.6, step: 0.01 },
+  { key: 'pinchReachMin', label: 'Pinch: index reaches at least (not a fist; hand sizes)', min: 0.6, max: 1.5, step: 0.01 },
   { key: 'rotGain', label: 'Turn (radians per hand size dragged)', min: 0.2, max: 3, step: 0.05 },
   { key: 'spreadGain', label: 'Open per doubling of the two-hand distance', min: 0.2, max: 2, step: 0.05 },
+  { key: 'panGain', label: 'Move: model / hands on screen', min: 0.2, max: 3, step: 0.05 },
   { key: 'fistMax', label: 'Fist at or below (openness)', min: 0.5, max: 1.4, step: 0.01 },
-  { key: 'spreadMin', label: 'Spread at or above (openness)', min: 1.1, max: 2.1, step: 0.01 },
+  { key: 'spreadMin', label: 'Spread hand at or above (openness)', min: 1.1, max: 2.1, step: 0.01 },
   { key: 'burstMs', label: 'Fist to spread within (ms)', min: 150, max: 1000, step: 10 },
+  { key: 'globeOpenMin', label: 'Globe: open hand at or above (openness)', min: 0.9, max: 1.7, step: 0.01 },
+  { key: 'globeGain', label: 'Globe: radians per hand size moved', min: 0.2, max: 3, step: 0.05 },
+  { key: 'globeDeadZone', label: 'Globe: ignore slower than (hand sizes / s)', min: 0, max: 2, step: 0.05 },
   { key: 'typingMs', label: 'Typing hand ignored for (ms after a key press; 0 = off)', min: 0, max: 4000, step: 50 },
   { key: 'restHandMax', label: 'Hand on the desk if smaller than (share of frame height; 0 = off)', min: 0, max: 0.6, step: 0.01 },
 ];
 
 const GESTURE_TOGGLES: { key: BoolKey; label: string }[] = [
   { key: 'enabled', label: 'Hand gestures on' },
-  { key: 'twoHand', label: 'Two hands pinch and pull apart to open' },
-  { key: 'burst', label: 'Fist opening quickly opens (closing collapses)' },
+  { key: 'twoHand', label: 'Two hands pinch and pull apart to open, then zoom' },
+  { key: 'pan', label: 'Two hands pinch and move the same way to move it' },
+  { key: 'globe', label: 'Two open hands turn it like a globe' },
+  { key: 'burst', label: 'Fist opening quickly opens (open hand closing closes)' },
 ];
 
 /** Gesture tuning (debug panel only): every threshold live, saved in localStorage, URL-overridable. */
@@ -367,17 +376,23 @@ function GestureTuningPanel() {
   );
 }
 
-/** Debug-panel lines for the gesture recogniser: mode, last events, per-hand values. */
+/** Debug-panel lines for the gesture recogniser: mode, last events, per hand its shape, what it does and why. */
 function gestureLines(now: number): string[] {
   const out = gestureLive.out;
+  const t = gestureTuning;
   const lines: string[] = [];
   const ago = gestureLive.lastAt ? `${((now - gestureLive.lastAt) / 1000).toFixed(1)}s ago` : '';
-  lines.push(`gestures ${gestureTuning.enabled ? 'on' : 'OFF'} | mode ${out?.mode ?? '-'} | last ${gestureLive.last} ${ago}`);
+  const on = (b: boolean, name: string) => `${name} ${b ? 'on' : 'OFF'}`;
+  lines.push(
+    `gestures ${t.enabled ? 'on' : 'OFF'} (${[on(t.burst, 'burst'), on(t.globe, 'globe'), on(t.twoHand, 'two-hand'), on(t.pan, 'pan')].join(', ')}) | mode ${out?.mode ?? '-'} | cue ${gestureLive.hint ?? '-'} | last ${gestureLive.last} ${ago}`,
+  );
   for (const h of out?.hands ?? []) {
-    const state = h.pinched ? (h.stale ? 'PINCH (let go first)' : 'PINCH') : '     ';
+    const pinch = h.pinched ? (h.stale ? 'PINCH (let go first)' : 'PINCH') : '';
+    const free = h.blocked ? `IGNORED: ${h.blocked === 'new' ? 'just seen' : h.blocked}` : h.raised ? 'free, raised' : 'free, low (no globe / burst)';
+    const why = h.why ? `${h.why} (${((now - h.whyAt) / 1000).toFixed(1)}s ago)` : '-';
     lines.push(
-      `  ${h.id.padEnd(10)} pinch ${h.pinchDist.toFixed(2)}  open ${h.open.toFixed(2)}  rest ${h.restOpen.toFixed(2)}  ${h.openState.padEnd(6)} ${state}`,
-      `  ${''.padEnd(10)} size ${h.size.toFixed(2)}  ${h.blocked ? `ignored: ${h.blocked}` : 'free: can turn the model'}`,
+      `  ${h.key} ${h.id.padEnd(10)} ${h.shape.toUpperCase().padEnd(5)} doing ${(h.doing || '-').padEnd(8)} size ${h.size.toFixed(2)} ${free}${h.inFrame ? '' : ', at the edge'}${h.held ? ', HELD (no frame)' : ''} ${pinch}`,
+      `     pinch ${h.pinchDist.toFixed(2)} reach ${h.reach.toFixed(2)} open ${h.open.toFixed(2)} rest ${h.restOpen.toFixed(2)} | last fist<->open ${Math.round(h.lastChangeMs)} ms, ${h.lastChangeRate.toFixed(1)}/s | why: ${why}`,
     );
   }
   return lines;
@@ -397,6 +412,9 @@ function DebugPanel() {
   const tdStatus = useStore((s) => s.teardownStatus);
   const yaw = useStore((s) => s.modelYaw);
   const pitch = useStore((s) => s.modelPitch);
+  const zoom = useStore((s) => s.modelZoom);
+  const panX = useStore((s) => s.modelPanX);
+  const panY = useStore((s) => s.modelPanY);
   const saved = useSaved((s) => s.items);
   if (!visible) return null;
   const st = live.stats;
@@ -407,7 +425,7 @@ function DebugPanel() {
   if (st.detector) lines.push(st.detector);
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
   const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
-  lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} | input ${modelControl.describe()}`);
+  lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} zoom ${zoom.toFixed(2)} pan ${panX.toFixed(2)}, ${panY.toFixed(2)} | input ${modelControl.describe()}`);
   lines.push(`part models ${FIT_EVEN ? 'fit=even (one scale, fitted inside the slot, #98; drop ?fit=even to fill)' : 'fill (stretched to the slot; ?fit=even keeps proportions, #98)'}`);
   lines.push(`look ${LOOK === 'kit' ? 'kit (Figma Make interface kit, #86; ?look=classic for the previous look)' : 'classic (?look=classic; drop it for the Figma Make kit)'}`);
   lines.push(...gestureLines(performance.now()));

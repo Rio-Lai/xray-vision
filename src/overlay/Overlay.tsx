@@ -41,7 +41,8 @@ import { preloadTeardownMeshes } from './glbCache';
 import { modelControl } from '../stage/modelControl';
 import { FLAT_YAW_LIMIT, faceNear, faceOf, stageYawOffset } from '../stage/turnLimit';
 import { gestureLive } from '../detect/gestureDriver';
-import { PinchDotLayer } from './pinchDots';
+import type { GestureMark } from '../detect/gestures';
+import { HandCueLayer } from './pinchDots';
 import { hasPartMeshes } from './stageState';
 import { ArmStage, armStage } from './ArmStage';
 import { isArmTeardown } from '../stage/armTeardown';
@@ -398,7 +399,7 @@ class OverlayEngine {
         explodeTarget: s.explodeAmount,
         highlighted: hl,
         stage: stage
-          ? { yaw: this.stageYaw(s, now, dt), pitch: s.modelPitch, putAway: false, zoom: s.modelZoom, startBox: this.rigStartBox }
+          ? { yaw: this.stageYaw(s, now, dt), pitch: s.modelPitch, putAway: false, zoom: s.modelZoom, panX: s.modelPanX, panY: s.modelPanY, startBox: this.rigStartBox }
           : null,
       });
       labelItems = out.labels;
@@ -538,12 +539,15 @@ export interface OverlayHandle {
   pick: (clientX: number, clientY: number) => void;
 }
 
+/** No hands: no markers. */
+const NO_MARKS: GestureMark[] = [];
+
 export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<OverlayEngine | null>(null);
   const objLabelsRef = useRef<ObjectLabelLayer | null>(null);
-  const pinchRef = useRef<PinchDotLayer | null>(null);
+  const pinchRef = useRef<HandCueLayer | null>(null);
   const lastNowRef = useRef(0);
 
   useImperativeHandle(
@@ -570,7 +574,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
         } catch (e) {
           setStatus('eye', 'error', `Eye error: ${errorText(e)}`);
         }
-        pinchRef.current?.update(gestureLive.out?.dots ?? [], getCoverMap());
+        pinchRef.current?.update(gestureLive.out?.marks ?? NO_MARKS, gestureLive.hint, getCoverMap(), now);
       },
       pick: (x: number, y: number) => engineRef.current?.pick(x, y),
     }),
@@ -583,7 +587,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
     if (!host || !labels) return;
     const objLabels = new ObjectLabelLayer(labels);
     objLabelsRef.current = objLabels;
-    const pinch = new PinchDotLayer(labels);
+    const pinch = new HandCueLayer(labels);
     pinchRef.current = pinch;
     let engine: OverlayEngine | null = null;
     try {

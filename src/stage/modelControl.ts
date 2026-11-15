@@ -4,7 +4,9 @@
  * let go (like spinning a globe), and remembers when anything was last touched, so the overlay's
  * idle drift waits for a few quiet seconds. Voice (rotate_model, explode, zoom_model) writes the store directly.
  * Turns go through turnModel (turnLimit.ts): a flat model is soft-limited so it never rests edge-on.
- * Zoom (#109): store.modelZoom, from the trackpad pinch, the + / - keys and the two-hand spread.
+ * Zoom (#109): store.modelZoom, from the trackpad pinch, the + / - keys, the two-hand spread and the burst.
+ * Pan (#121): store.modelPanX / modelPanY in stage sizes (PAN_UNIT_VH of the view height each), from the
+ * two-hand pinch moved together, shift- or right-drag and shift + arrow keys; `centre` puts it back.
  */
 import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
@@ -19,6 +21,17 @@ const MIN_SPIN = 0.05;
 const STILL_MS = 90;
 /** Lowest explode amount reachable by mouse or hands: the "analyse" state, parts just apart. */
 export const STAGE_MIN_EXPLODE = 0.12;
+
+/**
+ * One "stage size" of store.modelPanX / modelPanY, as a share of the view height: the normal stage
+ * model's widest extent (boxRig.ts STAGE_SIZE). Every stage renderer converts pan with it.
+ */
+export const PAN_UNIT_VH = 0.56;
+
+/** Pan in stage sizes -> viewport px, for a view `vh` px high. */
+export function panPx(pan: number, vh: number): number {
+  return Number.isFinite(pan) ? pan * PAN_UNIT_VH * vh : 0;
+}
 
 /** Direct input works only while a box model is on stage (the floating model). */
 export function stageInputActive(s: Pick<AppState, 'trackingMode' | 'teardown'>): boolean {
@@ -98,6 +111,23 @@ class ModelControl {
     if (!stageInputActive(s) || !Number.isFinite(zoom)) return;
     this.lastInputAt = now;
     if (Math.abs(zoom - s.modelZoom) > 1e-4) s.setModelZoom(zoom);
+  }
+
+  /** Move the model by (dx, dy) stage sizes from direct input (clamped by the store). */
+  panBy(dx: number, dy: number, now: number): void {
+    const s = useStore.getState();
+    if (!stageInputActive(s) || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    this.lastInputAt = now;
+    if (Math.abs(dx) > 1e-5 || Math.abs(dy) > 1e-5) s.panModel(dx, dy);
+  }
+
+  /** Back to the middle of the view at the normal size (double-click, the 0 key). */
+  centre(now: number): void {
+    const s = useStore.getState();
+    if (!stageInputActive(s)) return;
+    this.lastInputAt = now;
+    s.centreModel();
+    s.setModelZoom(1);
   }
 
   /** Stop any coasting (reset, model gone). */

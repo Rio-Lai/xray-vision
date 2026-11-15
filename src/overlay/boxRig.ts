@@ -54,7 +54,7 @@ import {
 } from './explodeLayout';
 import { loadGlbTemplate } from './glbCache';
 import { Lift } from './liftOut';
-import { STAGE_MIN_EXPLODE } from '../stage/modelControl';
+import { STAGE_MIN_EXPLODE, panPx } from '../stage/modelControl';
 import { STAGE_ELEVATION, nearestTurn, springStep, stageAspect, stageDepthScale, stageFit, stageLayout, stageStack } from './stageLayout';
 import type { StageLayout } from './stageLayout';
 import { inView } from './labels';
@@ -129,6 +129,9 @@ export interface StageFrame {
   putAway: boolean;
   /** store.modelZoom: 1 = the normal stage size (ignored while put away) */
   zoom: number;
+  /** store.modelPanX / modelPanY: offset from the middle of the view in stage sizes (ignored while put away, #121) */
+  panX?: number;
+  panY?: number;
   /**
    * Where it lifts out of instead of the object's box, read when the lift starts (a saved model
    * brought back while its object is not in view: its pill). The box still gives its shape.
@@ -152,6 +155,11 @@ interface StageState {
   pitchV: number;
   zoom: number;
   zoomV: number;
+  /** pan (stage sizes), eased like the turn and the zoom */
+  panX: number;
+  panXV: number;
+  panY: number;
+  panYV: number;
   /** where the model lifts out of / returns to (viewport px): the object's latest box */
   from: ScreenBox;
 }
@@ -698,7 +706,7 @@ export class BoxRig {
       // Start facing the camera exactly as the real object does (a whole number of turns).
       const yaw0 = nearestTurn(sf.yaw);
       const fromPill = !!sf.startBox;
-      this.stage = { layout, lift: new Lift(), waited: 0, fromPill, yaw0, yaw: yaw0, yawV: 0, pitch: 0, pitchV: 0, zoom: 1, zoomV: 0, from: { cx: from.cx, cy: from.cy, w: from.w, h: from.h } };
+      this.stage = { layout, lift: new Lift(), waited: 0, fromPill, yaw0, yaw: yaw0, yawV: 0, pitch: 0, pitchV: 0, zoom: 1, zoomV: 0, panX: 0, panXV: 0, panY: 0, panYV: 0, from: { cx: from.cx, cy: from.cy, w: from.w, h: from.h } };
     }
     const st = this.stage;
     // The lift (liftOut.ts): it appears once the models that are loading have arrived (or after
@@ -728,6 +736,10 @@ export class BoxRig {
     [st.yaw, st.yawV] = springStep(st.yaw, st.yawV, sf.putAway ? nearestTurn(st.yaw) : sf.yaw, STAGE_TURN_OMEGA, dt);
     [st.pitch, st.pitchV] = springStep(st.pitch, st.pitchV, sf.putAway ? 0 : sf.pitch, STAGE_TURN_OMEGA, dt);
     [st.zoom, st.zoomV] = springStep(st.zoom, st.zoomV, sf.putAway || !Number.isFinite(sf.zoom) ? 1 : sf.zoom, STAGE_TURN_OMEGA, dt);
+    const panGoalX = sf.putAway ? 0 : sf.panX ?? 0;
+    const panGoalY = sf.putAway ? 0 : sf.panY ?? 0;
+    [st.panX, st.panXV] = springStep(st.panX, st.panXV, Number.isFinite(panGoalX) ? panGoalX : 0, STAGE_TURN_OMEGA, dt);
+    [st.panY, st.panYV] = springStep(st.panY, st.panYV, Number.isFinite(panGoalY) ? panGoalY : 0, STAGE_TURN_OMEGA, dt);
     const p = st.lift.opacity;
 
     const lay = st.layout;
@@ -784,8 +796,9 @@ export class BoxRig {
     const sStage = Math.min(sizeCap, stageFit(R, stack.top - stack.bottom, STAGE_ELEVATION, availW, availH)) * Math.max(0.05, st.zoom);
     const s0 = Math.max(0.05, st.from.w / lay.W);
     const s = s0 + (sStage - s0) * L;
-    const cx = st.from.cx + (vw / 2 - st.from.cx) * L;
-    const cy = st.from.cy + (TOP_MARGIN + availH / 2 - st.from.cy) * L;
+    // Panned (store.modelPanX / modelPanY, #121): the stage point moves; the lift starts and ends on the object.
+    const cx = st.from.cx + (vw / 2 + panPx(st.panX, vh) - st.from.cx) * L;
+    const cy = st.from.cy + (TOP_MARGIN + availH / 2 + panPx(st.panY, vh) - st.from.cy) * L;
     this.root.position.set(cx - vw / 2, vh / 2 - cy, 0);
     this.root.scale.setScalar(s);
     this.root.updateMatrixWorld(true);

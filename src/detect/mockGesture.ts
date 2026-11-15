@@ -1,11 +1,16 @@
 /**
  * Synthetic hands for `?mock=gesture` (and the Node simulations of gestures.ts): a hand seen from
  * the back by the head camera, fingers pointing up the image, posed by a few numbers (wrist
- * position, size, curl, pinch), and a scripted loop that analyses nothing by itself but plays:
- *   right hand comes up, pinches, drags right (turns the model) and lets go with a flick (coasts);
- *   both hands come up, pinch, pull apart (explodes to 1, then zooms in to about 1.8, #109), hold,
- *   come together (zoom back to 1, then back to 0.12), let go;
- *   right hand makes a fist and opens it quickly (the burst gesture: only does something with burst on).
+ * position, size, curl, pinch), and a scripted loop that plays every hand control in turn (#121),
+ * with a short pause between them, so you can see what each should look like:
+ *   1. pinch turn: right hand comes up, pinches, drags right (turns the model), lets go with a flick (coasts);
+ *   2. two-hand open then zoom: both hands pinch, pull apart (opens to 1, then zooms in), hold, come
+ *      together (zoom back to 1, then closes to the analysed 0.12), let go;
+ *   3. pan: both hands pinch and move together to the right and up (moves the model), then back;
+ *   4. globe turn: both open hands come up, hold, move right together (turns it), back left, then one
+ *      hand comes closer while the other moves away (turns it too), and back;
+ *   5. burst open: a fist comes up, holds, opens quickly (opens the model fully);
+ *   6. burst close: the open hand closes quickly to a fist (back to analysed), and goes down.
  */
 import type { Landmark, RawHand } from './handTracker';
 
@@ -17,6 +22,8 @@ export interface HandPose {
   hs: number;
   /** 0 = open, 1 = fist (index..pinky; the thumb folds with it) */
   curl: number;
+  /** curl of the middle, ring and pinky fingers if different (a pinch with the other fingers curled) */
+  rest?: number;
   /** 0 = apart, 1 = thumb tip on index tip */
   pinch: number;
   /** true = left hand (mirrored) */
@@ -52,8 +59,9 @@ export function syntheticHand(p: HandPose, fw: number, fh: number): Landmark[] {
   const pinch = Math.min(1, Math.max(0, p.pinch));
   // Fingers: bend each joint towards the palm (away from the camera); in the image the finger
   // shortens along its own direction.
+  const rest = Math.min(1, Math.max(0, p.rest ?? curl));
   CHAINS.forEach((chain, k) => {
-    const c = k === 0 ? Math.max(curl, 0.35 * pinch) : curl;
+    const c = k === 0 ? Math.max(curl, 0.35 * pinch) : rest;
     const m = pts[chain[0]];
     const segs = [1, 2, 3].map((j) => {
       const a = BASE[chain[j - 1]];
@@ -105,7 +113,7 @@ const smooth = (a: number, b: number, t: number) => {
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /** One loop of the script, in ms. */
-export const MOCK_GESTURE_LOOP_MS = 14000;
+export const MOCK_GESTURE_LOOP_MS = 26600;
 
 /**
  * The scripted hands at `t` ms into the loop (frame 1280 x 720). Hands come up from the bottom
@@ -121,8 +129,8 @@ export function mockGestureHands(t: number, fw = 1280, fh = 720): RawHand[] {
     if (pose.wy - 2 * pose.hs > fh) return; // fully below the frame: not detected
     hands.push({ handedness: pose.left ? 'left' : 'right', score: 0.97, landmarks: syntheticHand(pose, fw, fh) });
   };
-  // 0.0-3.4 s: one-hand pinch-drag (turn), flick release at 2.4 s.
   if (s < 3.4) {
+    // 1. 0.0-3.4 s: one-hand pinch-drag (turn), flick release at 2.4 s.
     const up = smooth(0.2, 0.8, s) * (1 - smooth(2.8, 3.4, s));
     const drag = smooth(1.1, 2.4, s);
     add({
@@ -134,19 +142,37 @@ export function mockGestureHands(t: number, fw = 1280, fh = 720): RawHand[] {
       left: false,
       angle: -0.1,
     });
-  } else if (s < 9.2) {
-    // 3.4-9.2 s: both hands pinch, pull apart (explode), hold, come together, let go.
-    const up = smooth(3.4, 4.0, s) * (1 - smooth(8.6, 9.2, s));
-    const apart = smooth(4.6, 6.0, s) * (1 - smooth(7.0, 8.2, s));
+  } else if (s < 9.6) {
+    // 2. 3.8-9.6 s: both hands pinch, pull apart (open, then zoom), hold, come together, let go.
+    const up = smooth(3.8, 4.4, s) * (1 - smooth(9.0, 9.6, s));
+    const apart = smooth(5.0, 6.4, s) * (1 - smooth(7.4, 8.6, s));
     const half = lerp(1.1 * hs, 2.6 * hs, apart);
-    const pinch = smooth(4.1, 4.35, s) * (1 - smooth(8.3, 8.5, s));
+    const pinch = smooth(4.5, 4.75, s) * (1 - smooth(8.7, 8.9, s));
     const wy = lerp(below, 0.86 * fh, up);
     add({ wx: fw / 2 - half - 0.4 * hs, wy, hs, curl: 0.15, pinch, left: true, angle: 0.25 });
     add({ wx: fw / 2 + half + 0.4 * hs, wy, hs, curl: 0.15, pinch, left: false, angle: -0.25 });
+  } else if (s < 14.8) {
+    // 3. 10.0-14.8 s: both hands pinch and move together right and up (pan), hold, back, let go.
+    const up = smooth(10.0, 10.6, s) * (1 - smooth(14.2, 14.8, s));
+    const move = smooth(11.2, 12.2, s) * (1 - smooth(12.8, 13.8, s));
+    const pinch = smooth(10.7, 10.95, s) * (1 - smooth(13.9, 14.1, s));
+    const wy = lerp(below, 0.86 * fh, up) - 0.7 * hs * move;
+    const dx = 1.4 * hs * move;
+    add({ wx: fw / 2 - 1.6 * hs + dx, wy, hs, curl: 0.15, pinch, left: true, angle: 0.25 });
+    add({ wx: fw / 2 + 1.6 * hs + dx, wy, hs, curl: 0.15, pinch, left: false, angle: -0.25 });
+  } else if (s < 20.8) {
+    // 4. 15.2-20.8 s: two open hands (the globe): right together, back left, then the left hand
+    // comes closer while the right moves away, and back; then down.
+    const up = smooth(15.2, 15.8, s) * (1 - smooth(20.2, 20.8, s));
+    const side = 1.1 * hs * (smooth(16.4, 17.2, s) - smooth(17.6, 18.4, s));
+    const depth = 0.2 * (smooth(18.7, 19.3, s) - smooth(19.5, 20.1, s));
+    const wy = lerp(below, 0.84 * fh, up);
+    add({ wx: fw / 2 - 1.7 * hs + side, wy, hs: hs * (1 + depth), curl: 0.12, pinch: 0, left: true, angle: 0.15 });
+    add({ wx: fw / 2 + 1.7 * hs + side, wy, hs: hs * (1 - depth), curl: 0.12, pinch: 0, left: false, angle: -0.15 });
   } else {
-    // 9.2-14 s: right hand fist, opens quickly (burst open), holds, closes quickly (burst close).
-    const up = smooth(9.2, 9.8, s) * (1 - smooth(13.4, 14.0, s));
-    const curl = 1 - smooth(10.6, 10.85, s) * (1 - smooth(12.2, 12.45, s));
+    // 5-6. 21.2-26.0 s: a fist comes up, holds, opens quickly (burst open), holds, closes quickly (burst close).
+    const up = smooth(21.2, 21.8, s) * (1 - smooth(25.4, 26.0, s));
+    const curl = 1 - smooth(22.8, 23.0, s) * (1 - smooth(24.4, 24.6, s));
     add({ wx: 0.56 * fw, wy: lerp(below, 0.84 * fh, up), hs, curl, pinch: 0, left: false, angle: -0.1 });
   }
   return hands;

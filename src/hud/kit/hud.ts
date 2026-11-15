@@ -8,7 +8,7 @@
  *    .bf-title-pill, .bf-card, .bf-part-card, .bf-step-card, .bf-progress, .bf-status-pill,
  *    .bf-pill-dot, and .bf-label-pill (also added to the pills of the label layers);
  *  - the app's own classes for what src/overlay/ draws imperatively every frame (object labels,
- *    part labels and leader lines, focus glow, pinch dot), styled to the kit's anatomy. Their
+ *    part labels and leader lines, focus glow, hand markers), styled to the kit's anatomy. Their
  *    positioning rules are the same as in the classic stylesheet, so the layers behave the same.
  * Assembled with the tokens, keyframes and the debug panel styles in ../styles.ts.
  */
@@ -66,11 +66,14 @@ export const KIT_HUD_CSS = `
   transition: opacity var(--bf-duration-normal) var(--bf-easing-out); }
 .bf-focusglow.on { opacity: 1; }
 
-/* ---- the pinch cue (not in the kit; same as the classic look) ---- */
-.bf-pinch { position: absolute; left: 0; top: 0; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
-  background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.16), 0 0 14px rgba(255, 255, 255, 0.45);
-  opacity: 0; transition: opacity 140ms ease-out; will-change: transform, opacity; }
-.bf-pinch.on { opacity: 0.9; }
+/* ---- the hand cue (#121, src/overlay/pinchDots.ts; not in the kit): a small ring at each free raised
+   hand's palm, filled while it does something ---- */
+.bf-hand-mark { position: absolute; left: 0; top: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px; box-sizing: border-box;
+  border-radius: var(--bf-radius-pill); border: var(--bf-border-width-focus) solid var(--bf-color-line-strong); background: transparent;
+  box-shadow: var(--bf-shadow-dot-ring); opacity: 0; will-change: transform, opacity;
+  transition: opacity var(--bf-duration-fast) var(--bf-easing-out), background-color var(--bf-duration-fast) var(--bf-easing-out); }
+.bf-hand-mark.on { opacity: 0.8; }
+.bf-hand-mark.active { background: var(--bf-color-white); }
 
 /* ---- part labels (model on stage): pill, elbow leader line, dot. Drawn by src/overlay/labels.ts. ---- */
 .bf-plabel { position: absolute; left: 0; top: 0; will-change: transform, opacity; }
@@ -109,9 +112,13 @@ export const KIT_HUD_CSS = `
 .bf-progress__segment { height: var(--bf-space-1); flex: 1; border-radius: var(--bf-radius-pill); background: var(--bf-color-glass-soft); }
 .bf-progress__segment--active { background: var(--bf-color-accent); }
 
-/* ---- gesture hint (in the kit; the app does not show one yet, see README) ---- */
+/* ---- gesture hint (the kit's GestureHint). The app shows it while a hand gesture does something (#121,
+   .bf-cue-hint, src/overlay/pinchDots.ts): just above the voice zone instead of at 76%, fading. ---- */
 .bf-gesture-hint { position: absolute; left: 50%; top: 76%; transform: translateX(-50%); margin: var(--bf-space-0);
   color: var(--bf-color-text-quiet); font-size: var(--bf-font-size-body); white-space: nowrap; text-shadow: var(--bf-shadow-1); }
+.bf-gesture-hint.bf-cue-hint { top: auto; opacity: 0;
+  transition: opacity var(--bf-duration-fast) var(--bf-easing-out), bottom var(--bf-duration-fast) var(--bf-easing-out); }
+.bf-gesture-hint.bf-cue-hint.on { opacity: 1; }
 
 /* ---- the one status pill, above the voice zone. Wraps long errors (Make: one line). ---- */
 .bf-status-pill { position: absolute; left: 50%; bottom: var(--bf-size-status-offset); transform: translateX(-50%);

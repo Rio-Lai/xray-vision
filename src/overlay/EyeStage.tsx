@@ -24,7 +24,8 @@
  *    real eye does, opaque; a left eye is mirrored, so the optic nerve leaves on the nasal side), then
  *    rises, grows and turns to his three-quarter view on one ease-out curve, its parts separating
  *    only as it arrives; modelYaw / modelPitch (hands, mouse, voice) and the idle drift turn it,
- *    modelZoom (eased) scales it about its middle; "put it away" closes it and glides it back into
+ *    modelZoom (eased) scales it about its middle, modelPanX / modelPanY (eased, #121) move it
+ *    (labels too); "put it away" closes it and glides it back into
  *    the eye (or its saved pill) and fades it. A saved eye brought back with no eye in view lifts
  *    out of its pill.
  *  - Part labels are the Blowfish pills (labels.ts) on each part once it is apart, and on the parts of
@@ -44,7 +45,7 @@ import { live } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
 import { isEyeTeardown } from '../stage/eyeTeardown';
 import { sentenceCase } from '../stage/armTeardown';
-import { STAGE_MIN_EXPLODE, modelControl } from '../stage/modelControl';
+import { STAGE_MIN_EXPLODE, modelControl, panPx } from '../stage/modelControl';
 import { smoothstep } from './explodeAnimator';
 import { BOTTOM_MARGIN, LABEL_SIDE_FRAC, LABEL_SIDE_MAX_PX, STAGE_SIZE, STAGE_TURN_OMEGA, TOP_MARGIN } from './boxRig';
 import type { ScreenBox } from './boxRig';
@@ -265,6 +266,11 @@ class EyeStageCtl {
   private pitchV = 0;
   private zoom = 1;
   private zoomV = 0;
+  /** pan (store.modelPanX / modelPanY, stage sizes), eased */
+  private panX = 0;
+  private panXV = 0;
+  private panY = 0;
+  private panYV = 0;
   private drift = 0;
   private lastInput = 0;
   private seen = { yaw: 0, pitch: 0, explode: 0, step: null as number | null, hl: null as string | null };
@@ -628,6 +634,9 @@ class EyeStageCtl {
         this.drift = 0;
         this.zoom = s.modelZoom;
         this.zoomV = 0;
+        this.panX = s.modelPanX;
+        this.panY = s.modelPanY;
+        this.panXV = this.panYV = 0;
         this.yaw = s.modelYaw;
         this.yawV = 0;
         this.pitch = s.modelPitch;
@@ -706,6 +715,8 @@ class EyeStageCtl {
       [this.pitch, this.pitchV] = springStep(this.pitch, this.pitchV, s.modelPitch, TURN_OMEGA, dt);
     }
     [this.zoom, this.zoomV] = springStep(this.zoom, this.zoomV, on ? s.modelZoom : 1, TURN_OMEGA, dt);
+    [this.panX, this.panXV] = springStep(this.panX, this.panXV, on ? s.modelPanX : 0, TURN_OMEGA, dt);
+    [this.panY, this.panYV] = springStep(this.panY, this.panYV, on ? s.modelPanY : 0, TURN_OMEGA, dt);
 
     // Pose: explode slides, pivot, orientation (lift: facing the wearer -> his view, plus the wearer's turning).
     this.layoutRow();
@@ -729,8 +740,8 @@ class EyeStageCtl {
     const fit = this.fitPpu(base, pivot, mirror, availW, availH, h) * Math.max(0.05, this.zoom);
     const fromPpu = Math.max(4, Math.min(this.from.w, this.from.h * 1.6));
     this.ppu = fromPpu + (fit - fromPpu) * L;
-    const sx = this.from.cx + (w / 2 - this.from.cx) * L;
-    const sy = this.from.cy + (TOP_MARGIN + availH / 2 - this.from.cy) * L;
+    const sx = this.from.cx + (w / 2 + panPx(this.panX, h) - this.from.cx) * L;
+    const sy = this.from.cy + (TOP_MARGIN + availH / 2 + panPx(this.panY, h) - this.from.cy) * L;
     const cam = this.camera;
     cam.left = -w / 2 / this.ppu;
     cam.right = w / 2 / this.ppu;
