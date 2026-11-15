@@ -8,6 +8,7 @@ See `TeardownSchema` in `shared/teardown.ts`. Conventions:
 
 - `id`: kebab-case, unique within the teardown.
 - `layer`: 0 = outermost, nearest the camera. Higher = deeper. Sets explode order.
+- `visual` (optional, per part): one plain phrase saying what the part looks like. Used only to write the fal image prompt (`partPrompt` in `shared/prompts.ts`); never shown or spoken.
   - Laptop: camera looks down at an open laptop's keyboard deck. Keyboard and display are 0, bottom case is deepest.
   - Hand: camera looks down at the back of a typing hand. Skin is 0, then extensor tendons, bones, the small hand muscles, the forearm flexors, and the palm pads (thenar, hypothenar) deepest.
 - `size`: [width, height, depth] as fractions of the anchor box.
