@@ -4,7 +4,8 @@ import { DetailError, DETAIL_SAY, getDetail } from '../lib/detail';
 
 /**
  * POST /api/detail { topic, object?, part?, context? } (`?detail=1` in the app) -> a DetailScene (shared/detail.ts)
- * plus `cached` ("memory" | "disk" | "premade", or absent when made just now) and `seconds`.
+ * plus `cached` ("memory" | "disk" | "premade", or absent when made just now), `premade` (with "premade": the
+ * pre-made topic's id, docs/detail-topics.json) and `seconds`.
  * Kept in memory and in .cache-live/detail/, so a repeat is instant (server/lib/detail.ts).
  * Failures answer with one sentence the tutor can say in `message`: 503 (no key and nothing kept, `mock: true`),
  * 504 (too slow), 502 (anything else).
@@ -16,9 +17,9 @@ export async function detail(req: Request, res: Response) {
   try {
     const hit = await getDetail(ask);
     console.info(
-      `[detail] ${hit.key} ${hit.from === 'claude' ? 'made' : `from ${hit.from}`} in ${hit.seconds} s (${hit.scene.parts.length} parts, ${hit.scene.animations.length} animations)`,
+      `[detail] ${hit.key} ${hit.from === 'claude' ? 'made' : `from ${hit.from}${hit.premade ? ` "${hit.premade}" for "${ask.topic}"` : ''}`} in ${hit.seconds} s (${hit.scene.parts.length} parts, ${hit.scene.animations.length} animations)`,
     );
-    return res.json({ ...hit.scene, ...(hit.from === 'claude' ? {} : { cached: hit.from }), seconds: hit.seconds });
+    return res.json({ ...hit.scene, ...(hit.from === 'claude' ? {} : { cached: hit.from }), ...(hit.premade ? { premade: hit.premade } : {}), seconds: hit.seconds });
   } catch (err) {
     if (err instanceof DetailError) {
       console.warn(`[detail] "${ask.topic}" ${err.kind}: ${err.message}`);

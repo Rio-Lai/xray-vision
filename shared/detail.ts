@@ -112,6 +112,8 @@ export type DetailRequest = z.infer<typeof DetailRequestSchema>;
 /** What POST /api/detail adds to a scene: where it came from (no field = generated just now) and how long it took. */
 export interface DetailAnswerFlags {
   cached?: 'memory' | 'disk' | 'premade';
+  /** with cached "premade": the id of the pre-made topic (docs/detail-topics.json) whose rule matched */
+  premade?: string;
   seconds?: number;
 }
 
@@ -576,49 +578,92 @@ export function detailKey(topic: string, object?: string, part?: string): string
   return full.length <= 80 ? full : `${full.slice(0, 72).replace(/-+$/, '')}-${shortHash(full)}`;
 }
 
-/** One pre-made topic (docs/detail-topics.json): generated ahead by npm run predetail so it opens at once. */
+/**
+ * One pre-made topic (docs/detail-topics.json): generated ahead by npm run predetail so it opens at once.
+ * `topic` and `object` make its cache key (detailKey), so they must not change once it is made.
+ * `objects`, `any` and `none` are its hand-written match rule (premadeMatch); a topic without `any` is
+ * only ever found by its exact key.
+ */
 export interface PremadeTopic {
+  /** a short name, for logs and the answer's `premade` field ("battery") */
+  id: string;
   topic: string;
   object?: string;
+  /**
+   * When a model is open: at least one of these must be in its name or the asked part's name ("MacBook Air
+   * 13-inch" has "macbook", a part "Battery" has "battery"). With nothing open this is not checked. Leave it
+   * out for a topic that fits any open model.
+   */
+  objects?: string[];
+  /** at least one entry of EVERY group must be in the request's topic + part; an entry of several words ("flex cable") needs all of them */
+  any?: string[][];
+  /** none of these may be in the request's topic + part */
+  none?: string[];
 }
 
 /**
- * How well a request matches a pre-made topic, 0..1: the share of the request's words (topic, plus its part)
- * found in the pre-made topic and object. A pre-made topic for an object needs the request to be about
- * the same object (a shared word in the object or the topic). Used only when the exact key misses, and
- * only a score of 1 counts (bestPremade): every word that says what is asked must be in the pre-made topic,
- * so "battery charging" never gets the discharge model and "palisade mesophyll" never the spongy one.
+ * The stemmed words of a request, for the pre-made rules. Unlike topicWords every word is kept (a rule only
+ * names words that matter), except "made" in "made of" / "made from" / "made out of": that asks what it is
+ * made of, not how it is made, so "what is the battery made of" is not caught by a rule's "made".
  */
-export function premadeScore(req: Pick<DetailRequest, 'topic' | 'object' | 'part'>, p: PremadeTopic): number {
-  const asked = topicWords(`${req.topic} ${req.part ?? ''}`);
-  const pObj = topicWords(p.object);
-  const have = new Set([...topicWords(p.topic), ...pObj]);
-  if (pObj.size > 0) {
-    const reqObj = topicWords(req.object);
-    const sameObject = [...pObj].some((w) => reqObj.has(w) || asked.has(w));
-    if (!sameObject) return 0;
+function ruleWords(s: string | undefined): string[] {
+  const ws = words(s);
+  const out: string[] = [];
+  for (let i = 0; i < ws.length; i++) {
+    if (ws[i] === 'made' && (ws[i + 1] === 'of' || ws[i + 1] === 'from' || ws[i + 1] === 'out')) continue;
+    out.push(stem(ws[i]));
   }
-  // the object's own words say nothing about which topic it is
-  const reqObj = topicWords(req.object);
-  const content = [...asked].filter((w) => !reqObj.has(w) && !pObj.has(w));
-  if (content.length === 0) return 0;
-  const haveList = [...have];
-  const shared = content.filter((w) => haveList.some((h) => sameWord(w, h))).length;
-  return shared / content.length;
+  return out;
 }
 
-/** The best pre-made topic for a request (score at least `min`; by default every asked word must be in it), or null. */
-export function bestPremade(req: Pick<DetailRequest, 'topic' | 'object' | 'part'>, list: PremadeTopic[], min = 1): PremadeTopic | null {
-  let best: PremadeTopic | null = null;
-  let bestScore = -1;
-  for (const p of list) {
-    const sc = premadeScore(req, p);
-    if (sc >= min && sc > bestScore) {
-      best = p;
-      bestScore = sc;
-    }
+/**
+ * Two stems are the same word for a rule: equal, or one longer by a single letter ("focu" and "focus").
+ * Stricter than sameWord, so "flex" is not "flexor"; a rule lists the other forms it means.
+ */
+function ruleSame(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+  return s.length >= 4 && l.length - s.length === 1 && l.startsWith(s);
+}
+
+/** An entry of a rule ("ribbon", or "flex cable": every word) is in the words, compared as stems. */
+function hasEntry(have: string[], entry: string): boolean {
+  const need = words(entry).map(stem);
+  return need.length > 0 && need.every((w) => have.some((h) => ruleSame(h, w)));
+}
+
+/**
+ * Whether a request matches one pre-made topic's rule: its `objects` (only when a model is open), every
+ * `any` group and no `none` word. `objectMatched` = it has an objects rule and one of those words was
+ * found (used to break a tie between two topics).
+ */
+export function premadeMatch(req: Pick<DetailRequest, 'topic' | 'object' | 'part'>, p: PremadeTopic): { ok: boolean; objectMatched: boolean } {
+  const no = { ok: false, objectMatched: false };
+  if (!p.any || p.any.length === 0) return no;
+  const asked = ruleWords(`${req.topic} ${req.part ?? ''}`);
+  if ((p.none ?? []).some((w) => hasEntry(asked, w))) return no;
+  if (!p.any.every((group) => group.some((w) => hasEntry(asked, w)))) return no;
+  let objectMatched = false;
+  if (p.objects && p.objects.length > 0) {
+    const about = [...ruleWords(req.object), ...ruleWords(req.part)];
+    objectMatched = p.objects.some((w) => hasEntry(about, w));
+    // a different kind of model is open (an iPhone's lens is not the eye's)
+    if (!objectMatched && (req.object ?? '').trim()) return no;
   }
-  return best;
+  return { ok: true, objectMatched };
+}
+
+/**
+ * The pre-made topic for a request, or null. Used only when the exact key misses. A request gets a
+ * pre-made topic only when exactly one rule matches; if several do, the one whose objects rule matched,
+ * if that is just one; otherwise none (the request is then made live). So "battery charging" never gets the
+ * discharge model, "palisade mesophyll" never the spongy one: each rule's `none` words say what it is not.
+ */
+export function bestPremade(req: Pick<DetailRequest, 'topic' | 'object' | 'part'>, list: PremadeTopic[]): PremadeTopic | null {
+  const hits = list.map((p) => ({ p, m: premadeMatch(req, p) })).filter((h) => h.m.ok);
+  if (hits.length === 1) return hits[0].p;
+  const byObject = hits.filter((h) => h.m.objectMatched);
+  return byObject.length === 1 ? byObject[0].p : null;
 }
 
 /* ---------- test fixture ---------- */
