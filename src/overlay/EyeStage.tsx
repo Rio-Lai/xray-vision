@@ -22,13 +22,16 @@
  *    turn it; "put it away" glides it back into the eye and fades it (as the box rig and the arm do).
  *  - Part labels are the Blowfish pills (labels.ts) on each part once it is apart, and on the parts of
  *    a step or a highlight; the overlay asks `eyeStage.pickAt` which part a click is on.
+ *  - It is mounted from the start and draws nothing until the eye opens: a few seconds after the
+ *    page loads it builds the eye from /cache/eye.json (the models are preloaded) and compiles its
+ *    shaders once in every variant it will need (the cutaway's double sides, the dimmed parts), so
+ *    "analyse the eye" opens it at once, with no stutter while it opens.
  */
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
-import type { Teardown } from '../../shared/teardown';
 import { boxToView, errorText, getCoverMap } from '../camera/frame';
 import { live } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
@@ -61,6 +64,10 @@ const IDLE_SPIN = 0.1;
 const TURN_OMEGA = 12;
 /** The eye waits this long at most for its models before it lifts (they are preloaded). */
 const MAX_WAIT_MS = 1500;
+/** The eye is built and its shaders compiled this long after the page starts (after the laptop's models). */
+const INIT_DELAY_MS = 4000;
+/** Kash's parts list, read for the part ids, layers and model URLs. */
+const EYE_JSON = '/cache/eye.json';
 /** Labels for every part fade in between these normalised explode amounts. */
 const LABEL_FROM = 0.35;
 const LABEL_FULL = 0.75;
@@ -144,6 +151,24 @@ interface EyeMat {
   dimmed: boolean;
 }
 
+/** What the stage needs of a part from his parts list. */
+interface PartSpec {
+  id: string;
+  layer: number;
+  url: string;
+}
+
+function partSpecs(parts: unknown): PartSpec[] {
+  if (!Array.isArray(parts)) return [];
+  const out: PartSpec[] = [];
+  for (const p of parts as { id?: unknown; layer?: unknown; mesh_url?: unknown }[]) {
+    if (typeof p.id === 'string' && typeof p.layer === 'number' && typeof p.mesh_url === 'string' && p.mesh_url.length > 0) {
+      out.push({ id: p.id, layer: p.layer, url: p.mesh_url });
+    }
+  }
+  return out;
+}
+
 interface EyePart {
   id: string;
   layer: number;
@@ -158,7 +183,6 @@ interface EyePart {
 }
 
 class EyeStageCtl {
-  onDone: () => void = () => undefined;
   private host: HTMLDivElement | null = null;
   private renderer: THREE.WebGLRenderer | null = null;
   private envTex: THREE.Texture | null = null;
@@ -173,9 +197,14 @@ class EyeStageCtl {
   private readonly cutWorld = new THREE.Plane(new THREE.Vector3(0, -1, 0), CUT_NONE);
   private readonly cutLocal = new THREE.Plane(new THREE.Vector3(0, -1, 0), CUT_NONE);
   private cutSides = false;
-  private done = false;
+  /** building has started / finished (all models settled) */
+  private loading = false;
   private settled = false;
-  private mountAt = 0;
+  private initTimer: ReturnType<typeof setTimeout> | null = null;
+  /** an open has started (for MAX_WAIT_MS), the eye was open last frame, something is on the canvas */
+  private sessionAt = 0;
+  private wasOn = false;
+  private drawn = false;
   private lastNow = 0;
   private vw = 0;
   private vh = 0;
@@ -218,8 +247,7 @@ class EyeStageCtl {
 
   attach(host: HTMLDivElement, labelHost: HTMLDivElement): void {
     this.host = host;
-    this.mountAt = performance.now();
-    this.lastInput = this.mountAt;
+    this.lastInput = performance.now();
     try {
       const r = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
       r.setClearColor(0x000000, 0);
@@ -242,14 +270,17 @@ class EyeStageCtl {
       setStatus('eye-webgl', 'error', `WebGL unavailable, the eye cannot be drawn: ${errorText(e)}`);
     }
     this.labels = new LabelLayer(labelHost);
-    const td = useStore.getState().teardown;
-    if (td && isEyeTeardown(td)) this.load(td);
-    else this.settled = true;
+    this.initTimer = setTimeout(() => {
+      this.initTimer = null;
+      void this.init();
+    }, INIT_DELAY_MS);
     eyeStage.tick = this.tick;
     eyeStage.pickAt = this.pickAt;
   }
 
   detach(): void {
+    if (this.initTimer) clearTimeout(this.initTimer);
+    this.initTimer = null;
     eyeStage.tick = () => undefined;
     eyeStage.pickAt = () => null;
     this.labels?.dispose();
@@ -268,17 +299,49 @@ class EyeStageCtl {
     this.host = null;
   }
 
-  /** His ten models, each in its own holder; added as they arrive (normally at once: they are preloaded). */
-  private load(td: Teardown): void {
-    const mid = (Math.min(...td.parts.map((p) => p.layer)) + Math.max(...td.parts.map((p) => p.layer))) / 2;
-    const jobs = td.parts
-      .filter((p) => typeof p.mesh_url === 'string' && p.mesh_url.length > 0)
-      .map((p) =>
-        loadGlbTemplate(p.mesh_url!)
+  /**
+   * Build the eye once: from the parts list on stage if it is the eye, else from his file. Then
+   * compile the shaders. Runs a few seconds after the page starts, or at once if the eye is asked for first.
+   */
+  private async init(fromStore?: unknown): Promise<void> {
+    if (this.loading || !this.host) return;
+    this.loading = true;
+    let specs = partSpecs(fromStore);
+    if (specs.length === 0) {
+      try {
+        const r = await fetch(EYE_JSON);
+        if (r.ok && !(r.headers.get('content-type') ?? '').includes('text/html')) specs = partSpecs(((await r.json()) as { parts?: unknown }).parts);
+      } catch (e) {
+        devLog(`Eye: ${EYE_JSON} did not load (${errorText(e)})`, 'warn');
+      }
+    }
+    if (specs.length === 0) {
+      // Try again when the eye is opened (its parts list will be in the store then).
+      this.loading = false;
+      return;
+    }
+    await this.load(specs);
+    if (!this.host) return;
+    if (this.parts.length === 0) {
+      // Tried again at the next open.
+      this.loading = false;
+      setStatus('eye-models', 'error', 'The eye models did not load (public/cache/meshes/eye/)');
+      return;
+    }
+    this.settled = true;
+    setStatus('eye-models', null);
+    this.warmUp();
+  }
+
+  /** His models, each in its own holder; added as they arrive (normally at once: they are preloaded). */
+  private async load(specs: PartSpec[]): Promise<void> {
+    const mid = (Math.min(...specs.map((p) => p.layer)) + Math.max(...specs.map((p) => p.layer))) / 2;
+    const jobs = specs.map((p) =>
+        loadGlbTemplate(p.url)
           .then((tpl) => {
             if (!this.host) return;
             const obj = tpl.clone(true);
-            const bounds = modelBounds(p.mesh_url!, obj);
+            const bounds = modelBounds(p.url, obj);
             const mats: EyeMat[] = [];
             obj.traverse((o) => {
               const mesh = o as THREE.Mesh;
@@ -324,11 +387,52 @@ class EyeStageCtl {
           })
           .catch((e: unknown) => devLog(`Eye: model ${p.id} did not load (${errorText(e)})`, 'warn')),
       );
-    void Promise.allSettled(jobs).then(() => {
-      this.settled = true;
-      if (this.host && this.parts.length === 0) setStatus('eye-models', 'error', 'The eye models did not load (public/cache/meshes/eye/)');
-      else setStatus('eye-models', null);
-    });
+    await Promise.allSettled(jobs);
+  }
+
+  /**
+   * Compile the shaders now, while nothing is shown, in each variant the eye will need: as built,
+   * double-sided (the cutaway) and dimmed (another part highlighted). Without this the first open
+   * would stop for a moment while they compile. The canvas is invisible and cleared afterwards.
+   */
+  private warmUp(): void {
+    const r = this.renderer;
+    if (!r) return;
+    const t0 = performance.now();
+    try {
+      this.resize();
+      const ppu = Math.max(50, 0.3 * this.vh);
+      Object.assign(this.camera, { left: -this.vw / 2 / ppu, right: this.vw / 2 / ppu, top: this.vh / 2 / ppu, bottom: -this.vh / 2 / ppu });
+      this.camera.position.set(0, 0, 20);
+      this.camera.updateProjectionMatrix();
+      const mats = this.parts.flatMap((p) => p.mats);
+      const set = (side: THREE.Side, dim: boolean) => {
+        for (const m of mats) {
+          m.mat.side = side;
+          const d = dim && !m.transmissive;
+          m.mat.transparent = d;
+          m.mat.depthWrite = !d;
+          m.mat.needsUpdate = true;
+        }
+        r.render(this.scene, this.camera);
+      };
+      r.render(this.scene, this.camera);
+      set(THREE.DoubleSide, false);
+      set(THREE.DoubleSide, true);
+      for (const m of mats) {
+        m.mat.side = m.baseSide;
+        m.mat.transparent = false;
+        m.mat.depthWrite = true;
+        m.mat.needsUpdate = true;
+        m.dimmed = false;
+      }
+      this.cutSides = false;
+      r.render(this.scene, this.camera);
+      r.clear();
+      devLog(`Eye ready: ${this.parts.length} models, shaders compiled in ${Math.round(performance.now() - t0)} ms`);
+    } catch (e) {
+      devLog(`Eye: shader warm-up failed (${errorText(e)}); it compiles on first open instead`, 'warn');
+    }
   }
 
   /** The viewport box of the eye it came out of, if it is in view. */
@@ -456,6 +560,44 @@ class EyeStageCtl {
     const h = this.vh;
     const s = useStore.getState();
     const on = isEyeTeardown(s.teardown);
+    if (on && !this.wasOn) {
+      // A new open (unless it is re-opened while still going away): start from the eye in view.
+      if (this.presence < 0.05 && this.lift < 0.05) {
+        this.from = null;
+        this.objectId = null;
+        this.drift = 0;
+        this.yaw = s.modelYaw;
+        this.yawV = 0;
+        this.pitch = s.modelPitch;
+        this.pitchV = 0;
+        this.eShown = 0;
+        this.cut = 0;
+        this.lastInput = now;
+        for (const p of this.parts) {
+          p.hl = 0;
+          p.dim = 1;
+        }
+      }
+      this.sessionAt = now;
+      if (!this.loading) void this.init(s.teardown?.parts);
+    }
+    this.wasOn = on;
+    if (!on && this.lift < 0.002 && this.presence < 0.002) {
+      // Nothing to show: clear once, then draw nothing.
+      if (this.drawn) {
+        this.drawn = false;
+        this.lift = 0;
+        this.liftV = 0;
+        this.presence = 0;
+        if (this.renderer) {
+          this.renderer.domElement.style.opacity = '0';
+          this.renderer.clear();
+        }
+        this.labels?.clear();
+      }
+      return;
+    }
+    this.drawn = true;
     // the eye it came out of (kept while it is put away, so it goes back into the same eye)
     if (on) this.objectId = s.selectedObjectId ?? s.focusedObjectId ?? this.objectId;
     const mirror = this.objectId && /^eye-left\b/.test(this.objectId) ? -1 : 1;
@@ -470,15 +612,11 @@ class EyeStageCtl {
       this.from.w += (box.w - this.from.w) * k;
       this.from.h += (box.h - this.from.h) * k;
     }
-    const go = on && this.parts.length > 0 && (this.settled || now - this.mountAt > MAX_WAIT_MS);
+    const go = on && this.parts.length > 0 && (this.settled || now - this.sessionAt > MAX_WAIT_MS);
     [this.lift, this.liftV] = springStep(this.lift, this.liftV, go ? 1 : 0, STAGE_LIFT_OMEGA, dt);
     const L = clamp01(this.lift);
     const presTarget = go ? 1 : smoothstep(0.03, 0.35, L);
     this.presence += (presTarget - this.presence) * (1 - Math.exp(-dt * (go ? 9 : 14)));
-    if (!on && L < 0.02 && this.presence < 0.02 && !this.done) {
-      this.done = true;
-      setTimeout(() => this.onDone(), 0);
-    }
 
     // Store -> eye. Put away: it closes and keeps its last view.
     const step = on && s.teardown && s.activeStep !== null ? s.teardown.steps.find((x) => x.n === s.activeStep) : undefined;
@@ -596,11 +734,11 @@ class EyeStageCtl {
   };
 }
 
-function EyeStageView({ onDone }: { onDone: () => void }) {
+/** Mounted by the overlay for the whole session: draws the eye while the store's parts list is the eye (and while it is put away). */
+export function EyeStage() {
   const hostRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
   const [ctl] = useState(() => new EyeStageCtl());
-  ctl.onDone = onDone;
   useEffect(() => {
     const host = hostRef.current;
     const labels = labelRef.current;
@@ -614,17 +752,6 @@ function EyeStageView({ onDone }: { onDone: () => void }) {
       <div ref={labelRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
     </>
   );
-}
-
-/** Mounted by the overlay: shows the eye while the store's parts list is the eye (and while it is put away). */
-export function EyeStage() {
-  const on = useStore((s) => isEyeTeardown(s.teardown));
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    if (on) setMounted(true);
-  }, [on]);
-  if (!mounted) return null;
-  return <EyeStageView onDone={() => setMounted(false)} />;
 }
 
 export default EyeStage;
