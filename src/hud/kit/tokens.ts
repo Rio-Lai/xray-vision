@@ -2,7 +2,7 @@
  * Design tokens of the Figma Make interface kit (#85, #86), as a string injected with the HUD and
  * voice stylesheets (same mechanism as before: a <style> tag, no CSS import).
  * Copied from docs/design/make-interface-kit/tokens.css (which stays exactly as Make produced it).
- * Differences from Make's file, all listed in ./README.md: --bf-color-glass-quiet is denser, and an
+ * Differences from Make's file, all listed in ./README.md: --bf-color-glass-quiet is denser, --bf-color-focus-glow is fainter, and an
  * "app additions" block at the end. The scrim and stage tokens are kept but unused: the dim and
  * blur behind the model stay the app's own (src/camera/Camera.tsx).
  */
@@ -25,7 +25,7 @@ export const KIT_TOKENS_CSS = `
   --bf-color-dot-ring: rgba(0, 0, 0, 0.62);
   --bf-color-accent: #4da3ff;
   --bf-color-accent-soft: rgba(77, 163, 255, 0.28);
-  --bf-color-focus-glow: rgba(77, 163, 255, 0.18);
+  --bf-color-focus-glow: rgba(77, 163, 255, 0.07);
   --bf-color-warm: #ff9f45;
   --bf-color-warm-soft: rgba(255, 159, 69, 0.2);
   --bf-color-coral: #ff7a6b;

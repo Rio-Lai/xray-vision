@@ -12,7 +12,7 @@ The stylesheets are injected with a `<style>` tag, as before (no CSS imports), s
 
 ## What moved
 
-- **Tokens:** all of `tokens.css`, values unchanged except one (below). Every colour, size, radius, blur, shadow and timing in `hud.ts` and `voice.ts` is a `--bf-*` variable, except the pinch dot (not in the kit) and the debug panel.
+- **Tokens:** all of `tokens.css`, values unchanged except two (below: quiet glass and the focus glow). Every colour, size, radius, blur, shadow and timing in `hud.ts` and `voice.ts` is a `--bf-*` variable, except the pinch dot (not in the kit) and the debug panel.
 - **Markup and classes from `components.tsx`** (in `src/hud/Hud.tsx`): `TitlePill` (one pill, the neutral "AI-estimated" chip inside it), `PartCard` (kicker "Part N of M", name, summary, safety note with the inline warning glyph and hairline divider), `StepCard` (kicker, segmented progress line, sentence), `StatusPill` (looking / error variants, static dots).
 - **Label pills:** the pills drawn by `src/overlay/labels.ts` and `objectLabels.ts` carry `bf-label-pill` and the kit's state classes (`--focused`, `--highlight`); dots, stems, leader lines and the focus glow are styled to the kit's anatomy.
 - **Leader lines:** the kit's `PartLabel` shape: from the anchor dot to an elbow 32 px before the pill, then level, stopping 6 px short of the pill (`leaderPath` in `labels.ts`).
@@ -32,6 +32,7 @@ The stylesheets are injected with a `<style>` tag, as before (no CSS imports), s
 9. **Highlighted part dot:** an SVG circle with the accent ring drawn as a stroke under the fill (`paint-order: stroke`), standing in for the kit's `--bf-shadow-dot-accent` on an HTML dot.
 10. **Hold-to-talk mic glyph** is the kit's SVG used as a CSS mask on the existing dot, so the voice markup stays the same; the connecting spinner is the same dot drawn as the kit's ring spinner.
 11. **Enter animations:** HUD pieces use the kit's `bf-enter` (fade and 4 px rise via `margin-top`); object labels, which are shown and hidden by a class every frame, use a transition with the same timing and rise.
+12. **Focus glow is fainter.** `--bf-color-focus-glow` is `rgba(77, 163, 255, 0.07)` (Make: `0.18`). At 0.18 the whole focused object takes a blue cast (visible on the laptop in the kit's "overlay on" screenshot); the brief is that the wearer sees things as they normally look, so the glow only hints at which thing is "this".
 
 ## Not taken from the kit
 
