@@ -10,7 +10,7 @@
  */
 import type { Box } from '../state/store';
 
-function urlParam(name: string): string | null {
+export function urlParam(name: string): string | null {
   try {
     return new URLSearchParams(window.location.search).get(name);
   } catch {

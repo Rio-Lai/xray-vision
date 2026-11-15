@@ -428,6 +428,7 @@ function checkVisionModels(): Item[] {
   const present = (f: string) => fs.existsSync(path.join(dir, f));
   const missing = [
     !big('efficientdet_lite0.tflite') && 'object model',
+    !big('efficientdet_lite2.tflite') && 'object model Lite2',
     !big('hand_landmarker.task') && 'hand model',
     !big('face_landmarker.task') && 'face model',
     !(present('wasm/vision_wasm_internal.js') && present('wasm/vision_wasm_internal.wasm')) && 'wasm',
