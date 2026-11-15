@@ -70,10 +70,13 @@ interface PttState {
   held: boolean;
   /** Device id or part of a device label; null = the browser's default microphone. */
   mic: string | null;
-  /** A command is locked in, or Blowfish is speaking (voiceLock.ts): muted unless the talk key is held. */
+  /** A command is locked in, or Blowfish is speaking (voiceLock.ts, ?lock=1): muted unless the talk key is held. */
   locked: boolean;
+  /** The noise gate is shut (voiceGate.ts): only background noise right now, so the agent hears silence. */
+  gated: boolean;
   setPttOnly: (on: boolean) => void;
   setLocked: (locked: boolean) => void;
+  setGated: (gated: boolean) => void;
   setHeld: (held: boolean) => void;
   setMic: (mic: string | null) => void;
 }
@@ -83,7 +86,9 @@ export const usePtt = create<PttState>((set) => ({
   held: false,
   mic: initialMic(),
   locked: false,
+  gated: false,
   setLocked: (locked) => set({ locked }),
+  setGated: (gated) => set({ gated }),
   setPttOnly: (pttOnly) => {
     write(KEY_PTT, pttOnly ? '1' : '0');
     set({ pttOnly });
@@ -97,8 +102,8 @@ export const usePtt = create<PttState>((set) => ({
 
 /** true when push-to-talk alone mutes the mic right now (the pill then says "Hold to talk"). */
 export const shouldMute = (s: Pick<PttState, 'pttOnly' | 'held'>) => s.pttOnly && !s.held;
-/** true when the mic is muted right now: push-to-talk, or a locked-in command (voiceLock.ts); holding always talks. */
-export const micMutedNow = (s: Pick<PttState, 'pttOnly' | 'held' | 'locked'>) => !s.held && (s.pttOnly || s.locked);
+/** true when the mic is muted right now: push-to-talk, a locked-in command (voiceLock.ts) or the noise gate (voiceGate.ts); holding always talks. */
+export const micMutedNow = (s: Pick<PttState, 'pttOnly' | 'held' | 'locked' | 'gated'>) => !s.held && (s.pttOnly || s.locked || s.gated);
 
 async function microphones(): Promise<MediaDeviceInfo[]> {
   try {
@@ -162,17 +167,18 @@ export function usePushToTalk({ connected, setMuted, changeInputDevice }: Contro
   const pttOnly = usePtt((s) => s.pttOnly);
   const held = usePtt((s) => s.held);
   const locked = usePtt((s) => s.locked);
+  const gated = usePtt((s) => s.gated);
   const mic = usePtt((s) => s.mic);
 
-  // Mute follows the setting, the held key and the command lock.
+  // Mute follows the setting, the held key, the command lock and the noise gate.
   useEffect(() => {
     if (!connected) return;
     try {
-      setMuted(micMutedNow({ pttOnly, held, locked }));
+      setMuted(micMutedNow({ pttOnly, held, locked, gated }));
     } catch (err) {
       console.warn('[voice] setMuted failed', err);
     }
-  }, [connected, pttOnly, held, locked, setMuted]);
+  }, [connected, pttOnly, held, locked, gated, setMuted]);
 
   // A new microphone choice applies to a running session at once.
   useEffect(() => {

@@ -28,16 +28,22 @@
  * hand or a hand pointing away from the head camera still counts. Positions always come from the image.
  *
  * Gestures (only while `enabled`, i.e. a model is on stage):
- *  - drag: one hand pinching moves the model with the pinch point (panX / panY since the pinch began,
- *    panGain times), or with `pinchTurns` turns it like a globe, rotGain radians per hand size its palm
- *    moves (right = turn right, down = tip the top towards you; on release the caller coasts). A
- *    lone pinch waits DRAG_DELAY_MS for a second one (and while the other hand has no new frame).
+ *  - drag: one hand pinching turns the model like a globe (`pinchTurns`, the default), rotGain radians
+ *    per hand size its palm moves (right = turn right, down = tip the top towards you; on release the
+ *    caller coasts), or with pinchTurns off moves it with the pinch point (panX / panY since the pinch
+ *    began, panGain times). A lone pinch waits DRAG_DELAY_MS for a second one (and while the other
+ *    hand has no new frame). A thumb touching the middle fingertip (a snap getting ready) is no pinch.
  *  - grab: an open hand over the model (GestureContext.modelBox) that closes to a fist within
  *    GRAB_ARM_MS holds the model: it follows the fist (panX / panY since the grab, panGain times)
  *    until the hand opens again.
- *  - sweep: a flat open hand moved down from the top of the frame (palm from above SWEEP_TOP to below
- *    SWEEP_BOTTOM, at least SWEEP_MIN_DY, within SWEEP_MAX_MS of leaving the top, mostly straight
- *    down) -> `sweep`: the caller closes the exploded view.
+ *  - sweep: a flat hand (not a fist, not pinching) moved down from the top of the frame (palm from
+ *    above SWEEP_TOP to below SWEEP_BOTTOM, at least SWEEP_MIN_DY, within SWEEP_MAX_MS of leaving the
+ *    top and at SWEEP_MIN_SPEED or faster, mostly straight down; or out of view at the bottom on the
+ *    way, or lost and found again lower down) -> `sweep`: the caller puts the model away.
+ *  - snap: thumb pressed on the middle fingertip (middle finger out, the index not the one touching)
+ *    for SNAP_HOLD_MS, then within SNAP_WINDOW_MS the middle finger in the palm and the thumb away from
+ *    it (a finger snap: the before and after poses, which 30 fps sees even though the snap itself is
+ *    faster than a frame) -> `snap`: the caller opens the exploded view, or closes it if open.
  *  - two hands pinching: undecided ('two') until the hands have moved TWO_DECIDE_HS. Then locked for
  *    that pinch: apart / together ('spread') -> spreadDelta = spreadGain * log2(distance / distance at
  *    the start), which opens, then zooms (spreadExplodeZoom, #109); moved together in the same direction
@@ -120,8 +126,12 @@ export interface GestureTuning {
   panGain: number;
   /** open hand over the model, then a fist: grab it and move it */
   grab: boolean;
-  /** flat hand swept down from the top of the frame: close the exploded view */
+  /** flat hand swept down from the top of the frame: put the model away */
   sweep: boolean;
+  /** a finger snap opens the exploded view (or closes it) */
+  snap: boolean;
+  /** two-hand pinch apart opens the model before it zooms (off: it only zooms) */
+  twoOpens: boolean;
   /** one-hand fist -> spread opens (spread -> fist closes) */
   burst: boolean;
   /** openness at or below this is a fist */
@@ -156,7 +166,7 @@ export const GESTURE_TUNING_DEFAULTS: GestureTuning = {
   releaseMs: 100,
   pinchReachMin: 1.0,
   world: true,
-  pinchTurns: false,
+  pinchTurns: true,
   rotGain: 1.1,
   spreadGain: 1.0,
   twoHand: true,
@@ -164,6 +174,8 @@ export const GESTURE_TUNING_DEFAULTS: GestureTuning = {
   panGain: 1,
   grab: true,
   sweep: true,
+  snap: true,
+  twoOpens: false,
   burst: false,
   fistMax: 0.95,
   spreadMin: 1.4,
@@ -222,17 +234,43 @@ const DRAG_DELAY_MS = 150;
 /** A fist grabs the model if the hand was open over it at most this long before (ms). */
 const GRAB_ARM_MS = 900;
 /** Sweep: the palm starts above this share of the frame height, ends below SWEEP_BOTTOM, moves at least SWEEP_MIN_DY. */
-const SWEEP_TOP = 0.38;
-const SWEEP_BOTTOM = 0.6;
-const SWEEP_MIN_DY = 0.28;
+const SWEEP_TOP = 0.42;
+const SWEEP_BOTTOM = 0.55;
+const SWEEP_MIN_DY = 0.2;
 /** ...within this long of leaving the top (ms): lowering a hand slowly is not a sweep. */
-const SWEEP_MAX_MS = 1100;
+const SWEEP_MAX_MS = 1500;
 /** ...and mostly straight down: sideways at most this share of the way down. */
-const SWEEP_STRAIGHT = 0.8;
-/** No second sweep this soon (ms), and none just after another gesture moved the model. */
-const SWEEP_REFRACTORY_MS = 1000;
-const SWEEP_QUIET_MS = 500;
-const WHY_SWEEP = 'sweep: CLOSE fired';
+const SWEEP_STRAIGHT = 1.2;
+/** ...and briskly: on average at least this many frame heights per second since leaving the top (lowering a hand is slower). */
+const SWEEP_MIN_SPEED = 0.6;
+/** A flat hand for the sweep: openness at least this (image or 3D), not a fist, not pinching. */
+const SWEEP_OPEN_MIN = 1.0;
+/** A sweeping hand lost on the way (motion blur, out of the bottom) completes the sweep if it was this far down... */
+const SWEEP_EXIT_Y = 0.48;
+const SWEEP_EXIT_DY = 0.12;
+/** ...and a hand found again this soon after (ms), lower down, carries the sweep on. */
+const SWEEP_REFOUND_MS = 500;
+/** No second sweep this soon (ms), and none just after a drag, grab or two-hand gesture moved the model. */
+const SWEEP_REFRACTORY_MS = 1200;
+const SWEEP_QUIET_MS = 300;
+const WHY_SWEEP = 'sweep: PUT AWAY fired';
+const WHY_SWEEP_TOP = 'sweep: at the top, now sweep down';
+const WHY_SWEEP_SLOW = 'sweep: too slow (sweep down briskly, under 1.5 s)';
+/** Snap: thumb on the middle fingertip within this (hand sizes), clearly closer than to the index tip by SNAP_MARGIN. */
+const SNAP_TOUCH = 0.35;
+const SNAP_MARGIN = 0.08;
+/** ...with the middle finger out (its tip at least this far from the wrist, hand sizes), held this long (ms). */
+const SNAP_MID_OUT = 1.2;
+const SNAP_HOLD_MS = 70;
+/** After it: within this long (ms), the middle tip in the palm (at most SNAP_MID_IN from the wrist) and the thumb SNAP_APART away. */
+const SNAP_WINDOW_MS = 450;
+const SNAP_MID_IN = 1.12;
+const SNAP_APART = 0.45;
+const SNAP_REFRACTORY_MS = 900;
+/** No grab from a hand that was getting ready to snap this recently (ms): the snapped hand is nearly a fist. */
+const SNAP_NO_GRAB_MS = 600;
+const WHY_SNAP_READY = 'snap: ready (thumb on the middle finger)';
+const WHY_SNAP = 'snap: fired';
 const WHY_GRAB = 'grab: holding (open the hand to let go)';
 /** Palm centre: wrist and the four knuckles (they do not move when the fingers open or close). */
 const PALM = [0, 5, 9, 13, 17];
@@ -256,6 +294,14 @@ const BURST_SHOW_MS = 600;
 const GLOBE_SHOW_MS = 300;
 /** A hand in a globe that is not turning anything (its marker stays hollow). */
 const GLOBE_STILL_DOING = 'globe (still)';
+/** The word under a hand's ring for what it is doing (HandGestureInfo.doing). */
+const MARK_LABEL: Record<string, string> = {
+  turning: 'Rotating',
+  moving: 'Panning',
+  grabbing: 'Panning',
+  opening: 'Zooming',
+  globe: 'Rotating',
+};
 
 export type GestureMode = 'idle' | 'drag' | 'grab' | 'two' | 'spread' | 'pan' | 'globe';
 export type GestureEvent =
@@ -272,6 +318,7 @@ export type GestureEvent =
   | 'grab-start'
   | 'grab-end'
   | 'sweep'
+  | 'snap'
   | 'burst-open'
   | 'burst-close';
 /** The coarse shape of a hand. */
@@ -323,6 +370,8 @@ export interface GestureMark {
   y: number;
   /** filled: the hand is doing something */
   active: boolean;
+  /** what it is doing, in a word, shown under the ring ('' = nothing): "Rotating", "Panning", "Zooming" */
+  label: string;
 }
 
 export interface GestureOutput {
@@ -348,8 +397,11 @@ export interface GestureOutput {
   moved: boolean;
   /** a burst fired this frame */
   burst: 'open' | 'close' | null;
-  /** a sweep down fired this frame: close the exploded view */
+  /** a sweep down fired this frame: put the model away */
   sweep: boolean;
+  /** a finger snap fired this frame, and which hand (its mark key) */
+  snap: boolean;
+  snapKey: string;
   events: GestureEvent[];
   /** markers for the on-screen cue: free raised hands (and any hand doing something) */
   marks: GestureMark[];
@@ -437,11 +489,16 @@ interface HandTrack {
   size: number;
   /** last time it was open over the model (a fist soon after grabs it) */
   armedAt: number;
-  /** the sweep in progress: where (normalised) and when it began, -1 = none */
+  /** the sweep in progress: where (normalised) and when it left the top, -1 = none */
   sweepAt: number;
   sweepX0: number;
   sweepY0: number;
   sweepReady: boolean;
+  /** the snap: since when in the ready pose (-1 = not), when it last held it long enough, last time in it at all */
+  snapSince: number;
+  snapArmedAt: number;
+  snapPoseAt: number;
+  snapReady: boolean;
   raised: boolean;
   inFrame: boolean;
   /** palm centre inside the frame (GLOBE_EDGE) */
@@ -503,6 +560,9 @@ function onBox(x: number, y: number, boxes: GestureContext['restBoxes']): boolea
 
 interface Features {
   pinchDist: number;
+  /** thumb tip to middle tip, and middle tip to wrist (hand sizes; 3D when world) */
+  thumbMid: number;
+  midReach: number;
   open: number;
   openW: number;
   /** pinch, reach and openW are from the world landmarks */
@@ -541,12 +601,17 @@ function featuresInto(f: Features, lm: GestureLandmark[], handSize: number, fw: 
   f.py = ((t.y + i.y) / 2) * fh;
   f.openW = f.open;
   f.world = false;
+  const m = lm[12];
+  f.thumbMid = Math.hypot((t.x - m.x) * fw, (t.y - m.y) * fh, (t.z - m.z) * fw * Z_WEIGHT) / hs;
+  f.midReach = dist2(m, lm[0], fw, fh) / hs;
   // The hand's real 3D shape, whichever way it faces the camera (metres; wrist -> middle MCP ~ 9 cm).
   const wsz = world && world.length >= 21 ? d3(world[0], world[9]) : 0;
   if (wsz > 0.02 && wsz < 0.3) {
     f.world = true;
     f.pinchDist = d3(world![4], world![8]) / wsz;
     f.reach = d3(world![8], world![0]) / wsz;
+    f.thumbMid = d3(world![4], world![12]) / wsz;
+    f.midReach = d3(world![12], world![0]) / wsz;
     let ow = 0;
     for (const k of TIPS) ow += d3(world![k], world![0]);
     f.openW = ow / (TIPS.length * wsz);
@@ -556,7 +621,7 @@ function featuresInto(f: Features, lm: GestureLandmark[], handSize: number, fw: 
 
 /** Features of one hand: pinch distance, openness, rest openness, reach (hand sizes), pinch point and palm centre (frame px). */
 export function handFeatures(lm: GestureLandmark[], handSize: number, fw: number, fh: number, world?: GestureLandmark[] | null): Features {
-  return featuresInto({ pinchDist: 0, open: 0, openW: 0, world: false, restOpen: 0, reach: 0, px: 0, py: 0, cx: 0, cy: 0 }, lm, handSize, fw, fh, world);
+  return featuresInto({ pinchDist: 0, thumbMid: 1, midReach: 1.5, open: 0, openW: 0, world: false, restOpen: 0, reach: 0, px: 0, py: 0, cx: 0, cy: 0 }, lm, handSize, fw, fh, world);
 }
 
 /** Remember the palm and size now (the next drag / globe step is measured from here). */
@@ -669,6 +734,15 @@ export class GestureRecognizer {
   private grabX0 = 0;
   private grabY0 = 0;
   private lastSweepAt = -1e9;
+  private lastSnapAt = -1e9;
+  /** a sweeping hand lost on the way: where and when, to carry the sweep on in a hand found again */
+  private sweepLostAt = -1e9;
+  private sweepLostX = 0;
+  private sweepLostY = 0;
+  private sweepLostAt0 = 0;
+  private sweepLostX0 = 0;
+  private sweepLostY0 = 0;
+  private sweepFromLost = false;
   private twoA: HandTrack | null = null;
   private twoB: HandTrack | null = null;
   private twoD0 = 1;
@@ -696,7 +770,7 @@ export class GestureRecognizer {
   private lostHs = 1;
   private wasEnabled = false;
   private readonly used: boolean[] = [];
-  private readonly f: Features = { pinchDist: 0, open: 0, openW: 0, world: false, restOpen: 0, reach: 0, px: 0, py: 0, cx: 0, cy: 0 };
+  private readonly f: Features = { pinchDist: 0, thumbMid: 1, midReach: 1.5, open: 0, openW: 0, world: false, restOpen: 0, reach: 0, px: 0, py: 0, cx: 0, cy: 0 };
   private readonly out: GestureOutput = {
     mode: 'idle',
     dYaw: 0,
@@ -709,6 +783,8 @@ export class GestureRecognizer {
     moved: false,
     burst: null,
     sweep: false,
+    snap: false,
+    snapKey: '',
     events: [],
     marks: [],
     hands: [],
@@ -742,7 +818,7 @@ export class GestureRecognizer {
         fpx: new Euro(1.2, 0.8),
         fpy: new Euro(1.2, 0.8),
         info: {} as HandGestureInfo,
-        mark: { key: '', x: 0, y: 0, active: false },
+        mark: { key: '', x: 0, y: 0, active: false, label: '' },
       } as HandTrack);
     t.key = `h${this.nextKey++}`;
     t.id = id;
@@ -762,6 +838,10 @@ export class GestureRecognizer {
     t.sweepAt = -1;
     t.sweepX0 = t.sweepY0 = 0;
     t.sweepReady = false;
+    t.snapSince = -1;
+    t.snapArmedAt = -1e9;
+    t.snapPoseAt = -1e9;
+    t.snapReady = false;
     t.pinchDist = 1;
     t.reach = 1.2;
     t.restOpen = 1.2;
@@ -819,6 +899,7 @@ export class GestureRecognizer {
     };
     t.mark.key = t.key;
     t.mark.active = false;
+    t.mark.label = '';
     return t;
   }
 
@@ -892,7 +973,9 @@ export class GestureRecognizer {
 
     // Pinch with hysteresis and hold times; a natural pinch (other fingers relaxed or curled) counts, a fist does not.
     const wasPinched = t.pinched;
-    const near = t.pinchDist < tu.pinchOn;
+    // (the thumb on the middle fingertip, not the index: a snap getting ready, not a pinch)
+    const snapPose = f.thumbMid <= SNAP_TOUCH && f.thumbMid < f.pinchDist - SNAP_MARGIN;
+    const near = t.pinchDist < tu.pinchOn && !snapPose;
     const closeEnough = t.blocked === null && near && t.reach >= tu.pinchReachMin;
     if (near && t.blocked === null && !closeEnough && !t.pinched) this.why(t, WHY_PINCH_FIST, ts);
     if (!t.pinched) {
@@ -1003,16 +1086,19 @@ export class GestureRecognizer {
     // Open over the model: a fist soon after grabs it.
     const nx = t.cx / fw;
     const ny = t.cy / fh;
-    const openNow = !t.pinched && !this.fistNow(t, tu) && Math.max(t.open, t.openW) >= tu.globeOpenMin;
+    const fist = this.fistNow(t, tu);
+    const openNow = !t.pinched && !fist && Math.max(t.open, t.openW) >= tu.globeOpenMin;
     const mb = ctx.modelBox;
-    if (openNow && mb && nx >= mb.x && nx <= mb.x + mb.w && ny >= mb.y && ny <= mb.y + mb.h) t.armedAt = ts;
+    const snapping = ts - t.snapPoseAt < SNAP_NO_GRAB_MS;
+    if (openNow && !snapping && mb && nx >= mb.x && nx <= mb.x + mb.w && ny >= mb.y && ny <= mb.y + mb.h) t.armedAt = ts;
 
-    // The sweep: a flat open hand from the top of the frame down (a hand just come into view counts).
-    const flat = openNow && t.blocked !== 'typing' && t.blocked !== 'resting';
+    // The sweep: a flat hand from the top of the frame down (a hand just come into view counts).
+    const flat = !t.pinched && !fist && Math.max(t.open, t.openW) >= SWEEP_OPEN_MIN && t.blocked !== 'typing' && t.blocked !== 'resting';
     if (!tu.sweep || !enabled || !flat) {
       t.sweepAt = -1;
     } else if (ny <= SWEEP_TOP) {
       // at the top: a sweep starts from here (the last moment it was up here)
+      if (t.sweepAt < 0 || ts - t.sweepAt > 300) this.why(t, WHY_SWEEP_TOP, ts);
       t.sweepAt = ts;
       t.sweepX0 = nx;
       t.sweepY0 = ny;
@@ -1020,9 +1106,31 @@ export class GestureRecognizer {
       const down = ny - t.sweepY0;
       if (ts - t.sweepAt > SWEEP_MAX_MS) {
         t.sweepAt = -1;
+        this.why(t, WHY_SWEEP_SLOW, ts);
       } else if (ny >= SWEEP_BOTTOM && down >= SWEEP_MIN_DY && Math.abs(nx - t.sweepX0) * fw <= SWEEP_STRAIGHT * down * fh) {
-        t.sweepReady = true;
+        if (down / Math.max(0.05, (ts - t.sweepAt) / 1000) >= SWEEP_MIN_SPEED) t.sweepReady = true;
+        else this.why(t, WHY_SWEEP_SLOW, ts);
         t.sweepAt = -1;
+      }
+    }
+
+    // The snap: the ready pose held, then the middle finger in the palm and the thumb away. Raw shapes
+    // (not smoothed): the change is one or two camera frames.
+    if (!tu.snap || !enabled || t.blocked !== null) {
+      t.snapSince = -1;
+      t.snapArmedAt = -1e9;
+    } else if (snapPose && f.midReach >= SNAP_MID_OUT) {
+      t.snapPoseAt = ts;
+      if (t.snapSince < 0) t.snapSince = ts;
+      if (ts - t.snapSince >= SNAP_HOLD_MS) {
+        if (t.snapArmedAt < ts - 300) this.why(t, WHY_SNAP_READY, ts);
+        t.snapArmedAt = ts;
+      }
+    } else {
+      t.snapSince = -1;
+      if (ts - t.snapArmedAt <= SNAP_WINDOW_MS && f.midReach <= SNAP_MID_IN && f.thumbMid >= SNAP_APART) {
+        t.snapReady = true;
+        t.snapArmedAt = -1e9;
       }
     }
   }
@@ -1064,6 +1172,8 @@ export class GestureRecognizer {
     out.moved = false;
     out.burst = null;
     out.sweep = false;
+    out.snap = false;
+    out.snapKey = '';
     out.events.length = 0;
     out.marks.length = 0;
     out.hands.length = 0;
@@ -1119,11 +1229,42 @@ export class GestureRecognizer {
       t.matched = true;
       this.sample(t, hands[i], now, fw, fh, ctx, tu, enabled, justEnabled);
       if (now - this.lostAt < REFOUND_MS && Math.hypot(t.cx - this.lostX, t.cy - this.lostY) < 2 * Math.max(t.hs, this.lostHs)) t.mustReopen = true;
+      // A sweeping hand lost on the way and found again lower down carries the sweep on.
+      if (now - this.sweepLostAt < SWEEP_REFOUND_MS && t.cy / fh >= this.sweepLostY - 0.05 && Math.abs(t.cx / fw - this.sweepLostX) < 0.3) {
+        t.sweepAt = this.sweepLostAt0;
+        t.sweepX0 = this.sweepLostX0;
+        t.sweepY0 = this.sweepLostY0;
+        this.sweepLostAt = -1e9;
+      }
     }
     // Hands with no new frame keep their state for HOLD_MS, then they are gone.
     for (let i = this.tracks.length - 1; i >= 0; i--) {
       const t = this.tracks[i];
       if (t.fresh || now - t.freshAt <= HOLD_MS) continue;
+      // Lost while sweeping down: far enough down, it was a sweep out of view; otherwise remember it.
+      if (t.sweepAt >= 0 && t.freshAt - t.sweepAt <= SWEEP_MAX_MS) {
+        const y = t.cy / fh;
+        // (a hand already found again, lower down, since this one was last seen takes the sweep on)
+        let heir: HandTrack | null = null;
+        for (const u of this.tracks) {
+          if (u !== t && u.bornAt >= t.freshAt - 50 && u.sweepAt < 0 && u.cy / fh >= y - 0.05 && Math.abs(u.cx / fw - t.cx / fw) < 0.3) heir = u;
+        }
+        const fast = (y - t.sweepY0) / Math.max(0.05, (t.freshAt - t.sweepAt) / 1000) >= SWEEP_MIN_SPEED;
+        if (y >= SWEEP_EXIT_Y && y - t.sweepY0 >= SWEEP_EXIT_DY && fast) {
+          this.sweepFromLost = true;
+        } else if (heir) {
+          heir.sweepAt = t.sweepAt;
+          heir.sweepX0 = t.sweepX0;
+          heir.sweepY0 = t.sweepY0;
+        } else {
+          this.sweepLostAt = now;
+          this.sweepLostX = t.cx / fw;
+          this.sweepLostY = y;
+          this.sweepLostAt0 = t.sweepAt;
+          this.sweepLostX0 = t.sweepX0;
+          this.sweepLostY0 = t.sweepY0;
+        }
+      }
       if (t.pinched) {
         out.events.push('unpinch');
         this.lostAt = now;
@@ -1157,16 +1298,37 @@ export class GestureRecognizer {
       }
     }
 
-    // 3b. Sweep down (idle only): close the exploded view.
+    // 3b. Sweep down (idle, or during a globe turn: the other hand may be up too): put the model away.
+    let sweepBy: HandTrack | null = null;
+    let sweep = this.sweepFromLost;
+    this.sweepFromLost = false;
     for (const t of this.tracks) {
       if (!t.sweepReady) continue;
       t.sweepReady = false;
-      if (!enabled || this.mode !== 'idle' || now - this.lastSweepAt < SWEEP_REFRACTORY_MS || now - this.actionAt < SWEEP_QUIET_MS) continue;
+      sweep = true;
+      sweepBy = t;
+    }
+    const sweepFree = this.mode === 'idle' || this.mode === 'globe';
+    if (sweep && enabled && sweepFree && now - this.lastSweepAt >= SWEEP_REFRACTORY_MS && (this.mode === 'globe' || now - this.actionAt >= SWEEP_QUIET_MS)) {
+      if (this.mode === 'globe') this.endMode(now, 'cancel');
       this.lastSweepAt = now;
       out.sweep = true;
       out.events.push('sweep');
-      this.why(t, WHY_SWEEP, now);
+      if (sweepBy) this.why(sweepBy, WHY_SWEEP, now);
       this.globeSince = -1;
+    }
+
+    // 3c. Snap (idle only): open the exploded view, or close it.
+    for (const t of this.tracks) {
+      if (!t.snapReady) continue;
+      t.snapReady = false;
+      if (!enabled || this.mode !== 'idle' || now - this.lastSnapAt < SNAP_REFRACTORY_MS) continue;
+      this.lastSnapAt = now;
+      out.snap = true;
+      out.snapKey = t.key;
+      out.events.push('snap');
+      this.why(t, WHY_SNAP, now);
+      t.armedAt = -1e9;
     }
 
     // 4. Per-hand info and the markers.
@@ -1198,6 +1360,7 @@ export class GestureRecognizer {
         t.mark.y = (atPalm ? t.cy : t.py) / fh;
         // filled as soon as a pinch counts, and while the hand is doing something
         t.mark.active = (inf.doing !== '' && inf.doing !== GLOBE_STILL_DOING) || (t.pinched && !t.stale);
+        t.mark.label = MARK_LABEL[inf.doing] ?? '';
         out.marks.push(t.mark);
       }
     }
@@ -1457,7 +1620,7 @@ export class GestureRecognizer {
     // The grab: a hand that was open over the model a moment ago is now a fist.
     if (tu.grab) {
       for (const t of this.tracks) {
-        if (t.blocked !== null || t.pinched || !t.fresh || !this.fistNow(t, tu) || now - t.armedAt > GRAB_ARM_MS) continue;
+        if (t.blocked !== null || t.pinched || !t.fresh || !this.fistNow(t, tu) || now - t.armedAt > GRAB_ARM_MS || now - t.snapPoseAt < SNAP_NO_GRAB_MS) continue;
         this.mode = 'grab';
         this.grabKey = t.key;
         this.grabX0 = t.cx;

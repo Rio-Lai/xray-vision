@@ -74,6 +74,12 @@ export const KIT_HUD_CSS = `
   transition: opacity var(--bf-duration-fast) var(--bf-easing-out), background-color var(--bf-duration-fast) var(--bf-easing-out); }
 .bf-hand-mark.on { opacity: 0.8; }
 .bf-hand-mark.active { background: var(--bf-color-white); }
+/* the word under the ring (pinchDots.ts): what that hand is doing */
+.bf-hand-label { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); padding: 2px 8px; white-space: nowrap;
+  border-radius: var(--bf-radius-pill); background: var(--bf-color-glass-strong); color: var(--bf-color-text);
+  font-size: 12px; font-weight: var(--bf-font-weight-medium); line-height: 1.3; text-shadow: var(--bf-shadow-1);
+  opacity: 0; transition: opacity var(--bf-duration-fast) var(--bf-easing-out); pointer-events: none; }
+.bf-hand-label.on { opacity: 1; }
 
 /* ---- part labels (model on stage): pill, elbow leader line, dot. Drawn by src/overlay/labels.ts. ---- */
 .bf-plabel { position: absolute; left: 0; top: 0; will-change: transform, opacity; }

@@ -1,13 +1,14 @@
 /**
- * Lock in a command (noisy room): once ElevenLabs has the wearer's words (its final user transcript),
- * the microphone stays muted until Blowfish has answered, and it is also muted while Blowfish speaks.
- * Without this, a cough or someone in the audience talking while the agent is still "thinking" counts
- * as more speech: the agent drops the command and goes back to listening.
+ * Where the voice turn is (always tracked): 'thinking' from the wearer's final words until Blowfish
+ * has answered, 'speaking' while it speaks, else 'listening'. The noise gate (voiceGate.ts) is
+ * stricter while it thinks and speaks.
  *
- * Released when the agent has spoken and finished (plus a short tail), or when it has been quiet for a
- * while after its last tool call or message, or at the latest after LOCK_MAX_MS. Holding Space or a
- * mouse side button (push-to-talk) always opens the microphone, so the wearer can still cut in.
- * `?lock=0` turns this off (the microphone is then open while the agent thinks and speaks, as before).
+ * The hard command lock (`?lock=1`, off by default since Rio found it too harsh): the microphone
+ * stays muted from the wearer's final words until Blowfish has answered, and while it speaks.
+ *
+ * "Answered" = the agent has spoken and finished (plus a short tail), or has been quiet for a while
+ * after its last tool call or message, or at the latest after LOCK_MAX_MS. Holding Space or a mouse
+ * side button (push-to-talk) always opens the microphone.
  */
 import { devLog } from '../hud/hudStore';
 import { usePtt } from './pushToTalk';
@@ -25,9 +26,9 @@ const POLL_MS = 100;
 function readEnabled(): boolean {
   try {
     const v = new URLSearchParams(window.location.search).get('lock');
-    return v === null || !/^(0|false|off|no)$/i.test(v);
+    return v !== null && /^(1|true|on|yes)$/i.test(v);
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -64,13 +65,12 @@ function poll(): void {
   if (answered || quiet || tooLong) {
     st.pending = false;
     apply();
-    if (!answered) devLog(`Voice: microphone open again (${tooLong ? 'locked too long' : 'no spoken answer'})`);
+    if (!answered && LOCK_COMMANDS) devLog(`Voice: microphone open again (${tooLong ? 'locked too long' : 'no spoken answer'})`);
   }
 }
 
-/** The agent has the wearer's words (final user transcript): mute until it has answered. */
+/** The agent has the wearer's words (final user transcript): mute until it has answered (?lock=1). */
 export function lockOnCommand(): void {
-  if (!LOCK_COMMANDS) return;
   const now = performance.now();
   st.pending = true;
   st.lockedAt = now;
@@ -108,8 +108,14 @@ export function releaseLock(): void {
   apply();
 }
 
+/** Where the turn is now. */
+export function voicePhase(): 'thinking' | 'speaking' | 'listening' {
+  return st.speaking ? 'speaking' : st.pending ? 'thinking' : 'listening';
+}
+
 /** For the debug panel. */
 export function describeLock(): string {
-  if (!LOCK_COMMANDS) return 'command lock off (?lock=0)';
+  const phase = voicePhase();
+  if (!LOCK_COMMANDS) return `voice: ${phase} (hard lock off; ?lock=1 mutes while thinking and speaking)`;
   return st.pending ? 'command locked in: microphone muted until Blowfish answers' : st.speaking ? 'Blowfish speaking: microphone muted' : 'listening';
 }

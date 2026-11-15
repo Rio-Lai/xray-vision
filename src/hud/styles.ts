@@ -79,6 +79,10 @@ export const CLASSIC_HUD_CSS = `
   will-change: transform, opacity; }
 .bf-hand-mark.on { opacity: 0.8; }
 .bf-hand-mark.active { background: rgba(255, 255, 255, 0.9); }
+.bf-hand-label { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); padding: 2px 8px; white-space: nowrap;
+  border-radius: 999px; background: rgba(10, 14, 20, 0.55); color: #fff; font-size: 12px; font-weight: 500; line-height: 1.3;
+  opacity: 0; transition: opacity 120ms ease-out; pointer-events: none; }
+.bf-hand-label.on { opacity: 1; }
 .bf-gesture-hint.bf-cue-hint { position: absolute; left: 50%; top: auto; transform: translateX(-50%); margin: 0;
   color: rgba(255, 255, 255, 0.85); font-size: 18px; white-space: nowrap; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
   opacity: 0; transition: opacity 180ms ease-out, bottom 200ms ease-out; }

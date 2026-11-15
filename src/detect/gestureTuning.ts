@@ -2,21 +2,22 @@
  * Live gesture tuning, read every frame by the gesture driver. Change it with the sliders in the
  * debug panel (D): saved in localStorage, and URL params override (for a quick test on the rig):
  *   ?gestures=0 (all hand gestures off), ?grab=0 (open hand over the model, then a fist, moves it),
- *   ?sweep=0 (flat hand from the top down closes it), ?globe=0 (two open hands turn it),
- *   ?twohand=0 (two-hand pinch apart / together), ?pinchturn=1 (one-hand pinch turns it instead of moving it),
+ *   ?sweep=0 (flat hand from the top down puts it away), ?snap=0 (a finger snap opens / closes it),
+ *   ?globe=0 (two open hands turn it), ?twohand=0 (two-hand pinch apart / together zooms),
+ *   ?twoopen=1 (that pinch opens it first, then zooms), ?pinchturn=0 (one-hand pinch moves it instead of turning it),
  *   ?world=0 (pinch and hand shape from the image, not MediaPipe's 3D hand), ?burst=1 (fist / open hand
  *   flick opens and closes), ?pan=1 (two-hand pinch moved together moves it), ?pangain=1
  *   ?pinch=0.3&unpinch=0.45&hold=90&reach=1&rot=1.1&spread=1&burstms=400&globegain=1.3
  *   &typingms=1500&resthand=0.22 (which hands may gesture, #107; typingms=0 turns the typing rule off)
- * #121 and Rio's new mapping (15 Nov: pinch moves, fist grabs, sweep closes, burst and two-hand pan
- * off) changed the defaults, so the saved sliders live under a new key: everyone starts from the new
- * defaults once (the old key is ignored).
+ * #121 and Rio's new mapping (15 Nov: pinch turns, fist grabs and moves, two-hand pinch zooms, snap
+ * opens / closes, sweep puts away; burst and two-hand pan off) changed the defaults, so the saved
+ * sliders live under a new key: everyone starts from the new defaults once (older keys are ignored).
  */
 import { urlNumber } from '../camera/frame';
 import { GESTURE_TUNING_DEFAULTS } from './gestures';
 import type { GestureTuning } from './gestures';
 
-const KEY = 'blowfish.gestureTuning.v3';
+const KEY = 'blowfish.gestureTuning.v4';
 
 function urlBool(name: string): boolean | null {
   try {
@@ -62,6 +63,8 @@ function load(): GestureTuning {
   t.pinchTurns = urlBool('pinchturn') ?? t.pinchTurns;
   t.grab = urlBool('grab') ?? t.grab;
   t.sweep = urlBool('sweep') ?? t.sweep;
+  t.snap = urlBool('snap') ?? t.snap;
+  t.twoOpens = urlBool('twoopen') ?? t.twoOpens;
   t.enabled = urlBool('gestures') ?? t.enabled;
   return t;
 }
@@ -83,7 +86,7 @@ export function gestureTuningUrl(t: GestureTuning): string {
     `pinch=${t.pinchOn.toFixed(2)}&unpinch=${t.pinchOff.toFixed(2)}&hold=${Math.round(t.holdMs)}&reach=${t.pinchReachMin.toFixed(2)}` +
     `&rot=${t.rotGain.toFixed(2)}&spread=${t.spreadGain.toFixed(2)}&burstms=${Math.round(t.burstMs)}&globegain=${t.globeGain.toFixed(2)}` +
     `&burst=${t.burst ? 1 : 0}&globe=${t.globe ? 1 : 0}&twohand=${t.twoHand ? 1 : 0}&pan=${t.pan ? 1 : 0}` +
-    `&grab=${t.grab ? 1 : 0}&sweep=${t.sweep ? 1 : 0}&world=${t.world ? 1 : 0}&pinchturn=${t.pinchTurns ? 1 : 0}&pangain=${t.panGain.toFixed(2)}` +
+    `&grab=${t.grab ? 1 : 0}&sweep=${t.sweep ? 1 : 0}&snap=${t.snap ? 1 : 0}&twoopen=${t.twoOpens ? 1 : 0}&world=${t.world ? 1 : 0}&pinchturn=${t.pinchTurns ? 1 : 0}&pangain=${t.panGain.toFixed(2)}` +
     `&typingms=${Math.round(t.typingMs)}&resthand=${t.restHandMax.toFixed(2)}`
   );
 }

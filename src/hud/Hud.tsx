@@ -20,6 +20,8 @@ import { KIT_LOOK, LOOK } from './look';
 import { modelControl } from '../stage/modelControl';
 import type { AppState } from '../state/store';
 import { gestureLive } from '../detect/gestureDriver';
+import { describeGate } from '../voice/voiceGate';
+import { describeLock } from '../voice/voiceLock';
 import { GESTURE_TUNING_DEFAULTS } from '../detect/gestures';
 import type { GestureTuning } from '../detect/gestures';
 import { gestureTuning, gestureTuningUrl, setGestureTuning } from '../detect/gestureTuning';
@@ -333,8 +335,10 @@ const GESTURE_TOGGLES: { key: BoolKey; label: string }[] = [
   { key: 'enabled', label: 'Hand gestures on' },
   { key: 'pinchTurns', label: 'One-hand pinch turns it (off: it moves it)' },
   { key: 'grab', label: 'Open hand over it, then a fist: grab and move it' },
-  { key: 'sweep', label: 'Flat hand swept down from the top: close it' },
-  { key: 'twoHand', label: 'Two hands pinch and pull apart to open, then zoom' },
+  { key: 'twoHand', label: 'Two hands pinch and pull apart / together to zoom' },
+  { key: 'twoOpens', label: '...and that opens it first, then zooms' },
+  { key: 'snap', label: 'Finger snap: explode it (or close it)' },
+  { key: 'sweep', label: 'Flat hand swept down from the top: put it away' },
   { key: 'globe', label: 'Two open hands turn it like a globe' },
   { key: 'world', label: 'Hand shape from the 3D hand (off: from the image)' },
   { key: 'pan', label: 'Two hands pinch and move the same way to move it' },
@@ -390,7 +394,7 @@ function gestureLines(now: number): string[] {
   const ago = gestureLive.lastAt ? `${((now - gestureLive.lastAt) / 1000).toFixed(1)}s ago` : '';
   const on = (b: boolean, name: string) => `${name} ${b ? 'on' : 'OFF'}`;
   lines.push(
-    `gestures ${t.enabled ? 'on' : 'OFF'} (${[t.pinchTurns ? 'pinch turns' : 'pinch moves', on(t.grab, 'grab'), on(t.sweep, 'sweep'), on(t.globe, 'globe'), on(t.twoHand, 'two-hand'), on(t.world, '3D shape'), on(t.burst, 'burst'), on(t.pan, 'pan')].join(', ')}) | mode ${out?.mode ?? '-'} | cue ${gestureLive.hint ?? '-'} | last ${gestureLive.last} ${ago}`,
+    `gestures ${t.enabled ? 'on' : 'OFF'} (${[t.pinchTurns ? 'pinch turns' : 'pinch moves', on(t.grab, 'grab'), on(t.snap, 'snap'), on(t.sweep, 'sweep'), on(t.globe, 'globe'), on(t.twoHand, 'two-hand'), on(t.world, '3D shape'), on(t.burst, 'burst'), on(t.pan, 'pan')].join(', ')}) | mode ${out?.mode ?? '-'} | cue ${gestureLive.hint ?? '-'} | last ${gestureLive.last} ${ago}`,
   );
   for (const h of out?.hands ?? []) {
     const pinch = h.pinched ? (h.stale ? 'PINCH (let go first)' : 'PINCH') : '';
@@ -455,6 +459,7 @@ function DebugPanel() {
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} zoom ${zoom.toFixed(2)} pan ${panX.toFixed(2)}, ${panY.toFixed(2)} | input ${modelControl.describe()}`);
   lines.push(`part models ${FIT_EVEN ? 'fit=even (one scale, fitted inside the slot, #98; drop ?fit=even to fill)' : 'fill (stretched to the slot; ?fit=even keeps proportions, #98)'}`);
   lines.push(`look ${LOOK === 'kit' ? 'kit (Figma Make interface kit, #86; ?look=classic for the previous look)' : 'classic (?look=classic; drop it for the Figma Make kit)'}`);
+  lines.push(describeGate(), describeLock());
   lines.push(...gestureLines(performance.now()));
   lines.push(
     `saved ${saved.length}${saved.length ? `: ${saved.map((i) => `${shortName(i.name)} (${i.kind}, ${savedAgo(i.savedAt)})`).join(', ')}` : ''} | ?saved=clear forgets them (#97)`,
