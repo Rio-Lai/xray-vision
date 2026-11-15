@@ -183,6 +183,8 @@ Never shown on screen during the demo; voice does all of this. The keys show not
 
 Mouse and keys for the model on stage: see "Controls" above. A click without dragging picks a part.
 
+The pointer: while the tutor talks about a part (`highlight_part`, `show_step`, or a lit step of the detail model), a small blue dot flies from the voice pill to that part, pulses once and stays on it as the model turns, zooms or opens, or the hand moves; it fades out when nothing is highlighted. To try it without voice: `?mock=1&overlay=1`, press `A`, then in the `/` box type "tell me about the battery", then "and the logic board?" (or "what is the logic board"), "step 2", and "reset" to see it fade; with `&detail=mock` also "detail key press" then "detail step 1", "detail step 2". `?pointer=0` turns it off.
+
 URL options:
 
 - `?mock=1` (or `?mock=laptop`, `?mock=hand`): no camera or vision models needed; a fake laptop, phone and typing hand (`hand` puts the hand in the centre of view). Fake data: never film it for the product shots.
@@ -194,6 +196,7 @@ URL options:
 - `?resthand=0.22&typingms=1500`: a hand smaller than this share of the frame height counts as "on the desk" and is ignored for gestures while it has typed within that many milliseconds or rests on a laptop (0 turns either rule off)
 - `?facecrop=0.45`: the face tracker looks at a tighter square in the middle of the view (finds a face further away; default 0.6, `1` = the whole frame)
 - `?overlay=1`: start with the overlay on
+- `?pointer=0`: no pointer (the dot that shows which part the tutor is talking about)
 - `?blur=0`: only dim the video behind the model, no blur (default 4; up to 12)
 - `?dwell=1`: pick a part by looking at it for 1.2 s
 - `?hands=raw`: use if left and right hands look swapped

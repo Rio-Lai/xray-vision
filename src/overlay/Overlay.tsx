@@ -51,6 +51,8 @@ import { ArmStage, armStage } from './ArmStage';
 import { isArmTeardown } from '../stage/armTeardown';
 import { EyeStage, eyeStage } from './EyeStage';
 import { isEyeTeardown } from '../stage/eyeTeardown';
+import { PointerLayer, tickPointer } from './pointer';
+import { POINTER_ON, clearPointer, mainPointerIds, publishPointer } from './pointerTarget';
 
 const DWELL_MS = 1200;
 /**
@@ -540,6 +542,7 @@ class OverlayEngine {
     }
     this.wasFrozen = s.frozen;
 
+    publishPointer('overlay', labelItems, mainPointerIds(s), vw, vh); // the pointer's target (pointerTarget.ts)
     this.labels.update(labelItems, bounds, vw, vh);
     this.updateDwell(now, td);
     this.warmer.beforeRender();
@@ -599,6 +602,7 @@ class OverlayEngine {
     this.outline.dispose();
     setStageArrived('box', false);
     this.handRig.dispose();
+    clearPointer('overlay');
     this.labels.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
@@ -645,6 +649,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
   const engineRef = useRef<OverlayEngine | null>(null);
   const objLabelsRef = useRef<ObjectLabelLayer | null>(null);
   const pinchRef = useRef<HandCueLayer | null>(null);
+  const pointerRef = useRef<PointerLayer | null>(null);
   const lastNowRef = useRef(0);
 
   useImperativeHandle(
@@ -680,6 +685,8 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
           setStatus('solid', 'error', `Solid model error: ${errorText(e)}`);
         }
         pinchRef.current?.update(gestureLive.out?.marks ?? NO_MARKS, gestureLive.hint, getCoverMap(), now);
+        // The pointer (pointer.ts), after the stages above have written its target this frame.
+        if (pointerRef.current) tickPointer(pointerRef.current, now, useStore.getState().overlayOn);
         perfDraw(performance.now() - t0);
       },
       pick: (x: number, y: number) => engineRef.current?.pick(x, y),
@@ -695,6 +702,8 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
     objLabelsRef.current = objLabels;
     const pinch = new HandCueLayer(labels);
     pinchRef.current = pinch;
+    const pointer = POINTER_ON ? new PointerLayer(labels) : null; // `?pointer=0`: none
+    pointerRef.current = pointer;
     let engine: OverlayEngine | null = null;
     try {
       engine = new OverlayEngine(host, labels);
@@ -710,6 +719,8 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
       objLabels.dispose();
       pinchRef.current = null;
       pinch.dispose();
+      pointerRef.current = null;
+      pointer?.dispose();
     };
   }, []);
 

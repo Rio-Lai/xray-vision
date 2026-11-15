@@ -16,6 +16,8 @@ export const KIT_HUD_CSS = `
 .bf-hud, .bf-olayer, .bf-player { position: absolute; inset: var(--bf-space-0); pointer-events: none; overflow: hidden; }
 .bf-hud, .bf-olayer, .bf-player, .bf-hud * { font-family: var(--bf-font-family); -webkit-font-smoothing: antialiased; }
 .bf-hud { color: var(--bf-color-text); font-size: var(--bf-font-size-body); line-height: var(--bf-line-height-body); }
+/* above the pointer layer (src/overlay/pointer.ts, z-index 1): cards, title, status and debug stay on top of the dot */
+.bf-hud { z-index: 2; }
 
 /* Enter: fade and a 4 px rise. margin-top, because transform positions things. */
 .bf-enter { animation: bf-rise var(--bf-duration-normal) var(--bf-easing-out) both; }
