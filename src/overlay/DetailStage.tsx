@@ -25,6 +25,7 @@ import { canvasDpr, errorText } from '../camera/frame';
 import { perfCount } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
 import { DETAIL_MOCK } from '../lib/detail';
+import { clearPointer, pointerBegin, pointerEnd, pointerOffer } from './pointerTarget';
 
 const DEG = Math.PI / 180;
 const FOV = 30;
@@ -195,6 +196,7 @@ class DetailView {
   detach(): void {
     this.unsub?.();
     this.unsub = null;
+    clearPointer('detail');
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
@@ -379,6 +381,7 @@ class DetailView {
     this.appear += ((want ? 1 : 0) - this.appear) * (1 - Math.exp(-dt * APPEAR_RATE));
     if (!want && this.appear < 0.01) {
       this.appear = 0;
+      clearPointer('detail');
       this.hide();
       this.clearScene();
       return false;
@@ -392,7 +395,26 @@ class DetailView {
     this.renderer.render(this.scene3, this.camera);
     this.drawn = true;
     perfCount('detail');
+    this.pointAt(want ? s.detailStep : null);
     return true;
+  }
+
+  /**
+   * The pointer (pointer.ts): while a step is lit, its first focus part's centre on this model, in
+   * viewport px (this frame's camera and the canvas area), for pointerTarget.ts. Ahead of the main model's.
+   */
+  private pointAt(step: number | null): void {
+    const focus = step !== null && this.scene ? this.scene.steps[step - 1]?.focus ?? [] : [];
+    pointerBegin('detail', focus);
+    for (const id of focus) {
+      const p = this.byId.get(id);
+      if (!p) continue;
+      p.holder.getWorldPosition(this.v).project(this.camera);
+      const a = this.area;
+      pointerOffer('detail', id, a.x + ((this.v.x + 1) / 2) * a.w, a.y + ((1 - this.v.y) / 2) * a.h);
+      break;
+    }
+    pointerEnd('detail', Math.max(1, window.innerWidth), Math.max(1, window.innerHeight));
   }
 
   private animate(t: number, dt: number, step: number | null): void {
