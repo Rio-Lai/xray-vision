@@ -3,7 +3,7 @@
  * Each takes the agent's parameters object and returns a short string for the agent.
  * In the ElevenLabs dashboard every tool must be set to "wait for response".
  * #96, short by default: every action tool (select_object, explode, reset_view, set_overlay, rotate_model,
- * zoom_model) returns JSON whose `say` is the exact line to speak, and nothing that asks for more. What to do only when
+ * adjust_view) returns JSON whose `say` is the exact line to speak, and nothing that asks for more. What to do only when
  * the user asks to be taught or toured is in `if_asked`; highlight_part and show_step are the teaching tools.
  */
 import { MODEL_ZOOM_MAX, MODEL_ZOOM_MIN, useStore, type FingerName, type HandState } from '../state/store';
@@ -272,24 +272,52 @@ const tools: Record<ClientToolName, Tool> = {
     return json({ ok: true, say: limited ? 'That is as far as it turns.' : `Turned ${way}.`, degrees: Math.round(deg) });
   },
 
-  // #109: "zoom in", "bigger", "closer" / "zoom out", "smaller" / "normal size".
-  async zoom_model(p) {
+  // The view of the model, not the model: "zoom in / out", "move it left / right / up / down",
+  // "recentre" (middle of the view, normal size, facing the front), "normal size". Replaces zoom_model.
+  async adjust_view(p) {
     const s = useStore.getState();
     if (!s.teardown) return json({ ok: false, say: 'Nothing is open yet.' });
-    const dir = (str(p, 'direction') ?? 'in').toLowerCase();
-    if (/^(reset|normal|back|default|original)/.test(dir)) {
+    const a = (str(p, 'action') ?? str(p, 'direction') ?? 'centre').toLowerCase().replace(/[\s-]+/g, '_');
+    const amount = num(p, 'amount') ?? num(p, 'factor');
+    if (/^(normal|reset_zoom|zoom_reset|original|default)/.test(a)) {
       s.setModelZoom(1);
       return json({ ok: true, say: 'Back to normal size.', zoom: 1 });
     }
-    const out = /^(out|smaller|further|away|less)/.test(dir);
-    const raw = num(p, 'factor') ?? 1.5;
-    // A factor below 1 means the same step the other way ("in" by 0.5 = twice as big).
-    const f = Math.min(8, Math.max(1.05, raw >= 1 ? raw : raw > 0 ? 1 / raw : 1.5));
-    const before = s.modelZoom;
-    if (!out && before >= MODEL_ZOOM_MAX - 1e-3) return json({ ok: true, say: 'That is as close as it goes.', zoom: round(before) });
-    if (out && before <= MODEL_ZOOM_MIN + 1e-3) return json({ ok: true, say: 'That is as far out as it goes.', zoom: round(before) });
-    s.zoomModel(out ? 1 / f : f);
-    return json({ ok: true, say: out ? 'Zoomed out.' : 'Zoomed in.', zoom: round(useStore.getState().modelZoom) });
+    if (/^(centre|center|recentre|recenter|reset|middle|home|back)/.test(a)) {
+      s.centreModel();
+      s.setModelZoom(1);
+      // Facing the front again, by the short way round (yaw adds up over many turns).
+      const turn = Math.PI * 2;
+      const dYaw = -(s.modelYaw - Math.round(s.modelYaw / turn) * turn);
+      if (Math.abs(dYaw) > 1e-3 || Math.abs(s.modelPitch) > 1e-3) s.rotateModel(dYaw, -s.modelPitch);
+      return json({ ok: true, say: 'Back in the middle.' });
+    }
+    const zoomIn = /^(zoom_in|in|closer|bigger|larger|enlarge|magnify)/.test(a);
+    const zoomOut = /^(zoom_out|out|further|smaller|shrink)/.test(a);
+    if (zoomIn || zoomOut) {
+      // A factor below 1 means the same step the other way ("in" by 0.5 = twice as big).
+      const raw = amount ?? 1.5;
+      const f = Math.min(8, Math.max(1.05, raw >= 1 ? raw : raw > 0 ? 1 / raw : 1.5));
+      const before = s.modelZoom;
+      if (zoomIn && before >= MODEL_ZOOM_MAX - 1e-3) return json({ ok: true, say: 'That is as close as it goes.', zoom: round(before) });
+      if (zoomOut && before <= MODEL_ZOOM_MIN + 1e-3) return json({ ok: true, say: 'That is as far out as it goes.', zoom: round(before) });
+      s.zoomModel(zoomOut ? 1 / f : f);
+      return json({ ok: true, say: zoomOut ? 'Zoomed out.' : 'Zoomed in.', zoom: round(useStore.getState().modelZoom) });
+    }
+    const m = a.match(/(left|right|up|down)/);
+    if (m) {
+      // How far, in model sizes (default half the model's width).
+      const d = Math.min(2, Math.max(0.05, amount ?? 0.5));
+      const dx = m[1] === 'left' ? -d : m[1] === 'right' ? d : 0;
+      const dy = m[1] === 'up' ? -d : m[1] === 'down' ? d : 0;
+      const x0 = s.modelPanX;
+      const y0 = s.modelPanY;
+      s.panModel(dx, dy);
+      const n = useStore.getState();
+      if (Math.abs(n.modelPanX - x0) + Math.abs(n.modelPanY - y0) < 1e-3) return json({ ok: true, say: 'That is as far as it goes.' });
+      return json({ ok: true, say: `Moved ${m[1]}.` });
+    }
+    return json({ ok: false, say: 'I can zoom in or out, move it left, right, up or down, or put it back in the middle.' });
   },
 
   async get_pose() {
@@ -339,3 +367,15 @@ export const clientTools = Object.fromEntries(
     },
   ]),
 ) as Record<ClientToolName, Tool>;
+
+/**
+ * zoom_model (#109) was replaced by adjust_view before it reached the dashboard; an agent that still
+ * has it keeps working (registered with the SDK, not in CLIENT_TOOL_NAMES).
+ */
+export const legacyClientTools: Record<string, Tool> = {
+  zoom_model: (params?: Params) => {
+    const d = (str(params, 'direction') ?? 'in').toLowerCase();
+    const action = /^(reset|normal|back|default|original)/.test(d) ? 'normal_size' : /^(out|smaller|further|away|less)/.test(d) ? 'zoom_out' : 'zoom_in';
+    return clientTools.adjust_view({ action, amount: num(params, 'factor') });
+  },
+};

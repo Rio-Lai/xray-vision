@@ -13,7 +13,8 @@ import { useConversation } from '@elevenlabs/react';
 import { useStore, type VoiceStatus } from '../state/store';
 import { api, ApiError } from '../lib/api';
 import { describeTeardown } from '../lib/flow';
-import { clientTools } from './clientTools';
+import { clientTools, legacyClientTools } from './clientTools';
+import { lockOnCommand, noteAgentActivity, noteAgentSpeaking, releaseLock } from './voiceLock';
 import { registerVoiceBridge, voiceBridge } from './bridge';
 import { resolveInputDeviceId, usePushToTalk } from './pushToTalk';
 
@@ -23,13 +24,35 @@ const emitError = (msg: string) => errorListeners.forEach((fn) => fn(msg));
 const asRecord = (v: unknown): Record<string, unknown> =>
   v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 
+/**
+ * Expressive audio tags the voice model writes ("[patient]", "[excited]", "[whispers]"): spoken as
+ * tone, never shown in the captions.
+ */
+const AUDIO_TAG = /\[[a-z][a-z' -]{0,30}\]\s*/g;
+
+/** Every tool call counts as the agent working on the command (the microphone stays locked, voiceLock.ts). */
+const toolsWithLock = Object.fromEntries(
+  Object.entries({ ...legacyClientTools, ...clientTools }).map(([name, fn]) => [
+    name,
+    async (params?: Record<string, unknown> | null) => {
+      noteAgentActivity();
+      try {
+        return await fn(params);
+      } finally {
+        noteAgentActivity();
+      }
+    },
+  ]),
+);
+
 /** ConversationProvider props. Module-level so the functions are stable. */
 export const voiceOptions = {
-  clientTools,
+  clientTools: toolsWithLock,
   onConnect: () => {
     useStore.getState().setVoiceStatus('connected');
   },
   onDisconnect: () => {
+    releaseLock();
     registerVoiceBridge(null);
     useStore.getState().setVoiceStatus('disconnected');
     useStore.getState().setAgentSpeaking(false);
@@ -37,16 +60,21 @@ export const voiceOptions = {
   // SDK 1.x payload: { message, role: 'user' | 'agent', source: 'user' | 'ai' (deprecated), event_id, ... }
   onMessage: (m: unknown) => {
     const o = asRecord(m);
-    const text = typeof o.message === 'string' ? o.message : '';
-    if (!text.trim()) return;
-    const who = o.role ?? o.source;
-    useStore.getState().addTranscript({ role: who === 'user' ? 'user' : 'agent', text });
+    const who = (o.role ?? o.source) === 'user' ? 'user' : 'agent';
+    const raw = typeof o.message === 'string' ? o.message : '';
+    const text = who === 'agent' ? raw.replace(AUDIO_TAG, '').trim() : raw.trim();
+    // The wearer's words are final: lock the command in (the microphone stays muted until Blowfish has answered).
+    if (who === 'user' && text) lockOnCommand();
+    if (who === 'agent') noteAgentActivity();
+    if (!text) return;
+    useStore.getState().addTranscript({ role: who, text });
   },
   // 'error' (or a drop while connecting) must not leave the store stuck on 'connecting'.
   onStatusChange: (p: unknown) => {
     const st = asRecord(p).status;
     const status = typeof st === 'string' ? st : '';
     if (status === 'error' || status === 'disconnected') {
+      releaseLock();
       registerVoiceBridge(null);
       useStore.getState().setVoiceStatus('disconnected');
       useStore.getState().setAgentSpeaking(false);
@@ -55,6 +83,7 @@ export const voiceOptions = {
   onModeChange: (m: unknown) => {
     const mode = typeof m === 'string' ? m : asRecord(m).mode;
     useStore.getState().setAgentSpeaking(mode === 'speaking');
+    noteAgentSpeaking(mode === 'speaking');
   },
   onError: (...args: unknown[]) => {
     console.error('[voice] error', ...args);

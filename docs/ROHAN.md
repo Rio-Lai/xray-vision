@@ -24,7 +24,7 @@
 
 1. Create a new agent named **Blowfish**. Pick a clear, warm voice (for example a calm British or American conversational voice; avoid dramatic or "narrator" voices). Turn on **authentication** so the app connects with a signed URL.
 2. Paste the **system prompt** from `docs/agent/system-prompt.md` and the **first message** from `docs/agent/first-message.txt`, or run `npm run agent:prompt` (dry run) then `npm run agent:prompt -- --apply` (see below).
-3. Add exactly the ten **client tools** below (the ninth, `rotate_model`, was added in #58; the tenth, `zoom_model`, in #109). Names must match exactly. Tick **Wait for response** on every one. There is no `set_lens` (lenses were removed in #32).
+3. Add exactly the ten **client tools** below, or run `npm run agent:tools` (dry run) then `npm run agent:tools -- --apply`, which adds the missing ones from `docs/agent/tools.json` (see below). Names must match exactly. Tick **Wait for response** on every one. `adjust_view` (zoom, move, recentre) replaced `zoom_model`; an agent that still has `zoom_model` keeps working. There is no `set_lens` (lenses were removed in #32).
 4. In the agent's **Advanced** settings keep **interruptions** on (the user can talk over Blowfish and it stops), and keep the turn timeout short.
 5. Put `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` in your local `.env` (never commit it; share with Rio privately for the demo laptop), then restart `npm run dev`. `GET /api/health` should report `keys.elevenlabs: true`.
 
@@ -41,7 +41,10 @@ To put them into the agent:
 
 ## Client tools to enter in the dashboard
 
-All type **Client**, all with **Wait for response** on. Exactly these ten (`npm run check` only warns while `zoom_model` is missing).
+All type **Client**, all with **Wait for response** on. Exactly these ten, also in `docs/agent/tools.json` (`npm run check` only warns while `adjust_view` is missing).
+
+- `npm run agent:tools`: dry run. Reads the agent and its tools and says which are there, missing or set up wrong. Changes nothing.
+- `npm run agent:tools -- --apply`: saves the agent's whole config to `.agent-backup/` (gitignored), adds only the missing client tools (creates each in the workspace and adds its id to the agent), reads the agent back, and puts the prompt settings back if anything else changed. Tools already there are left alone. Untested against the live API so far: read what it prints.
 
 | Name | Description | Parameters |
 | --- | --- | --- |
@@ -54,7 +57,7 @@ All type **Client**, all with **Wait for response** on. Exactly these ten (`npm 
 | `reset_view` | Put the model away: collapse everything and clear the selection. | none |
 | `rotate_model` | Turn the floating model. "around" turns it half a turn. | `direction` (string, required: "left", "right", "up", "down" or "around"), `degrees` (number, optional; default 45, "around" 180) |
 | `get_pose` | Which finger is pressing right now and which muscle part ids are working. | none |
-| `zoom_model` | Make the floating model bigger or smaller ("zoom in", "bigger", "closer" / "zoom out", "smaller"), or back to its normal size. | `direction` (string, required: "in", "out" or "reset"), `factor` (number, optional; default 1.5) |
+| `adjust_view` | Move the view of the floating model without changing it: zoom in or out, move it left, right, up or down, put it back in the middle (also normal size and facing the front), or back to normal size. | `action` (string, required: "zoom_in", "zoom_out", "move_left", "move_right", "move_up", "move_down", "centre" or "normal_size"), `amount` (number, optional: zoom factor, default 1.5, or distance in model widths, default 0.5) |
 
 ## Noisy room (judging): "Hey Blowfish" and push-to-talk
 
@@ -74,7 +77,7 @@ Changes apply at once to a running session, and each one is logged in the hidden
 
 ## What the tools reply (#96: short by default)
 
-- Every action tool (`explode`, `set_overlay`, `reset_view`, `rotate_model`, `zoom_model`, `select_object`) returns JSON with `say`, the exact line to speak, and nothing that asks for more:
+- Every action tool (`explode`, `set_overlay`, `reset_view`, `rotate_model`, `adjust_view`, `select_object`) returns JSON with `say`, the exact line to speak, and nothing that asks for more:
 
   | Tool | `say` |
   | --- | --- |
@@ -82,7 +85,7 @@ Changes apply at once to a running session, and each one is logged in the hidden
   | `set_overlay` | "Labels on." / "Labels off." |
   | `reset_view` | "Put away. Saved <short name>." or "View reset." |
   | `rotate_model` | "Turned left." / "Turned right." / "Turned up." / "Turned down." / "Turned around."; "That is as far as it turns." (a flat model at its limit, #107); "Nothing is open yet." |
-  | `zoom_model` | "Zoomed in." / "Zoomed out." / "Back to normal size."; "That is as close as it goes." / "That is as far out as it goes."; "Nothing is open yet." |
+  | `adjust_view` | "Zoomed in." / "Zoomed out." / "Back to normal size." / "Back in the middle." / "Moved left." (right, up, down); "That is as close as it goes." / "That is as far out as it goes." / "That is as far as it goes."; "Nothing is open yet." |
   | `select_object` | "Selected <name>." / "I cannot see that." |
 
   The short name drops the bracketed details ("MacBook Air 13-inch", not "MacBook Air 13-inch (M3, 2024)").

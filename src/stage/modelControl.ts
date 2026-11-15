@@ -2,7 +2,7 @@
  * Turning and opening the model on stage from direct input (the hidden mouse fallback, and hand
  * gestures): writes store.rotateModel / store.setExplode, keeps a little inertia after a drag is
  * let go (like spinning a globe), and remembers when anything was last touched, so the overlay's
- * idle drift waits for a few quiet seconds. Voice (rotate_model, explode, zoom_model) writes the store directly.
+ * idle drift waits for a few quiet seconds. Voice (rotate_model, explode, adjust_view) writes the store directly.
  * Turns go through turnModel (turnLimit.ts): a flat model is soft-limited so it never rests edge-on.
  * Zoom (#109): store.modelZoom, from the trackpad pinch, the + / - keys, the two-hand spread and the burst.
  * Pan (#121): store.modelPanX / modelPanY in stage sizes (PAN_UNIT_VH of the view height each), from the

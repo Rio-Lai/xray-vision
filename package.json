@@ -19,6 +19,7 @@
     "predemo": "node scripts/predemo.mjs",
     "check": "tsx scripts/check.ts",
     "agent:prompt": "tsx scripts/agent-prompt.ts",
+    "agent:tools": "tsx scripts/agent-tools.ts",
     "build-eye": "tsx scripts/build-eye.ts"
   },
   "dependencies": {
