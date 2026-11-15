@@ -1,8 +1,9 @@
 /**
  * The overlay: one transparent three.js canvas over the video (orthographic camera in viewport
- * pixels, DPR capped at 2), the part label layer, and the object label layer (live view, pure DOM,
- * so it still works when WebGL does not). Stage calls tick(now) once per animation frame,
- * and pick(x, y) on clicks.
+ * pixels, DPR capped at MAX_DPR, 1.5 unless `?dpr=`, #131), the part label layer, and the object
+ * label layer (live view, pure DOM, so it still works when WebGL does not). Stage calls tick(now)
+ * once per animation frame, and pick(x, y) on clicks. With nothing of its own to show (#131) its
+ * canvas is cleared once and hidden, and not drawn until there is something again.
  *
  * Stage mode (the default): the box rig lifts the model out of the object and floats it in the
  * middle of the view, turned by store.modelYaw / modelPitch, plus a very slow idle drift once
@@ -26,8 +27,8 @@ import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
 import type { Teardown } from '../../shared/teardown';
 import { DEMO_IDENTIFY } from '../../shared/demo';
-import { boxToView, errorText, getCoverMap, urlFlag } from '../camera/frame';
-import { live } from '../detect/live';
+import { boxToView, canvasDpr, errorText, getCoverMap, urlFlag } from '../camera/frame';
+import { live, perfCount, perfDraw } from '../detect/live';
 import { devLog, setHoldFrozen, setStageArrived, setStatus, useHud } from '../hud/hudStore';
 import { pickPart, reopenedSavedId } from '../lib/flow';
 import { BoxRig } from './boxRig';
@@ -144,6 +145,8 @@ class OverlayEngine {
   private dwellStart = 0;
   private dwellFired = false;
   private readonly canvas: HTMLCanvasElement;
+  /** #131: the canvas is shown (it may hold a picture); hidden once it has been cleared with nothing to show */
+  private canvasShown = true;
   private envTex: THREE.Texture | null = null;
   /** #125: the warm-up of the stored models, when the engine started, and whether it has begun */
   private readonly warmer: GlbWarmer;
@@ -262,7 +265,7 @@ class OverlayEngine {
   private resize(): void {
     const vw = Math.max(1, window.innerWidth);
     const vh = Math.max(1, window.innerHeight);
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = canvasDpr(); // #131
     if (vw === this.vw && vh === this.vh && dpr === this.dpr) return;
     this.vw = vw;
     this.vh = vh;
@@ -540,7 +543,22 @@ class OverlayEngine {
     this.labels.update(labelItems, bounds, vw, vh);
     this.updateDwell(now, td);
     this.warmer.beforeRender();
-    this.renderer.render(this.scene, this.camera);
+    // #131: nothing of its own to show (no box model, none going away, no hand drawing): one last
+    // draw clears the canvas, then it is hidden and not drawn. A warm-up model is still drawn into
+    // it while hidden (#125: that draw shows nothing; its point is the upload before the first open).
+    const content = this.boxRig !== null || this.retiring !== null || this.handRig.root.visible;
+    if (content || this.canvasShown || this.warmer.drawing) {
+      if (content && !this.canvasShown) {
+        this.canvasShown = true;
+        this.canvas.style.visibility = '';
+      }
+      this.renderer.render(this.scene, this.camera);
+      perfCount('overlay');
+      if (!content && this.canvasShown) {
+        this.canvasShown = false;
+        this.canvas.style.visibility = 'hidden';
+      }
+    }
     this.warmer.afterRender();
   }
 
@@ -632,6 +650,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
     ref,
     () => ({
       tick: (now: number) => {
+        const t0 = performance.now(); // #131: drawing time for the debug panel
         const last = lastNowRef.current;
         lastNowRef.current = now;
         const dt = last ? Math.min(0.1, Math.max(0, (now - last) / 1000)) : 1 / 60;
@@ -660,6 +679,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
           setStatus('solid', 'error', `Solid model error: ${errorText(e)}`);
         }
         pinchRef.current?.update(gestureLive.out?.marks ?? NO_MARKS, gestureLive.hint, getCoverMap(), now);
+        perfDraw(performance.now() - t0);
       },
       pick: (x: number, y: number) => engineRef.current?.pick(x, y),
     }),

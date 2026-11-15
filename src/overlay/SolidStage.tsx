@@ -29,8 +29,8 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { useStore } from '../state/store';
 import type { AppState } from '../state/store';
 import type { Teardown, TeardownPart } from '../../shared/teardown';
-import { boxToView, errorText, getCoverMap } from '../camera/frame';
-import { live } from '../detect/live';
+import { boxToView, canvasDpr, errorText, getCoverMap } from '../camera/frame';
+import { live, perfCount } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
 import { STAGE_MIN_EXPLODE, modelControl, panPx } from '../stage/modelControl';
 import { smoothstep } from './explodeAnimator';
@@ -345,7 +345,7 @@ class SolidStageCtl {
   private resize(): void {
     const vw = Math.max(1, window.innerWidth);
     const vh = Math.max(1, window.innerHeight);
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = canvasDpr(); // #131
     if (vw === this.vw && vh === this.vh && dpr === this.dpr) return;
     this.vw = vw;
     this.vh = vh;
@@ -532,6 +532,7 @@ class SolidStageCtl {
     if (this.renderer) {
       this.renderer.domElement.style.opacity = '1';
       this.renderer.render(this.scene, cam);
+      perfCount('solid');
       this.primed = true;
     }
     this.updateLabels(on, w, h);

@@ -10,8 +10,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useStore } from '../state/store';
-import { FIT_EVEN, MOCK_MODE } from '../camera/frame';
-import { live } from '../detect/live';
+import { FIT_EVEN, MAX_DPR, MOCK_MODE, canvasDpr } from '../camera/frame';
+import { live, perf } from '../detect/live';
 import { FINGERS, HAND_TUNING_DEFAULTS, handTuning, setHandTuning } from '../detect/handTracker';
 import type { HandTuning } from '../detect/handTracker';
 import { useHud } from './hudStore';
@@ -400,6 +400,20 @@ function gestureLines(now: number): string[] {
   return lines;
 }
 
+/** #131: the last whole second: frame rate, time per frame (vision, drawing), what ran and what drew. */
+function perfLines(): string[] {
+  const p = perf.last;
+  const n = Math.max(1, p.frames);
+  const r = (k: string) => p.ran[k] ?? 0;
+  const arm = r('arm') > 0 ? ` | arm (its own loop) ${(p.armMs / r('arm')).toFixed(1)} ms` : '';
+  const sv = live.stats.slowVision;
+  const budget = !sv.objects ? 'normal rates' : `model up: objects${sv.faces ? ' and faces' : ' (faces at the normal rate: the eye is up)'} about 3/s`;
+  return [
+    `perf (#131, last second): ${p.frames} fps | per frame: vision ${(p.visionMs / n).toFixed(1)} ms (longest ${p.visionMaxMs.toFixed(1)}), drawing ${(p.drawMs / n).toFixed(1)} ms (longest ${p.drawMaxMs.toFixed(1)})${arm}`,
+    `  ran: hands ${r('hands')}, objects ${r('objects')}, faces ${r('faces')}${MOCK_MODE ? ' (mock: no models)' : ''} | drew: overlay ${r('overlay')}, eye ${r('eye')}, solid ${r('solid')}, arm ${r('arm')} | vision: ${budget} | dpr ${canvasDpr()} (at most ${MAX_DPR}, ?dpr=)`,
+  ];
+}
+
 function DebugPanel() {
   const visible = useHud((s) => s.debug);
   useTicker(250, visible);
@@ -424,6 +438,7 @@ function DebugPanel() {
   lines.push(
     `render ${st.renderFps.toFixed(1)} fps | objects ${st.objMs.toFixed(1)} ms | hands ${st.handMs.toFixed(1)} ms | faces ${st.faceMs.toFixed(1)} ms${MOCK_MODE ? ' | MOCK' : ''}`,
   );
+  lines.push(...perfLines());
   if (st.detector) lines.push(st.detector);
   lines.push(scanDebugLine(performance.now()));
   lines.push(openReport.text || 'last open: none yet (longest frame gap in the 2 s after a model is asked for, warm/cold: #125)');

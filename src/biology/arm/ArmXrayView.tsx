@@ -41,6 +41,8 @@ export interface ArmXrayProps {
   drive?: (now: number, w: number, h: number) => ArmXrayDrive;
   /** Called every frame after drawing, with every part's label point projected to canvas px (`at`). */
   onFrame?: (labels: ArmLabel[], w: number, h: number) => void;
+  /** Device pixels per CSS pixel for the canvas (default: the screen's, at most 2); read when it mounts. */
+  pixelRatio?: number;
 }
 
 export type ArmXrayDrive = Partial<
@@ -81,7 +83,7 @@ export function ArmXrayView(props: ArmXrayProps) {
     const el = host.current;
     if (!el || !td) return;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+    renderer.setPixelRatio(live.current.pixelRatio ?? Math.min(2, window.devicePixelRatio));
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;

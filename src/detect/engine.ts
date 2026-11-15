@@ -14,12 +14,14 @@
  *  - plus, while the overlay is on, the things Claude's whole-view scan found that nothing here tracks
  *    (scan.ts, #122; `?scan=0` turns it off); its names go onto the detector's objects at publish
  *  - store writes throttled to ~15 Hz; per-frame data goes to `live`
+ *  - #131: once a model is up on stage, objects (and faces, unless it is the eye) run about three
+ *    times a second (SLOW_VISION_MS) and the scan's shift sampler pauses; hands keep every frame
  */
 import { useStore } from '../state/store';
-import type { SceneObject } from '../state/store';
+import type { AppState, SceneObject } from '../state/store';
 import { errorText, frame, frameSize, MOCK_GESTURE, MOCK_MODE, MOCK_SCENE, urlNumber } from '../camera/frame';
 import type { Box } from '../state/store';
-import { setStatus } from '../hud/hudStore';
+import { setStatus, useHud } from '../hud/hudStore';
 import { DETECTOR_CHOICE, loadVisionTasks, USEFUL_CLASSES } from './mediapipe';
 import type { VisionTasks } from './mediapipe';
 import { APPEAR_SCORE, KEEP_SCORE, ObjectTracker } from './objectTracker';
@@ -31,13 +33,46 @@ import { mockBottle, mockFace, mockHandLandmarks, mockLaptop, mockPhone } from '
 import { FaceTracker, blendshapeMap, measureFace } from './faceTracker';
 import type { FaceFocus, FaceMeasure } from './faceTracker';
 import { pinnedObjects } from './centre';
-import { scanTick, withScanNames } from './scan';
+import { isScanId, scanTick, withScanNames } from './scan';
 import { mockGestureHands } from './mockGesture';
 
 /** ?mock=gesture: the scripted hands start this long after the page (the laptop is analysed first). */
 const MOCK_GESTURE_START_MS = 2600;
-import { live } from './live';
+import { live, perfCount, perfFrame, perfVision } from './live';
 
+/**
+ * #131: once a model has arrived on stage the hands matter most (gestures): the object detector and
+ * the face landmarker then run only about this often, each still on its own slots (so never on the
+ * same frame); the hand landmarker keeps every new frame. Kept inside the trackers' own rules, so the
+ * object it came out of, a laptop under the hands (gestures) and the eyes stay tracked as before,
+ * only updated less often:
+ *  - a third of a second (under half a second with the slot wait): a face is seen again before it
+ *    would be dropped (0.6 s), a new thing can still get its two sightings (0.5 s), and a turn of the
+ *    head between two runs stays within their matching;
+ *  - a run that misses something tracked looks again at the next slot (the normal rate) until it is
+ *    found or dropped;
+ *  - the trackers give a track that much longer (extraHoldMs) before dropping it, the time it could
+ *    not have been looked for, so an object or face hidden for a moment survives as before.
+ * While the eye itself is up, faces keep their normal rate (its put-away and get_pose.eyes). While it
+ * loads and lifts out (the outline and the start follow the object) and from the put-away on: normal rates.
+ */
+export const SLOW_VISION_MS = 1000 / 3;
+
+export interface SlowVision {
+  objects: boolean;
+  faces: boolean;
+}
+const NORMAL_VISION: SlowVision = { objects: false, faces: false };
+const SLOW_OBJECTS: SlowVision = { objects: true, faces: false };
+const SLOW_BOTH: SlowVision = { objects: true, faces: true };
+
+/** #131: what runs rarely now: nothing (normal), the object detector, and the face landmarker unless the eye is up. */
+export function slowVisionNow(st: Pick<AppState, 'trackingMode' | 'teardown'>): SlowVision {
+  if (st.trackingMode !== 'stage' || st.teardown === null) return NORMAL_VISION;
+  const a = useHud.getState().stageArrived;
+  if (!(a.box || a.arm || a.eye)) return NORMAL_VISION;
+  return a.eye ? SLOW_OBJECTS : SLOW_BOTH;
+}
 
 const PUBLISH_MS = 66;
 /**
@@ -291,6 +326,11 @@ export function createDetectionEngine(): DetectionEngine {
   let wasFrozen = false;
   let publishedEmpty = false;
   let mockStart = -1;
+  // #131: when objects and faces last ran, and whether the last run missed something tracked
+  let lastObjRunAt = -Infinity;
+  let lastFaceRunAt = -Infinity;
+  let objMissed = false;
+  let faceMissed = false;
 
   if (MOCK_MODE) {
     setStatus(
@@ -358,7 +398,7 @@ export function createDetectionEngine(): DetectionEngine {
     });
   }
 
-  function runVision(now: number, frozen: boolean, fw: number, fh: number): void {
+  function runVision(now: number, frozen: boolean, fw: number, fh: number, slow: SlowVision): void {
     const t = tasks;
     const v = frame.video;
     if (!t || !v || v.readyState < 2 || v.videoWidth <= 0) return;
@@ -374,6 +414,7 @@ export function createDetectionEngine(): DetectionEngine {
         const t0 = performance.now();
         const res = t.hands.detectForVideo(v, lastHandTs);
         live.stats.handMs = performance.now() - t0;
+        perfCount('hands');
         handTracker.update(parseHands(res), now, fw, fh);
         setStatus('hands', null);
       } catch (e) {
@@ -382,7 +423,10 @@ export function createDetectionEngine(): DetectionEngine {
       }
     }
 
-    if (t.objects && !frozen && OBJECT_SLOTS[objTiming.every][newFrames % 6] && now >= objPausedUntil) {
+    // #131: a model up on stage: the first object slot SLOW_VISION_MS after the last run, or the next one after a miss.
+    const objDue = !slow.objects || objMissed || now - lastObjRunAt >= SLOW_VISION_MS;
+    if (t.objects && !frozen && OBJECT_SLOTS[objTiming.every][newFrames % 6] && objDue && now >= objPausedUntil) {
+      lastObjRunAt = now;
       try {
         if (t.objects !== timedDetector) {
           timedDetector = t.objects; // a new detector (Lite2 swapped in, or Lite0 for it): measure again
@@ -392,12 +436,14 @@ export function createDetectionEngine(): DetectionEngine {
         const t0 = performance.now();
         const res = t.objects.detectForVideo(v, lastObjTs);
         live.stats.objMs = performance.now() - t0;
+        perfCount('objects');
         if (objTiming.record(live.stats.objMs, now) && objTiming.medianMs > LITE2_MAX_MS) {
           fallBackToLite0(t, `Lite2 too slow here: median ${objTiming.medianMs.toFixed(1)} ms > ${LITE2_MAX_MS} ms`);
         }
         const note = t.detectorNote ? ` (${t.detectorNote})` : '';
         live.stats.detector = `detector ${t.detector ?? '-'}${note} | ${objTiming.describe()} | appear ${APPEAR_SCORE} keep ${KEEP_SCORE} (?detector=lite0|lite2 ?appear= ?keep=)`;
         objTracker.update(parseDetections(res, v.videoWidth, v.videoHeight), now);
+        objMissed = objTracker.unmatched > 0;
         setStatus('objects', null);
       } catch (e) {
         objPausedUntil = now + 1000;
@@ -406,7 +452,9 @@ export function createDetectionEngine(): DetectionEngine {
       }
     }
 
-    if (t.faces && newFrames % FACE_EVERY_N_FRAMES === FACE_PHASE && now >= facePausedUntil) {
+    const faceDue = !slow.faces || faceMissed || now - lastFaceRunAt >= SLOW_VISION_MS;
+    if (t.faces && newFrames % FACE_EVERY_N_FRAMES === FACE_PHASE && faceDue && now >= facePausedUntil) {
+      lastFaceRunAt = now;
       try {
         const input = faceInput(v);
         if (input) {
@@ -414,7 +462,9 @@ export function createDetectionEngine(): DetectionEngine {
           const t0 = performance.now();
           const res = t.faces.detectForVideo(input.image, lastFaceTs);
           live.stats.faceMs = performance.now() - t0;
+          perfCount('faces');
           faceTracker.update(parseFaces(res, input.src), now);
+          faceMissed = faceTracker.unmatched > 0;
           setStatus('faces', null);
         }
       } catch (e) {
@@ -426,11 +476,18 @@ export function createDetectionEngine(): DetectionEngine {
 
   function tick(now: number): void {
     if (disposed) return;
+    perfFrame(now);
+    const t0 = performance.now();
     const st = useStore.getState();
     const { w: fw, h: fh } = frameSize();
     const frozen = st.frozen;
     if (wasFrozen && !frozen) objTracker.touchAll(now);
     wasFrozen = frozen;
+    // #131: a model up on stage: objects (and faces, unless it is the eye) rarely, no scan sampling.
+    const slow = slowVisionNow(st);
+    live.stats.slowVision = slow;
+    objTracker.extraHoldMs = slow.objects ? SLOW_VISION_MS : 0;
+    faceTracker.extraHoldMs = slow.faces ? SLOW_VISION_MS : 0;
 
     let engObjects: SceneObject[];
     if (MOCK_MODE && MOCK_GESTURE) {
@@ -449,7 +506,7 @@ export function createDetectionEngine(): DetectionEngine {
       // ?mock=eye: a face in the middle of the view (its eyes are "this").
       faceTracker.update(eyeScene ? [mockFace(now)] : [], now);
     } else {
-      runVision(now, frozen, fw, fh);
+      runVision(now, frozen, fw, fh, slow);
       if (!frozen) objTracker.prune(now);
       handTracker.prune(now);
       faceTracker.prune(now);
@@ -467,6 +524,8 @@ export function createDetectionEngine(): DetectionEngine {
       faces: live.faces.map((f) => f.outline),
       overlayOn: st.overlayOn,
       busy: st.teardown !== null || st.teardownStatus === 'loading',
+      // #131: paused while a model is up, unless it came out of a scanned thing (the sampler moves its box with the view, for the put-away)
+      samplerPaused: slow.objects && !isScanId(st.selectedObjectId),
       frozen,
       selectedId: st.selectedObjectId,
       focusedId: st.focusedObjectId,
@@ -482,6 +541,7 @@ export function createDetectionEngine(): DetectionEngine {
       publishedEmpty = empty;
       if (handTracker.hands.length > 0 || st.hands.length > 0) st.setHands(handTracker.states());
     }
+    perfVision(performance.now() - t0);
   }
 
   return {
