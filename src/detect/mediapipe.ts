@@ -10,7 +10,7 @@
  * `?detector=lite0` / `?detector=lite2` forces one (a failed Lite2 still falls back to Lite0).
  */
 import { FaceLandmarker, FilesetResolver, HandLandmarker, ObjectDetector } from '@mediapipe/tasks-vision';
-import { errorText, urlParam } from '../camera/frame';
+import { PHONE_MODE, errorText, urlParam } from '../camera/frame';
 import { KEEP_SCORE } from './objectTracker';
 
 /** Must match the installed @mediapipe/tasks-vision version (pin it in package.json). */
@@ -29,8 +29,9 @@ const OD_MODELS = {
 } as const;
 export type DetectorKind = keyof typeof OD_MODELS;
 const DETECTOR_RAW = urlParam('detector');
-/** `?detector=lite0` / `?detector=lite2`, else 'auto' (Lite2, Lite0 if it fails or is too slow). */
-export const DETECTOR_CHOICE: DetectorKind | 'auto' = DETECTOR_RAW === 'lite0' || DETECTOR_RAW === 'lite2' ? DETECTOR_RAW : 'auto';
+/** `?detector=lite0` / `?detector=lite2`, else 'auto' (Lite2, Lite0 if it fails or is too slow); phone mode: Lite0. */
+export const DETECTOR_CHOICE: DetectorKind | 'auto' =
+  DETECTOR_RAW === 'lite0' || DETECTOR_RAW === 'lite2' ? DETECTOR_RAW : PHONE_MODE ? 'lite0' : 'auto';
 /** The background Lite2 download (no local file) is given up after this long. */
 const LITE2_DOWNLOAD_MS = 60_000;
 const HL_LOCAL = '/models/hand_landmarker.task';
@@ -186,7 +187,7 @@ export async function loadVisionTasks(): Promise<VisionTasks> {
   const tasks: VisionTasks = {
     objects: null,
     detector: null,
-    detectorNote: DETECTOR_CHOICE === 'auto' ? '' : `forced by ?detector=${DETECTOR_CHOICE}`,
+    detectorNote: DETECTOR_CHOICE === 'auto' ? '' : DETECTOR_RAW === DETECTOR_CHOICE ? `forced by ?detector=${DETECTOR_CHOICE}` : 'phone mode (?phone=1)',
     switchDetector: (kind) =>
       useDetector(kind).then(
         () => true,

@@ -10,7 +10,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChangeEvent, CSSProperties } from 'react';
 import { useStore } from '../state/store';
 import type { Box, CameraApi } from '../state/store';
-import { errorText, frame, MOCK_MODE, urlNumber } from './frame';
+import { errorText, frame, MOCK_MODE, PHONE_MODE, urlNumber } from './frame';
 import { setStatus, useHud } from '../hud/hudStore';
 import { modelOnStage } from '../overlay/stageState';
 
@@ -53,6 +53,8 @@ function openStream(deviceId: string | null): Promise<MediaStream> {
     frameRate: { ideal: 30 },
   };
   if (deviceId) video.deviceId = { exact: deviceId };
+  // Phone mode (?phone=1): the iPhone's back camera, unless one was picked in the debug panel.
+  else if (PHONE_MODE) video.facingMode = { ideal: 'environment' };
   return navigator.mediaDevices.getUserMedia({ video, audio: false });
 }
 
@@ -65,7 +67,22 @@ function errName(e: unknown): string {
   return e && typeof e === 'object' && 'name' in e ? String((e as { name: unknown }).name) : '';
 }
 
+/** Phone mode (?phone=1): the same errors, said for Safari on an iPhone. */
+function describePhoneCameraError(e: unknown): string {
+  switch (errName(e)) {
+    case 'NotAllowedError':
+      return 'Camera blocked: in Safari tap aA (left of the address) > Website Settings > Camera > Allow, then reload';
+    case 'NotFoundError':
+      return 'No camera found on this phone';
+    case 'NotReadableError':
+      return 'Camera busy: close the other app using it (Camera, FaceTime), then reload';
+    default:
+      return `Camera error: ${errorText(e)}`;
+  }
+}
+
 function describeCameraError(e: unknown): string {
+  if (PHONE_MODE) return describePhoneCameraError(e);
   switch (errName(e)) {
     case 'NotAllowedError':
       return 'Camera permission denied: allow the camera for localhost in Chrome (lock icon > Site settings) and reload';
@@ -184,7 +201,13 @@ export function Camera() {
   // Open / switch the stream whenever the requested device changes.
   useEffect(() => {
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-      setStatus('camera', 'error', 'Camera API unavailable: open the app on http://localhost (not a LAN IP) in Chrome');
+      setStatus(
+        'camera',
+        'error',
+        PHONE_MODE
+          ? 'Camera unavailable: open the whole https link that npm run phone printed, in Safari'
+          : 'Camera API unavailable: open the app on http://localhost (not a LAN IP) in Chrome',
+      );
       return;
     }
     let cancelled = false;
@@ -217,8 +240,8 @@ export function Camera() {
         setDevices(vids);
         const track = stream.getVideoTracks()[0];
         const currentId = track ? track.getSettings().deviceId ?? null : null;
-        if (!requestedId) {
-          // Nothing remembered: prefer the first external camera (not FaceTime).
+        if (!requestedId && !PHONE_MODE) {
+          // Nothing remembered: prefer the first external camera (not FaceTime). (Phone mode: the back camera.)
           const preferred = pickDefault(vids);
           if (preferred && currentId && preferred !== currentId) {
             stopStream(stream);
