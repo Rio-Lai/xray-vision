@@ -4,8 +4,11 @@
  * their side once shown, and are stacked so they never overlap each other or any element marked
  * `data-bf-avoid` (the part and step cards). Updated imperatively every frame (no React).
  * Also hosts the optional gaze dwell ring (off unless ?dwell=1).
- * Styles: .bf-plabel* in src/hud/styles.ts.
+ * Styles: .bf-plabel* and .bf-label-pill in src/hud/kit/hud.ts (Figma Make kit look, #86: elbow
+ * leader lines that stop short of the pill), or src/hud/styles.ts with ?look=classic (straight lines).
  */
+import { KIT_LOOK } from '../hud/look';
+
 export interface LabelItem {
   id: string;
   text: string;
@@ -28,7 +31,7 @@ type Side = 'left' | 'right';
 
 interface LabelNode {
   tag: HTMLDivElement;
-  line: SVGLineElement;
+  line: SVGPathElement;
   dot: SVGCircleElement;
   text: string;
   hl: boolean | null;
@@ -52,6 +55,19 @@ const SIDE_GAP = 28;
 const EDGE = 12;
 const RING_R = 30;
 const ACCENT = '#4DA3FF';
+/** Kit leader line (#86, PartLabel in the Make kit): the elbow sits this far from the pill... */
+const LEADER_ELBOW = 32;
+/** ...and the line stops this short of it. */
+const LEADER_GAP = 6;
+
+const f1 = (v: number) => v.toFixed(1);
+
+/** The leader from the pill edge (lx, ly) to the anchor: kit = anchor, elbow, short of the pill; classic = straight. */
+function leaderPath(side: Side, lx: number, ly: number, ax: number, ay: number): string {
+  if (!KIT_LOOK) return `M${f1(lx)} ${f1(ly)}L${f1(ax)} ${f1(ay)}`;
+  const dir = side === 'left' ? 1 : -1;
+  return `M${f1(ax)} ${f1(ay)}L${f1(lx + dir * LEADER_ELBOW)} ${f1(ly)}L${f1(lx + dir * LEADER_GAP)} ${f1(ly)}`;
+}
 
 interface Rect {
   left: number;
@@ -158,9 +174,10 @@ export class LabelLayer {
     let n = this.nodes.get(item.id);
     if (!n) {
       const tag = document.createElement('div');
-      tag.className = 'bf-pill bf-glass bf-plabel';
-      const line = document.createElementNS(SVG_NS, 'line');
+      tag.className = 'bf-pill bf-glass bf-plabel bf-label-pill';
+      const line = document.createElementNS(SVG_NS, 'path');
       line.setAttribute('class', 'bf-plabel-line');
+      line.setAttribute('fill', 'none');
       const dot = document.createElementNS(SVG_NS, 'circle');
       dot.setAttribute('class', 'bf-plabel-dot');
       this.svg.appendChild(line);
@@ -177,9 +194,11 @@ export class LabelLayer {
     if (n.hl !== item.highlighted) {
       n.hl = item.highlighted;
       n.tag.classList.toggle('hl', item.highlighted);
+      n.tag.classList.toggle('bf-label-pill--highlight', item.highlighted);
       n.line.classList.toggle('hl', item.highlighted);
       n.dot.classList.toggle('hl', item.highlighted);
-      n.dot.setAttribute('r', item.highlighted ? '4.5' : '3');
+      // kit: one 8 px dot (the highlight adds a soft ring in CSS); classic: a bigger dot
+      n.dot.setAttribute('r', KIT_LOOK ? '4' : item.highlighted ? '4.5' : '3');
       n.w = 0; // highlighted pills are slightly bigger: re-measure
     }
     if (n.w === 0) {
@@ -238,10 +257,7 @@ export class LabelLayer {
           node.tag.style.display = '';
           const lx = side === 'left' ? x + node.w : x;
           const ly = y + node.h / 2;
-          node.line.setAttribute('x1', lx.toFixed(1));
-          node.line.setAttribute('y1', ly.toFixed(1));
-          node.line.setAttribute('x2', item.ax.toFixed(1));
-          node.line.setAttribute('y2', item.ay.toFixed(1));
+          node.line.setAttribute('d', leaderPath(side, lx, ly, item.ax, item.ay));
           node.line.setAttribute('opacity', op);
           node.dot.setAttribute('cx', item.ax.toFixed(1));
           node.dot.setAttribute('cy', item.ay.toFixed(1));

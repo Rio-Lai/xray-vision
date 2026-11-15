@@ -9,8 +9,10 @@
  *  - a pill that would overlap another pill or dot goes below its dot, or further out on a longer hairline
  *  - fade and scale in over ~250 ms (CSS), staggered when the overlay is switched on
  *
- * Pure DOM: works even if WebGL is unavailable. Styles: .bf-olabel* in src/hud/styles.ts.
+ * Pure DOM: works even if WebGL is unavailable. Styles: .bf-olabel*, .bf-focusglow and .bf-label-pill
+ * in src/hud/kit/hud.ts (Figma Make kit look, #86), or src/hud/styles.ts with ?look=classic.
  */
+import { KIT_LOOK } from '../hud/look';
 import type { SceneObject } from '../state/store';
 import { boxToView } from '../camera/frame';
 import type { CoverMap } from '../camera/frame';
@@ -21,8 +23,10 @@ const MAX_LABELS = 4;
 /** Ranking lead (fraction of the centre-to-corner distance) for a label that is already showing. */
 const KEEP_BONUS = 0.06;
 const STAGGER_MS = 90;
-const STEM_PX = 16;
-const DOT_GAP_PX = 4;
+/** Stem length from the dot's edge. Kit (#86): 28 px, then an 8 px gap to the pill; classic: 16 px, touching the pill. */
+const STEM_PX = KIT_LOOK ? 28 : 16;
+/** Dot radius (4 px) plus the gap between the stem and the pill. */
+const DOT_GAP_PX = KIT_LOOK ? 12 : 4;
 const LIFT_STEP_GAP = 8;
 const REMOVE_AFTER_MS = 400;
 const EDGE_PX = 10;
@@ -103,7 +107,7 @@ export class ObjectLabelLayer {
     const stem = document.createElement('i');
     stem.className = 'bf-olabel-stem';
     const pill = document.createElement('div');
-    pill.className = 'bf-pill bf-glass bf-olabel-pill';
+    pill.className = 'bf-pill bf-glass bf-olabel-pill bf-label-pill';
     inner.append(stem, dot, pill);
     root.appendChild(inner);
     this.root.appendChild(root);
@@ -220,6 +224,7 @@ export class ObjectLabelLayer {
       if (focus !== n.focus) {
         n.focus = focus;
         n.pill.classList.toggle('bf-pill--focus', focus);
+        n.pill.classList.toggle('bf-label-pill--focused', focus);
         n.inner.classList.toggle('focus', focus);
         n.w = 0; // the focus pill is bolder: re-measure next frame
       }

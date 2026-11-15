@@ -4,8 +4,11 @@
  * Same glass, font and accent as the HUD (src/hud/styles.ts). Rendered once by VoiceBar.
  */
 import { ACCENT, FONT } from '../hud/styles';
+import { LOOK } from '../hud/look';
+import { KIT_VOICE_CSS } from '../hud/kit/voice';
 
-export const VOICE_CSS = `
+/** The look before #86 (`?look=classic`). */
+export const CLASSIC_VOICE_CSS = `
 .bf-voice { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50;
   display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(760px, 92vw);
   pointer-events: none; font-family: ${FONT}; -webkit-font-smoothing: antialiased; color: #fff; }
@@ -70,3 +73,6 @@ export const VOICE_CSS = `
   .bf-vbar { transform: scaleY(0.6); }
 }
 `;
+
+/** #86: the Figma Make interface kit look by default (src/hud/kit/voice.ts, CSS only); ?look=classic keeps the one above. */
+export const VOICE_CSS = LOOK === 'classic' ? CLASSIC_VOICE_CSS : KIT_VOICE_CSS;
