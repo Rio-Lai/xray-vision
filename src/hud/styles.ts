@@ -1,15 +1,43 @@
 /**
- * Blowfish stylesheet (PROJECT.md section 2), injected once with a <style> tag by Hud.
- * Calm and modern: the camera image stays the hero; frosted-glass pills and cards, white
- * sans-serif text, one accent (#4DA3FF) for focus and highlight, warm amber (#FF9F45) only for
- * safety and active muscles. Labels >= 16px, body >= 18px. Nothing blinks.
+ * Blowfish stylesheets (PROJECT.md section 2), injected once with a <style> tag by Hud.
  * Used by the HUD (React) and by the imperative label layers in src/overlay/.
+ *
+ * Since #86 the default look is the Figma Make interface kit: its tokens and component styles are
+ * in src/hud/kit/ (an adapted copy of docs/design/make-interface-kit/; adaptations in its README).
+ * `?look=classic` (src/hud/look.ts) brings back the previous stylesheet, CLASSIC_HUD_CSS below,
+ * unchanged: white frosted glass, one accent (#4DA3FF) for focus and highlight, warm amber
+ * (#FF9F45) only for safety and active muscles. Labels >= 16px, body >= 18px. Nothing blinks.
  */
+import { LOOK } from './look';
+import { KIT_KEYFRAMES_CSS, KIT_TOKENS_CSS } from './kit/tokens';
+import { KIT_HUD_CSS } from './kit/hud';
+
 export const ACCENT = '#4DA3FF';
 export const WARM = '#FF9F45';
 export const FONT = 'system-ui, -apple-system, "SF Pro Text", Inter, sans-serif';
 
-export const HUD_CSS = `
+/** The hidden debug panel (D) and tuning panels: the same in both looks. */
+export const DEBUG_CSS = `
+/* ---- hidden debug panel (D): plain and dense on purpose ---- */
+.bf-debug { position: absolute; left: 18px; top: 56px; max-width: calc(100vw - 36px); max-height: calc(100vh - 200px); overflow: hidden;
+  padding: 10px 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.72); color: #e8e8e8;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace !important; white-space: pre; }
+.bf-tuning-col { position: absolute; top: 16px; right: 18px; width: 320px; max-height: calc(100vh - 32px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+.bf-tuning { box-sizing: border-box; width: 100%; padding: 12px 14px; border-radius: 10px; pointer-events: auto;
+  background: rgba(0, 0, 0, 0.78); color: #e8e8e8; font-size: 13px !important; display: flex; flex-direction: column; gap: 8px; }
+.bf-tuning * { font-size: 13px; }
+.bf-tuning-title { font-weight: 600; }
+.bf-tuning label { display: flex; flex-direction: column; gap: 2px; }
+.bf-tuning label b { color: #fff; }
+.bf-tuning input[type=range] { width: 100%; accent-color: ${ACCENT}; }
+.bf-tuning .bf-tuning-row { flex-direction: row; align-items: center; gap: 8px; }
+.bf-tuning button { padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.1); color: #fff; cursor: pointer; }
+.bf-tuning code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace !important; color: #bbb; user-select: text; word-break: break-all; }
+`;
+
+/** The look before #86 (`?look=classic`). */
+export const CLASSIC_HUD_CSS = `
 .bf-hud, .bf-olayer, .bf-player { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .bf-hud, .bf-olayer, .bf-player, .bf-hud * { font-family: ${FONT}; -webkit-font-smoothing: antialiased; }
 .bf-hud { color: #fff; font-size: 18px; line-height: 1.4; }
@@ -93,20 +121,10 @@ export const HUD_CSS = `
 @keyframes bf-breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 .bf-title, .bf-status { --bf-tx: -50%; }
 
-/* ---- hidden debug panel (D): plain and dense on purpose ---- */
-.bf-debug { position: absolute; left: 18px; top: 56px; max-width: calc(100vw - 36px); max-height: calc(100vh - 200px); overflow: hidden;
-  padding: 10px 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.72); color: #e8e8e8;
-  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace !important; white-space: pre; }
-.bf-tuning-col { position: absolute; top: 16px; right: 18px; width: 320px; max-height: calc(100vh - 32px); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
-.bf-tuning { box-sizing: border-box; width: 100%; padding: 12px 14px; border-radius: 10px; pointer-events: auto;
-  background: rgba(0, 0, 0, 0.78); color: #e8e8e8; font-size: 13px !important; display: flex; flex-direction: column; gap: 8px; }
-.bf-tuning * { font-size: 13px; }
-.bf-tuning-title { font-weight: 600; }
-.bf-tuning label { display: flex; flex-direction: column; gap: 2px; }
-.bf-tuning label b { color: #fff; }
-.bf-tuning input[type=range] { width: 100%; accent-color: ${ACCENT}; }
-.bf-tuning .bf-tuning-row { flex-direction: row; align-items: center; gap: 8px; }
-.bf-tuning button { padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.1); color: #fff; cursor: pointer; }
-.bf-tuning code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace !important; color: #bbb; user-select: text; word-break: break-all; }
-`;
+${DEBUG_CSS}`;
+
+/** The Figma Make interface kit look (default). */
+export const KIT_CSS = `${KIT_TOKENS_CSS}${KIT_KEYFRAMES_CSS}${KIT_HUD_CSS}${DEBUG_CSS}`;
+
+/** The stylesheet Hud injects: the kit, or the classic look with ?look=classic. */
+export const HUD_CSS = LOOK === 'classic' ? CLASSIC_HUD_CSS : KIT_CSS;

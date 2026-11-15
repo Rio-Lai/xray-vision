@@ -4,6 +4,8 @@
  * Object and part labels are drawn by src/overlay (objectLabels.ts, labels.ts) every frame.
  * Overlay off (the default) = nothing from here on screen, apart from a real error.
  * Pointer events are off for the whole HUD so clicks reach the Stage picker.
+ * Look (#86): the Figma Make interface kit's markup and classes by default (src/hud/kit/);
+ * `?look=classic` renders the previous markup with the previous stylesheet. Same states either way.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
@@ -14,6 +16,7 @@ import { FINGERS, HAND_TUNING_DEFAULTS, handTuning, setHandTuning } from '../det
 import type { HandTuning } from '../detect/handTracker';
 import { useHud } from './hudStore';
 import { HUD_CSS } from './styles';
+import { KIT_LOOK, LOOK } from './look';
 import { modelControl } from '../stage/modelControl';
 import type { AppState } from '../state/store';
 import { gestureLive } from '../detect/gestureDriver';
@@ -95,6 +98,16 @@ function StatusPill() {
     text = busy ?? centreName ?? 'Looking\u2026';
   }
   if (!kind) return null;
+  if (KIT_LOOK) {
+    // kit StatusPill: "looking" has a static accent dot, errors a coral dot; warnings keep a warm dot
+    const variant = kind === 'busy' ? 'looking' : kind;
+    return (
+      <div className={`bf-status-pill bf-status-pill--${variant} bf-glass bf-enter`} key={`${kind}:${text}`}>
+        <span className="bf-pill-dot" />
+        <span>{text}</span>
+      </div>
+    );
+  }
   return (
     <div className="bf-status" key={`${kind}:${text}`}>
       <div className="bf-pill bf-glass">
@@ -110,6 +123,15 @@ function ExplodedTitle() {
   const tdName = useStore((s) => (isShowing(s) ? s.teardown?.name ?? null : null));
   const isLive = useStore((s) => s.teardown?.source === 'live');
   if (!tdName) return null;
+  if (KIT_LOOK) {
+    // kit TitlePill: one pill, the "AI-estimated" chip inside it in neutral grey
+    return (
+      <div className="bf-title-pill bf-glass bf-enter" key={tdName}>
+        {tdName}
+        {isLive && <span className="bf-title-pill__chip">AI-estimated</span>}
+      </div>
+    );
+  }
   return (
     <div className="bf-title" key={tdName}>
       <div className="bf-pill bf-glass">{tdName}</div>
@@ -123,7 +145,32 @@ function PartCard() {
   const part = useStore((s) =>
     s.highlightedPartId && s.teardown && isShowing(s) ? s.teardown.parts.find((p) => p.id === s.highlightedPartId) ?? null : null,
   );
+  const partIndex = useStore((s) => s.teardown?.parts.findIndex((p) => p.id === s.highlightedPartId) ?? -1);
+  const partCount = useStore((s) => s.teardown?.parts.length ?? 0);
   if (!part) return null;
+  if (KIT_LOOK) {
+    // kit PartCard: kicker, name, summary, safety note with the warning glyph
+    return (
+      <section className="bf-card bf-part-card bf-enter" data-bf-avoid key={part.id}>
+        {partIndex >= 0 && partCount > 0 && (
+          <p className="bf-card__kicker">
+            Part {partIndex + 1} of {partCount}
+          </p>
+        )}
+        <h2 className="bf-card__name">{part.name}</h2>
+        <p className="bf-card__body">{part.summary}</p>
+        {part.safety && (
+          <p className="bf-card__safety">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M10 2.4 18 17H2L10 2.4Z" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M10 7v4.5M10 14.2v.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <span>{part.safety}</span>
+          </p>
+        )}
+      </section>
+    );
+  }
   return (
     <div className="bf-card bf-card-part" data-bf-avoid key={part.id}>
       <div className="bf-card-title">{part.name}</div>
@@ -140,6 +187,22 @@ function StepCard() {
   if (activeStep === null || !steps) return null;
   const step = steps.find((st) => st.n === activeStep);
   if (!step) return null;
+  if (KIT_LOOK) {
+    // kit StepCard: kicker, segmented progress line (the current step lit), sentence
+    return (
+      <section className="bf-card bf-step-card bf-enter" data-bf-avoid key={step.n}>
+        <p className="bf-card__kicker">
+          Step {step.n} of {steps.length}
+        </p>
+        <div className="bf-progress" aria-hidden="true">
+          {steps.map((st, i) => (
+            <span key={i} className={`bf-progress__segment${st === step ? ' bf-progress__segment--active' : ''}`} />
+          ))}
+        </div>
+        <p className="bf-card__body">{step.text}</p>
+      </section>
+    );
+  }
   return (
     <div className="bf-card bf-card-step" data-bf-avoid key={step.n}>
       <div className="bf-card-kicker">
@@ -319,6 +382,7 @@ function DebugPanel() {
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
   const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} | input ${modelControl.describe()}`);
+  lines.push(`look ${LOOK === 'kit' ? 'kit (Figma Make interface kit, #86; ?look=classic for the previous look)' : 'classic (?look=classic; drop it for the Figma Make kit)'}`);
   lines.push(...gestureLines(performance.now()));
   for (const n of st.notes) lines.push(n);
   for (const [key, l] of Object.entries(status)) lines.push(`[${l.level}] ${key}: ${l.text}`);
