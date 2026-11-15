@@ -56,6 +56,7 @@ function StatusPill() {
   const tdError = useStore((s) => s.teardownError);
   const status = useHud((s) => s.status);
   const toast = useHud((s) => s.toast);
+  const busy = useHud((s) => s.busy);
   const firstError = Object.values(status).find((l) => l.level === 'error');
   // Count each new failure, so the same message twice in a row shows again.
   const errSeq = useRef(0);
@@ -78,7 +79,7 @@ function StatusPill() {
     text = toast.text;
   } else if (tdStatus === 'loading') {
     kind = 'busy';
-    text = 'Looking\u2026';
+    text = busy ?? 'Looking\u2026';
   }
   if (!kind) return null;
   return (

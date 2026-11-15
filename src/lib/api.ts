@@ -33,6 +33,23 @@ export class ApiError extends Error {
 
 export const isServerDown = (err: unknown): boolean => err instanceof ApiError && err.serverDown;
 
+/** A call that took longer than its time limit; the request was aborted. Our server may be fine: this is not "server down". */
+export class ApiTimeoutError extends Error {
+  constructor(
+    path: string,
+    public ms: number,
+  ) {
+    super(`${path} took longer than ${(ms / 1000).toFixed(1)} s`);
+    this.name = 'ApiTimeoutError';
+  }
+}
+
+export const isTimeout = (err: unknown): err is ApiTimeoutError => err instanceof ApiTimeoutError;
+
+/** fetch rejects with AbortError (AbortController) or TimeoutError (AbortSignal.timeout) when its signal fires. */
+const isAbort = (err: unknown): boolean =>
+  err instanceof DOMException && (err.name === 'AbortError' || err.name === 'TimeoutError');
+
 const serverDown = () => new ApiError(SERVER_DOWN_MESSAGE, 0, null, true);
 
 /** Our /api/health shape. Anything else on that URL is some other program. */
@@ -68,13 +85,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     });
   } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    if (init?.signal?.aborted || isAbort(err)) throw err; // we gave up on it (see withTimeout), not "server down"
     throw serverDown(); // nothing answered at all: the dev server is stopped
   }
   let body: unknown = null;
   try {
     body = await res.json();
-  } catch {
+  } catch (err) {
+    if (init?.signal?.aborted || isAbort(err)) throw err;
     body = null;
   }
   // Our routes always answer JSON. An error or a non-JSON answer may come from something else
@@ -88,8 +106,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-const post = <T>(path: string, data: unknown) =>
-  request<T>(path, { method: 'POST', body: JSON.stringify(data) });
+const post = <T>(path: string, data: unknown, signal?: AbortSignal) =>
+  request<T>(path, { method: 'POST', body: JSON.stringify(data), signal });
+
+/**
+ * Run a call with a time limit: after `ms` the request is aborted and this rejects with
+ * ApiTimeoutError. No limit when `ms` is undefined or 0.
+ */
+async function withTimeout<T>(path: string, ms: number | undefined, run: (signal?: AbortSignal) => Promise<T>): Promise<T> {
+  if (!ms || ms <= 0) return run();
+  const ctl = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new ApiTimeoutError(path, ms));
+      ctl.abort();
+    }, ms);
+  });
+  try {
+    return await Promise.race([run(ctl.signal), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface CallOptions {
+  /** Give up after this many milliseconds (rejects with ApiTimeoutError). */
+  timeoutMs?: number;
+}
 
 /** Extra flags the server may add: mock = no key, fallback = live call failed, shortcut = skipped the call. */
 export interface ServerFlags {
@@ -107,7 +151,10 @@ export interface Health {
 }
 
 export const api = {
-  identify: (req: IdentifyRequest) => post<IdentifyResponse & ServerFlags>('/api/identify', req),
+  identify: (req: IdentifyRequest, opts: CallOptions = {}) =>
+    withTimeout('/api/identify', opts.timeoutMs, (signal) =>
+      post<IdentifyResponse & ServerFlags>('/api/identify', req, signal),
+    ),
   teardown: (req: TeardownRequest) => post<Teardown>('/api/teardown', req),
   generatePart: (req: GeneratePartRequest) =>
     post<GeneratePartResponse & ServerFlags>('/api/generate-part', req),
