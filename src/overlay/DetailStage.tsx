@@ -28,6 +28,7 @@ import { canvasDpr, errorText } from '../camera/frame';
 import { perfCount } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
 import { DETAIL_MOCK } from '../lib/detail';
+import { RailsView } from './RailsView';
 import { clearPointer, pointerBegin, pointerEnd, pointerOffer } from './pointerTarget';
 import { detailInput, easeDetailView } from '../stage/detailView';
 import { PAN_UNIT_VH } from '../stage/modelControl';
@@ -602,6 +603,8 @@ const BODY_WIDE: CSSProperties = {
 
 function DetailCard() {
   const detail = useStore((s) => s.detail);
+  // a checked rails view (shared/rails.ts, drawn by RailsView.tsx) has its own card below
+  const rails = useStore((s) => s.rails);
   const status = useStore((s) => s.detailStatus);
   const topic = useStore((s) => s.detailTopic);
   const error = useStore((s) => s.detailError);
@@ -609,6 +612,9 @@ function DetailCard() {
   // phone mode only (a constant): the laptop always gets the laptop card
   const wide = isShortWide(window.innerWidth, window.innerHeight);
   if (status === 'idle') return null;
+  if (rails) return <RailsCard wide={wide} title={rails.title} summary={rails.summary} steps={rails.steps.map((x) => x.say)} step={step} />;
+  // ready with neither (the watch page mirrors no rails view): no card
+  if (status === 'ready' && !detail) return null;
   const title = wide ? TITLE_WIDE : TITLE;
   const body = wide ? BODY_WIDE : BODY;
   const short = (topic ?? '').length > 60 ? `${(topic ?? '').slice(0, 58).trim()}…` : topic ?? '';
@@ -646,6 +652,25 @@ function DetailCard() {
   );
 }
 
+/** The card for a checked rails view: tagged "Checked" (reviewed by hand, never "AI sketch"), the title and the lit step's sentence. */
+function RailsCard({ wide, title, summary, steps, step }: { wide: boolean; title: string; summary: string; steps: string[]; step: number | null }) {
+  const current = step !== null ? steps[step - 1] : undefined;
+  return (
+    <section style={wide ? CARD_WIDE : CARD} className="bf-enter bf-detail-card" data-bf-avoid key={`rails-${title}`}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={wide ? CHIP_WIDE : CHIP}>Checked</span>
+        <span style={{ display: 'flex', gap: 4, flex: 1 }} aria-hidden="true">
+          {steps.map((_, i) => (
+            <span key={i} style={{ height: 4, flex: 1, borderRadius: 999, background: step === i + 1 ? '#4DA3FF' : 'rgba(255, 255, 255, 0.14)' }} />
+          ))}
+        </span>
+      </div>
+      <h2 style={wide ? TITLE_WIDE : TITLE}>{title}</h2>
+      <p style={wide ? BODY_WIDE : BODY}>{current ?? summary}</p>
+    </section>
+  );
+}
+
 /** Mounted by Stage.tsx only with `?detail=1`: the detail model's canvas (it places itself) and its card. */
 export function DetailStage() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -672,6 +697,8 @@ export function DetailStage() {
           background: 'radial-gradient(closest-side, rgba(8, 10, 14, 0.42), rgba(8, 10, 14, 0))',
         }}
       />
+      {/* a checked rails view (store.rails) is drawn here instead of the 3D model, in the same area */}
+      <RailsView areaOf={detailArea} />
       {/* zIndex 2: above the pointer layer (src/overlay/pointer.ts, z-index 1) */}
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}>
         <DetailCard />

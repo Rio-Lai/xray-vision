@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import type { AnchorKind, Lens, Teardown } from '../../shared/teardown';
 import type { DetailScene } from '../../shared/detail';
+import type { RailsScene } from '../../shared/rails';
 
 /** Normalised to the video frame: 0..1, origin top-left. */
 export interface Box {
@@ -123,6 +124,12 @@ export interface AppState {
    * which also moves the main model aside and back. resetView (put away) clears it too.
    */
   detail: DetailScene | null;
+  /**
+   * A checked, flat comparison view (shared/rails.ts) shown instead of a 3D detail model, drawn by
+   * src/overlay/RailsView.tsx. While it is up `detailStatus` is "ready" and `detail` is null (so nothing that
+   * reads `detail` as a 3D scene ever sees it); `detailStep` is its lit step. Cleared with the detail.
+   */
+  rails: RailsScene | null;
   detailStatus: DetailStatus;
   /** What is being modelled (for "Building a model of ..."), while loading and after. */
   detailTopic: string | null;
@@ -170,6 +177,8 @@ export interface AppState {
 
   setDetailLoading: (topic: string) => void;
   setDetail: (scene: DetailScene) => void;
+  /** Show a checked rails view at once (no loading state). */
+  setRails: (scene: RailsScene, topic: string) => void;
   setDetailError: (message: string) => void;
   setDetailStep: (n: number | null) => void;
   clearDetail: () => void;
@@ -193,7 +202,7 @@ export const MODEL_PAN_MAX = 2;
 const clampPan = (n: number) => (Number.isFinite(n) ? Math.min(MODEL_PAN_MAX, Math.max(-MODEL_PAN_MAX, n)) : 0);
 
 /** No detail model (the start, resetView and clearDetail). */
-const NO_DETAIL = { detail: null, detailStatus: 'idle', detailTopic: null, detailError: null, detailStep: null } as const satisfies Partial<AppState>;
+const NO_DETAIL = { detail: null, rails: null, detailStatus: 'idle', detailTopic: null, detailError: null, detailStep: null } as const satisfies Partial<AppState>;
 
 export const useStore = create<AppState>((set) => ({
   overlayOn: false,
@@ -219,6 +228,7 @@ export const useStore = create<AppState>((set) => ({
   modelPanY: 0,
 
   detail: null,
+  rails: null,
   detailStatus: 'idle',
   detailTopic: null,
   detailError: null,
@@ -285,9 +295,10 @@ export const useStore = create<AppState>((set) => ({
       ...NO_DETAIL,
     }),
 
-  setDetailLoading: (detailTopic) => set({ detail: null, detailStatus: 'loading', detailTopic, detailError: null, detailStep: null }),
-  setDetail: (detail) => set({ detail, detailStatus: 'ready', detailError: null, detailStep: null }),
-  setDetailError: (detailError) => set({ detail: null, detailStatus: 'error', detailError, detailStep: null }),
+  setDetailLoading: (detailTopic) => set({ detail: null, rails: null, detailStatus: 'loading', detailTopic, detailError: null, detailStep: null }),
+  setDetail: (detail) => set({ detail, rails: null, detailStatus: 'ready', detailError: null, detailStep: null }),
+  setRails: (rails, detailTopic) => set({ detail: null, rails, detailStatus: 'ready', detailTopic, detailError: null, detailStep: null }),
+  setDetailError: (detailError) => set({ detail: null, rails: null, detailStatus: 'error', detailError, detailStep: null }),
   setDetailStep: (detailStep) => set({ detailStep }),
   clearDetail: () => set(NO_DETAIL),
 

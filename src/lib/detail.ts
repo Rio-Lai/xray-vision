@@ -13,6 +13,7 @@
  */
 import { MODEL_PAN_MAX, useStore } from '../state/store';
 import { DetailSceneSchema, SAMPLE_DETAIL, type DetailAnswerFlags, type DetailScene } from '../../shared/detail';
+import { matchRails, type RailsScene } from '../../shared/rails';
 import { urlParam } from '../camera/frame';
 import { PAN_UNIT_VH } from '../stage/modelControl';
 import { WIDE_DETAIL_SPLIT, isShortWide } from '../phone/viewport';
@@ -46,7 +47,12 @@ let aside: { objectId: string; panX: number; panY: number; zoom: number } | null
  * ok: the model is up. Not ok: `say` is one sentence to speak, or `superseded` (closed, put away or replaced by
  * a newer request while it was being built: nothing to say, the newer one answers for itself).
  */
-export type DetailOpen = { ok: true; scene: DetailScene } | { ok: false; say: string; superseded?: undefined } | { ok: false; superseded: true; say?: undefined };
+export type DetailOpen =
+  | { ok: true; scene: DetailScene; rails?: undefined }
+  // a checked rails view (shared/rails.ts): opened at once, no server call
+  | { ok: true; rails: RailsScene; scene?: undefined }
+  | { ok: false; say: string; superseded?: undefined }
+  | { ok: false; superseded: true; say?: undefined };
 
 /**
  * The pan (stage sizes) that puts the main model in the middle of the left half of the view (phone mode: of the
@@ -91,6 +97,16 @@ export async function openDetail(topic: string, ctx: { object?: string; part?: s
   if (!DETAIL_ON) return { ok: false, say: DETAIL_OFF_SAY };
   const t = topic.trim().slice(0, 200);
   if (!t) return { ok: false, say: 'Say what to model.' };
+  // A checked rails view ("how does this camera link to my eye"): bundled into the app, so it opens at once
+  // with no loading card, no server call and no network. Anything else goes on to the server as before.
+  const checked = matchRails(t);
+  if (checked) {
+    reqId++;
+    useStore.getState().setRails(checked, t);
+    moveModelAside();
+    devLog(`Detail: checked ${checked.id} for "${t}"`);
+    return { ok: true, rails: checked };
+  }
   const id = ++reqId;
   useStore.getState().setDetailLoading(t);
   moveModelAside();
@@ -152,7 +168,9 @@ export function closeDetail(): void {
 /** Light up step n (1-based) of the open detail model. false if there is no such step. */
 export function setDetailStep(n: number): boolean {
   const s = useStore.getState();
-  if (!s.detail || !Number.isInteger(n) || n < 1 || n > s.detail.steps.length) return false;
+  // a 3D detail model or a checked rails view, whichever is up
+  const count = s.detail ? s.detail.steps.length : s.rails ? s.rails.steps.length : 0;
+  if (!Number.isInteger(n) || n < 1 || n > count) return false;
   s.setDetailStep(n);
   return true;
 }
