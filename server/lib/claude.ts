@@ -25,9 +25,11 @@ import { listCheckedObjects, safeId } from './cache';
 
 let client: Anthropic | null = null;
 const getClient = () => {
-  // At low effort a parts list takes ~10-20 s; the timeout only stops a stuck call. One SDK retry for
-  // 429/5xx/network; invalid JSON is retried separately in teardownLive. Identify sets its own, shorter limit.
-  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 60_000, maxRetries: 1 });
+  // The timeout only stops a stuck call. Sonnet at low effort wrote a parts list in ~10-20 s; Opus at medium
+  // effort writes more (thinking plus a longer JSON with "visual" phrases) and may pass 60 s, so 120 s (#95).
+  // One SDK retry for 429/5xx/network; invalid JSON is retried separately in teardownLive. Identify sets its
+  // own, shorter limit.
+  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 120_000, maxRetries: 1 });
   return client;
 };
 
