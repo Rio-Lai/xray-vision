@@ -586,7 +586,6 @@ const BODY_WIDE: CSSProperties = {
   overflow: 'hidden',
 };
 
-
 function DetailCard() {
   const detail = useStore((s) => s.detail);
   const status = useStore((s) => s.detailStatus);
