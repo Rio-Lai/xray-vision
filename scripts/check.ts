@@ -429,6 +429,7 @@ function checkVisionModels(): Item[] {
   const missing = [
     !big('efficientdet_lite0.tflite') && 'object model',
     !big('hand_landmarker.task') && 'hand model',
+    !big('face_landmarker.task') && 'face model',
     !(present('wasm/vision_wasm_internal.js') && present('wasm/vision_wasm_internal.wasm')) && 'wasm',
   ].filter((x): x is string => Boolean(x));
   if (missing.length === 0) return [ok('MediaPipe models and wasm are on this laptop (public/models/)')];

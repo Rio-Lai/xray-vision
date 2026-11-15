@@ -9,6 +9,10 @@ import { explodeObject, resetAll } from '../lib/flow';
 import { armPose } from '../biology/arm/tour';
 import { startArmLive } from '../biology/arm/armLive';
 import { ARM_MUSCLE_IDS, armLayerNames, armPartExtras, armStepExtras, isArmTeardown, resolveObjectId } from '../stage/armTeardown';
+// Kash's eye (#94): object_id "eye" means an eye in view (or the stored eye when none is); get_pose adds `eyes`.
+import { isEyeTeardown, resolveEyeObjectId } from '../stage/eyeTeardown';
+import { describeEyes } from '../detect/faceTracker';
+import { live } from '../detect/live';
 
 // Kash's X-ray arm (public/cache/arm-hand) is the floating model for a hand on stage: flow.ts loads it as the hand's
 // parts list, so these tools work on it through the store like on any other object (src/stage/armTeardown.ts), and
@@ -133,7 +137,7 @@ const tools: Record<ClientToolName, Tool> = {
     const s = useStore.getState();
     // "arm-hand" (Kash's arm) means the hand in view: the arm is how a hand is shown on stage.
     const asked = str(p, 'object_id');
-    const objectId = asked === undefined ? undefined : resolveObjectId(asked, s);
+    const objectId = asked === undefined ? undefined : resolveEyeObjectId(asked, s) ?? resolveObjectId(asked, s);
     if (objectId === null) return 'No hand in view. Ask the user to hold a hand in front of the camera, then call explode again.';
     if (amount !== undefined && amount <= 0) {
       s.setExplode(0);
@@ -150,6 +154,7 @@ const tools: Record<ClientToolName, Tool> = {
     if (!result.ok || !td) return result.message;
     const tour = tourParts(td);
     const arm = isArmTeardown(td);
+    const eye = isEyeTeardown(td);
     return json({
       ok: true,
       message: result.message,
@@ -157,10 +162,14 @@ const tools: Record<ClientToolName, Tool> = {
       part_ids: td.parts.map((x) => x.id),
       // Kash's arm: its layers (0 = skin) and its guided tour
       ...(arm ? { layers: await armLayerNames(), steps: td.steps.length } : {}),
-      tour: tour.map((x) => ({ id: x.id, name: x.name, summary: x.summary, safety: x.safety ?? null })),
+      // Kash's eye: its steps are the path of light, offered instead of a part tour
+      ...(eye ? { steps: td.steps.length, steps_are: 'the path of light, from the cornea to the optic nerve' } : {}),
+      ...(eye ? {} : { tour: tour.map((x) => ({ id: x.id, name: x.name, summary: x.summary, safety: x.safety ?? null })) }),
       next: arm
         ? `This is a layered 3D model of the arm and hand. Say that in one sentence, then walk through it: call show_step with n 1, then 2, up to ${td.steps.length}, one short sentence each.`
-        : `Give a short tour of these ${tour.length} parts in order: call highlight_part before you mention each one, one short sentence each, and say any safety note.${
+        : eye
+          ? `This is the checked 3D model of the human eye. Say it is open in one short sentence and stop. When the user asks how the eye works, how it focuses or how light gets in, walk the path of light: call show_step with n 1, then 2, up to ${td.steps.length}, one short sentence each.`
+          : `Give a short tour of these ${tour.length} parts in order: call highlight_part before you mention each one, one short sentence each, and say any safety note.${
             td.source === 'live' ? ' Say once that the parts are AI-estimated.' : ''
           }`,
     });
@@ -245,8 +254,11 @@ const tools: Record<ClientToolName, Tool> = {
     const hands = s.hands.map((h) => describeHand(h, ids));
     // arm (Kash): { activity: "typing" | "none", confidence, active_parts: [{ part_id, intensity, role }], ... }
     const arm = await armPose();
+    // While a face is tracked: per eye open / closed and where it looks (the person's own left and right), and a note.
+    const eyes = describeEyes(live.faces, s.focusedObjectId, s.selectedObjectId);
+    const eyeField = eyes ? { eyes } : {};
     if (hands.length === 0 && arm.activity !== 'typing') {
-      return json({ hands: [], arm, note: 'No hands in view. Ask the user to hold a hand in front of the camera.' });
+      return json({ hands: [], arm, ...eyeField, note: 'No hands in view. Ask the user to hold a hand in front of the camera.' });
     }
     const handLoaded = s.teardown?.anchor === 'hand';
     const active = hands.find((h) => h.muscles.length > 0);
@@ -255,6 +267,7 @@ const tools: Record<ClientToolName, Tool> = {
       hands: hands.map((h) => ({ ...h, muscle_names: handLoaded ? partNames(h.muscles) : [] })),
       working_now: active ? partNames(active.muscles) : [],
       arm,
+      ...eyeField,
       note:
         arm.activity === 'typing' && !armOnStage
           ? 'The arm is typing: answer from arm.active_parts, then call explode with object_id "arm-hand" and show_step 1 to 6.'

@@ -378,7 +378,9 @@ function DebugPanel() {
   if (!visible) return null;
   const st = live.stats;
   const lines: string[] = [];
-  lines.push(`render ${st.renderFps.toFixed(1)} fps | objects ${st.objMs.toFixed(1)} ms | hands ${st.handMs.toFixed(1)} ms${MOCK_MODE ? ' | MOCK' : ''}`);
+  lines.push(
+    `render ${st.renderFps.toFixed(1)} fps | objects ${st.objMs.toFixed(1)} ms | hands ${st.handMs.toFixed(1)} ms | faces ${st.faceMs.toFixed(1)} ms${MOCK_MODE ? ' | MOCK' : ''}`,
+  );
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
   const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} | input ${modelControl.describe()}`);
@@ -393,6 +395,11 @@ function DebugPanel() {
     lines.push(
       `  ${o.id.padEnd(14)} ${o.label.padEnd(10)} ${(o.confidence * 100).toFixed(0).padStart(3)}%  [${b.x.toFixed(2)} ${b.y.toFixed(2)} ${b.w.toFixed(2)} ${b.h.toFixed(2)}]`,
     );
+  }
+  for (const f of live.faces) {
+    const head = f.headYaw === null || f.headPitch === null ? '' : `  head yaw ${f.headYaw.toFixed(0)}\u00b0 pitch ${f.headPitch.toFixed(0)}\u00b0`;
+    const eyes = f.eyes.map((e) => `${e.side} ${e.open ? 'open' : 'closed'} ${e.looking}`).join(', ');
+    lines.push(`face ${f.slot}  ${(f.outline.w * 100).toFixed(0)}% wide  eyes: ${eyes}${head}`);
   }
   for (const h of live.hands) {
     lines.push(`${h.id}  size ${h.handSize.toFixed(0)}px  active: ${h.activeFinger ?? '-'}`);

@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { IdentifyRequestSchema } from '../../shared/teardown';
-import { mockIdentify } from '../../shared/demo';
+import { isEyeHint, mockIdentify } from '../../shared/demo';
 import { hasAnthropic } from '../lib/env';
 import { identifyLive } from '../lib/claude';
 
@@ -13,7 +13,8 @@ export async function identify(req: Request, res: Response) {
   const { image, lens, hint } = parsed.data;
 
   // A hand is always the checked finger-muscles teardown (CONTRACTS.md), whatever the lens hint (not a "handbag"); skip the vision call.
-  if (/\bhands?\b/i.test(hint ?? '')) {
+  // An eye is always Kash's checked eye (#94): a picture of someone's face is never sent to Claude.
+  if (/\bhands?\b/i.test(hint ?? '') || isEyeHint(hint)) {
     return res.json({ ...mockIdentify(hint, lens), shortcut: true });
   }
 

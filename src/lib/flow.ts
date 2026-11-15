@@ -163,10 +163,11 @@ async function runExplode(target: SceneObject): Promise<ExplodeResult> {
   if (known) {
     ident = known;
   } else if (isDemoObject(guess.object_id)) {
-    // Cached (the MacBook, a hand): never wait on the network. Open it now from the label and ask
-    // Claude in the background; its answer is checked once the model is shown (step 5, #84). The
-    // server answers a hand itself without asking Claude, so a hand is not sent at all.
-    if (target.anchor !== 'hand') background = identifyInBackground(target, kind);
+    // Cached (the MacBook, a hand, an eye): never wait on the network. Open it now from the label and
+    // ask Claude in the background; its answer is checked once the model is shown (step 5, #84). The
+    // server answers a hand or an eye itself without asking Claude, so neither is sent at all: no
+    // picture of a face leaves the laptop for an eye (#94).
+    if (target.anchor !== 'hand' && target.anchor !== 'face') background = identifyInBackground(target, kind);
   } else {
     // Anything else waits for Claude, but at most IDENTIFY_TIMEOUT_MS. Any failure except
     // "server not running" (a time-out included) goes on with the detector's label.

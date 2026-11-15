@@ -3,13 +3,18 @@
  * overlay is on or off, so "this" (focusedObjectId) is always ready for a voice command.
  *  - hand landmarker on every new video frame
  *  - object detector on every 3rd new video frame, paused while store.frozen
- *  - focus = the thing of any kind nearest the frame centre (with a short hysteresis)
+ *  - face landmarker on every 3rd new video frame too, on the frames between (#94), on a square crop
+ *    of the middle of the frame (a face one to two metres away is then big enough to find); its eyes
+ *    are scene objects (faceTracker.ts)
+ *  - focus = the thing of any kind nearest the frame centre (with a short hysteresis); looking at a
+ *    face makes its nearer eye "this".
  *  - plus one pinned object for "analyse this" on something undetected (centre.ts), republished while selected
  *  - store writes throttled to ~15 Hz; per-frame data goes to `live`
  */
 import { useStore } from '../state/store';
 import type { SceneObject } from '../state/store';
-import { errorText, frame, frameSize, MOCK_GESTURE, MOCK_MODE, MOCK_SCENE } from '../camera/frame';
+import { errorText, frame, frameSize, MOCK_GESTURE, MOCK_MODE, MOCK_SCENE, urlNumber } from '../camera/frame';
+import type { Box } from '../state/store';
 import { setStatus } from '../hud/hudStore';
 import { loadVisionTasks, USEFUL_CLASSES } from './mediapipe';
 import type { VisionTasks } from './mediapipe';
@@ -17,7 +22,9 @@ import { ObjectTracker } from './objectTracker';
 import type { RawDetection } from './objectTracker';
 import { HandTracker, handTuning } from './handTracker';
 import type { RawHand } from './handTracker';
-import { mockHandLandmarks, mockLaptop, mockPhone } from './mock';
+import { mockFace, mockHandLandmarks, mockLaptop, mockPhone } from './mock';
+import { FaceTracker, blendshapeMap, measureFace } from './faceTracker';
+import type { FaceFocus, FaceMeasure } from './faceTracker';
 import { pinnedObjects } from './centre';
 import { mockGestureHands } from './mockGesture';
 
@@ -28,6 +35,17 @@ import { live } from './live';
 
 const PUBLISH_MS = 66;
 const OBJECT_EVERY_N_FRAMES = 3;
+/** The face landmarker runs on every 3rd new frame as well, one frame after the object detector. */
+const FACE_EVERY_N_FRAMES = 3;
+const FACE_PHASE = 1;
+/**
+ * The face landmarker sees a centred square of this share of the frame height (`?facecrop=1`: the
+ * whole frame). Its face detector works on a 128 px image: from the whole 16:9 frame a face 1.5 m
+ * away is about 9 px there and is missed; from the middle square it is two to three times bigger.
+ */
+const FACE_CROP = Math.min(1, Math.max(0.3, urlNumber('facecrop', 0.6)));
+/** Largest side of the crop canvas (px): the crop is drawn at the camera's own resolution up to this. */
+const FACE_CROP_MAX_PX = 720;
 const USEFUL = new Set(USEFUL_CLASSES);
 
 interface LooseCategory {
@@ -38,6 +56,20 @@ interface LooseCategory {
 interface LooseDetection {
   categories?: LooseCategory[];
   boundingBox?: { originX: number; originY: number; width: number; height: number };
+}
+interface LooseFaceResult {
+  faceLandmarks?: { x: number; y: number; z?: number }[][];
+  faceBlendshapes?: { categories?: LooseCategory[] }[];
+  facialTransformationMatrixes?: { data?: ArrayLike<number> }[];
+}
+/** Where the face landmarker's image sits in the frame (frame-normalised), to map its landmarks back; frame size in px. */
+interface FaceSource {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fw: number;
+  fh: number;
 }
 interface LooseHandResult {
   landmarks?: { x: number; y: number; z?: number }[][];
@@ -89,6 +121,21 @@ function parseHands(res: unknown): RawHand[] {
   return out;
 }
 
+function parseFaces(res: unknown, src: FaceSource): FaceMeasure[] {
+  const r = (res ?? {}) as LooseFaceResult;
+  const out: FaceMeasure[] = [];
+  (r.faceLandmarks ?? []).forEach((lm, i) => {
+    if (!lm || lm.length < 468) return;
+    // crop-normalised -> frame-normalised
+    const pts = lm.map((p) => ({ x: src.x + p.x * src.w, y: src.y + p.y * src.h }));
+    const shapes = blendshapeMap(r.faceBlendshapes?.[i]?.categories);
+    const data = r.facialTransformationMatrixes?.[i]?.data;
+    const m = measureFace(pts, shapes, data ? Array.from(data) : undefined, src.fw, src.fh, 0.9);
+    if (m) out.push(m);
+  });
+  return out;
+}
+
 /** Max distance (fraction of frame width) from the frame centre to an object's centre to count as "this". */
 const FOCUS_MAX_DIST = 0.25;
 /** A hand over the centre wins only if its own centre is this close (fraction of frame width). */
@@ -96,21 +143,38 @@ const HAND_FOCUS_DIST = 0.15;
 /** A new candidate must win for this long before focus moves to it (no flicker between overlapping boxes). */
 const FOCUS_SWITCH_MS = 200;
 
+/** The current eye keeps focus over its neighbour unless the other is clearly nearer (ratio). */
+const EYE_KEEP = 1.25;
+
+const holdsCentre = (b: Box) => 0.5 >= b.x && 0.5 <= b.x + b.w && 0.5 >= b.y && 0.5 <= b.y + b.h;
+
 /**
  * The thing of any kind at the frame centre: the smallest box that contains the centre, except
  * that a hand only counts when its own centre is within HAND_FOCUS_DIST (someone typing on the
  * laptop in view should not steal "this" from the laptop); else the nearest box centre within
  * FOCUS_MAX_DIST.
+ * Eyes (#94): when the centre is inside a face's outline, the nearer eye of that face is "this",
+ * unless a box smaller than the face holds the centre, or a hand is right in the middle (so the
+ * wearer's own hands and things held up in front of a face keep winning). `current` (the focus now)
+ * is kept between a face's two eyes unless the other is clearly nearer. Eyes never win otherwise.
  */
-export function focusCandidate(objects: SceneObject[], fw: number, fh: number): string | null {
-  const centreDist = (o: SceneObject) =>
+export function focusCandidate(
+  objects: SceneObject[],
+  fw: number,
+  fh: number,
+  faces: FaceFocus[] = [],
+  current: string | null = null,
+): string | null {
+  const centreDist = (o: Pick<SceneObject, 'box'>) =>
     Math.hypot((o.box.x + o.box.w / 2 - 0.5) * fw, (o.box.y + o.box.h / 2 - 0.5) * fh);
   let best: string | null = null;
   let bestArea = Infinity;
+  let bestIsHand = false;
   let farHand: string | null = null;
   for (const o of objects) {
+    if (o.anchor === 'face') continue; // eyes: through their face, below
     const b = o.box;
-    if (0.5 >= b.x && 0.5 <= b.x + b.w && 0.5 >= b.y && 0.5 <= b.y + b.h) {
+    if (holdsCentre(b)) {
       if (o.anchor === 'hand' && centreDist(o) > HAND_FOCUS_DIST * fw) {
         farHand = farHand ?? o.id;
         continue;
@@ -119,13 +183,29 @@ export function focusCandidate(objects: SceneObject[], fw: number, fh: number): 
       if (a < bestArea) {
         bestArea = a;
         best = o.id;
+        bestIsHand = o.anchor === 'hand';
       }
+    }
+  }
+  const face = faces
+    .filter((f) => holdsCentre(f.outline))
+    .reduce<FaceFocus | null>((a, f) => (!a || centreDist({ box: f.outline }) < centreDist({ box: a.outline }) ? f : a), null);
+  if (face && !(best && (bestIsHand || bestArea < face.outline.w * face.outline.h))) {
+    const eyes = objects.filter((o) => face.eyeIds.includes(o.id));
+    if (eyes.length > 0) {
+      let pick = eyes.reduce((a, o) => (centreDist(o) < centreDist(a) ? o : a));
+      const cur = eyes.find((o) => o.id === current);
+      if (cur && centreDist(cur) <= centreDist(pick) * EYE_KEEP + 0.005 * fw) pick = cur;
+      return pick.id;
     }
   }
   if (best) return best;
   if (farHand) return farHand;
   let bestD = FOCUS_MAX_DIST * fw;
   for (const o of objects) {
+    // An eye is "this" only while the wearer looks at its face (above): a face near the middle of
+    // the view does not take focus from the empty space or the undetected thing being looked at.
+    if (o.anchor === 'face') continue;
     const d = centreDist(o);
     if (d < bestD) {
       bestD = d;
@@ -141,8 +221,8 @@ export class FocusTracker {
   private pending: string | null = null;
   private pendingSince = 0;
 
-  update(objects: SceneObject[], now: number, fw: number, fh: number): string | null {
-    const cand = focusCandidate(objects, fw, fh);
+  update(objects: SceneObject[], now: number, fw: number, fh: number, faces: FaceFocus[] = []): string | null {
+    const cand = focusCandidate(objects, fw, fh, faces, this.current);
     const alive = this.current !== null && objects.some((o) => o.id === this.current);
     if (!alive || cand === this.current) {
       this.current = alive ? this.current : cand;
@@ -180,7 +260,11 @@ export function createDetectionEngine(): DetectionEngine {
   let tasks: VisionTasks | null = null;
   const objTracker = new ObjectTracker();
   const handTracker = new HandTracker();
+  const faceTracker = new FaceTracker();
   const focusTracker = new FocusTracker();
+  let faceCanvas: HTMLCanvasElement | null = null;
+  let lastFaceTs = 0;
+  let facePausedUntil = 0;
   let lastVideoTime = -1;
   let newFrames = 0;
   let lastObjTs = 0;
@@ -193,7 +277,11 @@ export function createDetectionEngine(): DetectionEngine {
   let mockStart = -1;
 
   if (MOCK_MODE) {
-    setStatus('models', 'warn', `Mock mode (${MOCK_SCENE} in the centre): fake laptop, phone and hand; MediaPipe skipped`);
+    setStatus(
+      'models',
+      'warn',
+      `Mock mode (${MOCK_SCENE} in the centre): fake laptop, phone and hand${MOCK_SCENE === 'eye' ? ', and a face' : ''}; MediaPipe skipped`,
+    );
   } else {
     setStatus('models', 'info', 'Loading vision models...');
     loadVisionTasks()
@@ -208,10 +296,40 @@ export function createDetectionEngine(): DetectionEngine {
         if (t.errors.length) setStatus('models', 'error', t.errors.join(' | '));
         const cpu = t.notes.find((n) => n.includes('using CPU'));
         if (cpu) setStatus('delegate', 'warn', cpu);
+        // The face model is not waited for: the rest works without it (#94).
+        setStatus('faces', 'info', 'Loading the face model...');
+        void t.facesReady.then((ok) => {
+          if (disposed) return;
+          if (ok) setStatus('faces', null);
+          else setStatus('faces', 'error', `${t.errors.find((x) => x.startsWith('Face')) ?? 'Face landmarker failed'}: no eyes (everything else works)`);
+          const faceCpu = t.notes.find((n) => n.startsWith('face landmarker') && n.includes('using CPU'));
+          if (faceCpu) setStatus('delegate-face', 'warn', faceCpu);
+        });
       })
       .catch((e: unknown) => {
         if (!disposed) setStatus('models', 'error', `Vision models failed: ${errorText(e)}`);
       });
+  }
+
+  /** The middle of the frame as a square canvas for the face landmarker (or the video itself for ?facecrop=1). */
+  function faceInput(v: HTMLVideoElement): { image: HTMLVideoElement | HTMLCanvasElement; src: FaceSource } | null {
+    const fw = v.videoWidth;
+    const fh = v.videoHeight;
+    if (FACE_CROP >= 1) return { image: v, src: { x: 0, y: 0, w: 1, h: 1, fw, fh } };
+    const size = Math.round(Math.min(fw, fh) * FACE_CROP);
+    if (size < 16) return null;
+    const px = Math.min(size, FACE_CROP_MAX_PX);
+    if (!faceCanvas) faceCanvas = document.createElement('canvas');
+    if (faceCanvas.width !== px || faceCanvas.height !== px) {
+      faceCanvas.width = px;
+      faceCanvas.height = px;
+    }
+    const ctx = faceCanvas.getContext('2d');
+    if (!ctx) return null;
+    const sx = Math.round((fw - size) / 2);
+    const sy = Math.round((fh - size) / 2);
+    ctx.drawImage(v, sx, sy, size, size, 0, 0, px, px);
+    return { image: faceCanvas, src: { x: sx / fw, y: sy / fh, w: size / fw, h: size / fh, fw, fh } };
   }
 
   function runVision(now: number, frozen: boolean, fw: number, fh: number): void {
@@ -251,6 +369,23 @@ export function createDetectionEngine(): DetectionEngine {
         setStatus('objects', 'error', `Object detection error: ${errorText(e)}`);
       }
     }
+
+    if (t.faces && newFrames % FACE_EVERY_N_FRAMES === FACE_PHASE && now >= facePausedUntil) {
+      try {
+        const input = faceInput(v);
+        if (input) {
+          lastFaceTs = Math.max(now, lastFaceTs + 1);
+          const t0 = performance.now();
+          const res = t.faces.detectForVideo(input.image, lastFaceTs);
+          live.stats.faceMs = performance.now() - t0;
+          faceTracker.update(parseFaces(res, input.src), now);
+          setStatus('faces', null);
+        }
+      } catch (e) {
+        facePausedUntil = now + 1000;
+        setStatus('faces', 'error', `Face tracking error: ${errorText(e)}`);
+      }
+    }
   }
 
   function tick(now: number): void {
@@ -269,23 +404,28 @@ export function createDetectionEngine(): DetectionEngine {
       handTracker.update(t < 0 ? [] : mockGestureHands(t, fw, fh), now, fw, fh);
     } else if (MOCK_MODE) {
       const handInCentre = MOCK_SCENE === 'hand';
-      engObjects = [mockLaptop(!handInCentre), mockPhone()];
+      const eyeScene = MOCK_SCENE === 'eye';
+      engObjects = [mockLaptop(!handInCentre && !eyeScene), mockPhone()];
       const lm = mockHandLandmarks(now, handInCentre ? 0 : 0.3);
       handTracker.update([{ handedness: 'right', score: 0.99, landmarks: lm }], now, fw, fh);
+      // ?mock=eye: a face in the middle of the view (its eyes are "this").
+      faceTracker.update(eyeScene ? [mockFace(now)] : [], now);
     } else {
       runVision(now, frozen, fw, fh);
       if (!frozen) objTracker.prune(now);
       handTracker.prune(now);
+      faceTracker.prune(now);
       engObjects = objTracker.objects();
     }
 
     live.hands = handTracker.hands;
+    live.faces = faceTracker.views();
     // Plus the thing Claude named in the middle of the view, while it is selected (centre.ts, #80).
-    live.objects = engObjects.concat(handTracker.sceneObjects(), pinnedObjects(st.selectedObjectId, now));
+    live.objects = engObjects.concat(handTracker.sceneObjects(), faceTracker.sceneObjects(), pinnedObjects(st.selectedObjectId, now));
 
     if (now - lastPublish >= PUBLISH_MS) {
       lastPublish = now;
-      const focus = focusTracker.update(live.objects, now, fw, fh);
+      const focus = focusTracker.update(live.objects, now, fw, fh, faceTracker.focusFaces());
       if (focus !== st.focusedObjectId) st.setFocusedObject(focus);
       const empty = live.objects.length === 0;
       if (!empty || !publishedEmpty) st.setObjects(withNames(live.objects, st.objects));
@@ -302,8 +442,11 @@ export function createDetectionEngine(): DetectionEngine {
       tasks = null;
       objTracker.clear();
       handTracker.clear();
+      faceTracker.clear();
+      faceCanvas = null;
       live.objects = [];
       live.hands = [];
+      live.faces = [];
     },
   };
 }

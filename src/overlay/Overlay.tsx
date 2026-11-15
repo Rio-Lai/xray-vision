@@ -10,6 +10,8 @@
  * A hand on stage is Kash's 3D arm (flow.ts swaps in its parts list, src/stage/armTeardown.ts):
  * ArmStage.tsx draws it in the middle of the view with its own renderer and labels, while the
  * landmark-drawn tendons keep following the real hand here (the live preview, lit by key presses).
+ * An eye on stage is Kash's procedural eye (#94), drawn by EyeStage.tsx in its own frame (never
+ * through the box rig, which would stretch each of its nested parts).
  * Any other hand teardown goes on stage like a box once its parts have models (mesh_url); without
  * models a hand is drawn on the real hand only.
  */
@@ -37,6 +39,8 @@ import { PinchDotLayer } from './pinchDots';
 import { hasPartMeshes } from './stageState';
 import { ArmStage, armStage } from './ArmStage';
 import { isArmTeardown } from '../stage/armTeardown';
+import { EyeStage, eyeStage } from './EyeStage';
+import { isEyeTeardown } from '../stage/eyeTeardown';
 
 const DWELL_MS = 1200;
 /**
@@ -61,9 +65,9 @@ function teardownSignature(td: Teardown): string {
   ].join('|');
 }
 
-/** Whether the teardown gets the box rig: every non-hand teardown; a hand only on stage with models (not the arm). */
+/** Whether the teardown gets the box rig: every non-hand teardown but the eye; a hand only on stage with models (not the arm). */
 function wantsBoxRig(td: Teardown | null, s: AppState): boolean {
-  if (!td || isArmTeardown(td)) return false;
+  if (!td || isArmTeardown(td) || isEyeTeardown(td)) return false;
   if (td.anchor !== 'hand') return true;
   return s.trackingMode === 'stage' && hasPartMeshes(td);
 }
@@ -160,8 +164,8 @@ class OverlayEngine {
     this.preloadTimer = setTimeout(() => {
       this.preloadTimer = null;
       void (async () => {
-        // The demo laptop first, then the hand (nothing to load until its models exist).
-        for (const id of [DEMO_IDENTIFY.laptop.object_id, DEMO_IDENTIFY.hand.object_id]) {
+        // The demo laptop first, then the hand (nothing to load until its models exist), then the eye.
+        for (const id of [DEMO_IDENTIFY.laptop.object_id, DEMO_IDENTIFY.hand.object_id, DEMO_IDENTIFY.eye.object_id]) {
           if (this.disposed) return;
           const n = await preloadTeardownMeshes(id, () => this.disposed);
           if (n > 0) devLog(`Preloaded ${n} models for ${id}`);
@@ -290,6 +294,7 @@ class OverlayEngine {
   /** Part id under viewport point (x, y), if any. */
   partAt(x: number, y: number): string | null {
     if (isArmTeardown(this.teardownRef)) return armStage.pickAt(x, y);
+    if (isEyeTeardown(this.teardownRef)) return eyeStage.pickAt(x, y);
     if (this.boxRig) {
       if (this.boxRig.explodeLevel() < 0.3) return null;
       this.ndc.set((x / this.vw) * 2 - 1, -(y / this.vh) * 2 + 1);
@@ -508,6 +513,13 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
           }
         }
         engineRef.current?.tick(now);
+        // Kash's eye has its own renderer (EyeStage.tsx); a no-op unless it is up.
+        try {
+          eyeStage.tick(now);
+          setStatus('eye', null);
+        } catch (e) {
+          setStatus('eye', 'error', `Eye error: ${errorText(e)}`);
+        }
         pinchRef.current?.update(gestureLive.out?.dots ?? [], getCoverMap());
       },
       pick: (x: number, y: number) => engineRef.current?.pick(x, y),
@@ -545,6 +557,7 @@ export const Overlay = forwardRef<OverlayHandle>(function Overlay(_props, ref) {
     <>
       <div ref={hostRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
       <ArmStage />
+      <EyeStage />
       <div ref={labelRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
     </>
   );

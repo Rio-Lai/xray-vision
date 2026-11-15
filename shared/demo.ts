@@ -7,16 +7,23 @@ import type { AnchorKind, IdentifyResponse, Lens } from './teardown';
 
 /** "hand" or "hands" as a word, so a detected "handbag" is not a hand. */
 const HAND = /\bhands?\b/i;
+/** "eye", "eyes", "eyeball" as a word (#94), so "eyeglasses" or "eyeliner" is not an eye. */
+const EYE = /\beye(?:s|ball|balls)?\b/i;
+
+/** True for an eye label or hint ("eye", "the eye", "eyes"): it always maps to the checked eye, with no vision call. */
+export function isEyeHint(hint: string | undefined): boolean {
+  return EYE.test(hint ?? '');
+}
 
 /**
- * Which kind of parts list fits an object: hands -> biology, everything else -> engineering.
+ * Which kind of parts list fits an object: hands and eyes -> biology, everything else -> engineering.
  * Internal metadata only (it picks the server prompt); Blowfish has no lenses the user sees or sets.
  */
 export function kindOf(label: string | undefined, anchor?: AnchorKind): Lens {
-  return anchor === 'hand' || HAND.test(label ?? '') ? 'biology' : 'engineering';
+  return anchor === 'hand' || anchor === 'face' || HAND.test(label ?? '') || EYE.test(label ?? '') ? 'biology' : 'engineering';
 }
 
-export const DEMO_IDENTIFY: Record<'laptop' | 'hand', IdentifyResponse> = {
+export const DEMO_IDENTIFY: Record<'laptop' | 'hand' | 'eye', IdentifyResponse> = {
   laptop: {
     object_id: 'macbook-air-m3-13',
     name: 'MacBook Air 13-inch (M3, 2024)',
@@ -28,6 +35,13 @@ export const DEMO_IDENTIFY: Record<'laptop' | 'hand', IdentifyResponse> = {
     name: 'Hand and finger muscles',
     confidence: 0.9,
     summary: 'The muscles and tendons that bend and straighten your fingers.',
+  },
+  // Kash's procedural eye (public/cache/eye.json, #94): opened from an "eye" label; no picture of a face is sent anywhere.
+  eye: {
+    object_id: 'eye',
+    name: 'Human eye',
+    confidence: 0.9,
+    summary: 'The eye: the cornea and lens focus light onto the retina, which sends it to the brain along the optic nerve.',
   },
 };
 
@@ -52,6 +66,7 @@ export function slugify(s: string): string {
 export function mockIdentify(hint: string | undefined, kind?: Lens): IdentifyResponse {
   const h = (hint ?? '').toLowerCase().trim();
   if (HAND.test(h)) return DEMO_IDENTIFY.hand;
+  if (EYE.test(h)) return DEMO_IDENTIFY.eye;
   if (h.includes('laptop') || h.includes('macbook') || h.includes('computer') || h.includes('keyboard')) {
     return DEMO_IDENTIFY.laptop;
   }

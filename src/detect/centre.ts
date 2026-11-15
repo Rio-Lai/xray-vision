@@ -13,7 +13,7 @@
  */
 import { useStore } from '../state/store';
 import type { Box, SceneObject } from '../state/store';
-import type { IdentifyResponse } from '../../shared/teardown';
+import type { AnchorKind, IdentifyResponse } from '../../shared/teardown';
 import { kindOf } from '../../shared/demo';
 import { getCoverMap, viewToFrame } from '../camera/frame';
 
@@ -58,18 +58,21 @@ export const isPinnedId = (id: string | null | undefined): boolean => !!id && id
 /**
  * Add the thing Claude named in the middle of the view as a scene object (a box where the crop
  * was) and publish it to the store at once, so get_scene and the flow see it before the next frame.
- * Replaces any earlier pinned object.
+ * Replaces any earlier pinned object. `opts` (#94): the stored eye, asked for with no eye in view,
+ * is pinned the same way with label "eye" and anchor "face" (src/stage/eyeTeardown.ts).
  */
-export function pinObject(box: Box, ident: IdentifyResponse): SceneObject {
+export function pinObject(box: Box, ident: IdentifyResponse, opts: { label?: string; anchor?: AnchorKind } = {}): SceneObject {
   pinSeq += 1;
+  const anchor = opts.anchor ?? 'box';
+  const label = opts.label ?? ident.name;
   const object: SceneObject = {
     id: `${PINNED_PREFIX}${pinSeq}`,
-    label: ident.name,
+    label,
     name: ident.name,
     confidence: ident.confidence,
     box: { ...box },
-    lens: kindOf(ident.name),
-    anchor: 'box',
+    lens: kindOf(label, anchor),
+    anchor,
   };
   const old = pinned?.object.id;
   pinned = { object, ident, wasSelected: false, at: performance.now() };
