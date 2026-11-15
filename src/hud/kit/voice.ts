@@ -68,6 +68,9 @@ const KIT_VOICE_RULES = `
   -webkit-backdrop-filter: blur(var(--bf-blur-caption)); backdrop-filter: blur(var(--bf-blur-caption));
   text-align: center; line-height: var(--bf-line-height-tight); text-shadow: var(--bf-shadow-1);
   transition: background-color var(--bf-duration-caption-fade) ease-out, backdrop-filter var(--bf-duration-caption-fade) ease-out; }
+/* a part card (bottom left) or step card (bottom right) is up: the captions stay between them */
+body:has(.bf-part-card, .bf-step-card) .bf-vcaps {
+  max-width: min(var(--bf-size-caption-max), 100%, calc(100vw - 2 * (max(min(var(--bf-size-card-width), var(--bf-size-card-max-vw)), min(var(--bf-size-step-width), var(--bf-size-step-max-vw))) + var(--bf-edge) + var(--bf-space-4)))); }
 /* the backing fades out with the last caption */
 .bf-vcaps:not(:has(.bf-vcap:not(.fading))) { background-color: var(--bf-color-transparent); -webkit-backdrop-filter: none; backdrop-filter: none; }
 .bf-vcap { box-sizing: border-box; max-width: 100%; margin: var(--bf-space-0); color: var(--bf-color-text);

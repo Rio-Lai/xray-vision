@@ -62,12 +62,14 @@ Names match `CLIENT_TOOL_NAMES`. Each takes a parameters object and returns a st
 | `show_step` | `n` | sets `activeStep` | JSON: step, of, text, part_ids, part_names (arm extras), present |
 | `reset_view` | none | `resetAll()` | JSON: ok, say ("Put away. Saved <short name>." / "View reset."), saved? {id, name} |
 | `rotate_model` | `direction` ("left", "right", "up", "down", "around"), `degrees?` (default 45; "around" = 180) | turns the floating model (`store.rotateModel`) | JSON: ok, say ("Turned left/right/up/down/around." / "That is as far as it turns." for a flat model at its limit, via `voiceTurn` / "Nothing is open yet."), degrees |
-| `zoom_model` | `direction` ("in", "out", "reset"), `factor?` (default 1.5) | multiplies `store.modelZoom` (0.5 to 4; reset = 1) | JSON: ok, say ("Zoomed in." / "Zoomed out." / "Back to normal size." / "That is as close as it goes." / "That is as far out as it goes." / "Nothing is open yet."), zoom |
+| `adjust_view` | `action` ("zoom_in", "zoom_out", "move_left", "move_right", "move_up", "move_down", "centre", "normal_size"), `amount?` (zoom factor, default 1.5; or distance in stage sizes, default 0.5) | zoom multiplies `store.modelZoom` (0.5 to 4; normal_size = 1); move calls `panModel`; centre = `centreModel`, zoom 1, yaw and pitch back to the front | JSON: ok, say ("Zoomed in." / "Zoomed out." / "Back to normal size." / "Back in the middle." / "Moved left." ... / "That is as close as it goes." / "That is as far out as it goes." / "That is as far as it goes." / "Nothing is open yet."), zoom? |
 | `get_pose` | none | reads hands | JSON: per hand: handedness, finger curl and pressing, activeFinger, action, muscles (part ids) |
 
 Action tools (#96): the agent says `say` exactly and stops; `if_asked` is only for when the user asks to be taught, toured or walked through. The agent's system prompt and first message live in `docs/agent/` (`npm run agent:prompt` compares them with the dashboard).
 
-`CLIENT_TOOL_NAMES` has ten names. `npm run check` only warns while `zoom_model` is missing from the dashboard (#109).
+`CLIENT_TOOL_NAMES` has ten names, and `docs/agent/tools.json` defines each one (`npm run agent:tools -- --apply` adds the missing ones to the agent). `npm run check` only warns while `adjust_view` is missing. `zoom_model` (#109) is still answered for an agent that has it (`legacyClientTools`), but is not in the list.
+
+Command lock (`src/voice/voiceLock.ts`, `?lock=0` off): when ElevenLabs sends the wearer's final transcript, the microphone is muted until Blowfish has answered (spoken and finished, plus 0.4 s), or 2.5 s after its last tool call with no speech, 8 s with nothing at all, 25 s at most; it is also muted while Blowfish speaks. Holding the talk key always opens it. Agent captions drop audio tags such as "[patient]".
 
 There is no `set_lens` tool: Blowfish has no lenses.
 
@@ -99,7 +101,7 @@ Saved models (#97): `get_scene` also returns `saved: [{ id, name, saved_ago }]`.
 - Every stage renderer (box rig, `ArmStage`, `EyeStage`) applies `store.modelYaw` / `modelPitch` / `modelZoom`, eased.
 - Flat (box-rig) models never rest edge-on (`src/stage/turnLimit.ts`): yaw stays within 65 degrees of the face shown (front, or back after "around"); pitch may tip away only 5 degrees past the default view; the idle drift sways 35 degrees either side instead of spinning. Mouse, hands (`turnModel`) and voice (`voiceTurn`) all go through it. The eye and the arm are not limited.
 - Lift-out and put-away come from `src/overlay/liftOut.ts`: an outline draws round the object (0.15 s), the model appears over it fully opaque, holds, then rises to the middle in 1.0 s on one curve (position, size, angle), parts separating in the last third; labels and the title come after arrival (`useHud.stageArrived`). Put-away reverses in 0.6 s into the object's current box, or into its saved pill when the object is out of view. `?lift=0` or the system's reduced-motion setting gives a short cross-fade instead.
-- Zoom: trackpad pinch (wheel with ctrl), `+` / `-`, the two-hand spread past fully exploded, and `zoom_model`.
+- Zoom: trackpad pinch (wheel with ctrl), `+` / `-`, the two-hand spread past fully exploded, and `adjust_view`.
 - Pan (#121): `modelPanX` / `modelPanY` in stage sizes (one stage size = 0.56 of the view height, `panPx()` in `src/stage/modelControl.ts`), eased like turn and zoom and scaled by the lift position so the lift-out and put-away start and end on the object. Set by a two-hand pinch moved the same way, shift- or right-drag, shift + arrows; `0` or a double-click centres it and resets zoom.
 - Smooth first open (#125): the stored models are parsed, uploaded and compiled in idle slices a few seconds after the overlay starts (`src/overlay/glbCache.ts`); every stage animation advances by at most 1/30 s per frame (`frameStep()` in `liftOut.ts`); a model appears only after one frame has been drawn with it at opacity 0. The debug panel shows the longest frame gap of the last open and whether its models were warm.
 

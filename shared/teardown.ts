@@ -150,6 +150,6 @@ export const CLIENT_TOOL_NAMES = [
   'reset_view',
   'rotate_model',
   'get_pose',
-  'zoom_model',
+  'adjust_view',
 ] as const;
 export type ClientToolName = (typeof CLIENT_TOOL_NAMES)[number];
