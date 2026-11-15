@@ -31,6 +31,8 @@
  * lifts the layers apart along the object's own up axis (see stageLayout.ts): at ~0.12 the parts
  * are just apart, at 1 they are spread out with labels. One soft ground shadow sits under it.
  * "Put it away" closes it and glides it back into the object (or its saved pill) in ~0.6 s, fading at the end.
+ * Its proportions are the object's own (#120: teardown.dimensions_mm, else the box's clamped; see
+ * stageLayout.ts): it appears with the box's proportion and morphs to its own on the lift's curve.
  * meshOnly (a hand on stage): only parts with a real model are drawn and labelled; the others have
  * no good placeholder shape (a tendon is not a box) and stay visible on the live hand overlay.
  *
@@ -53,7 +55,7 @@ import {
 import { loadGlbTemplate } from './glbCache';
 import { Lift } from './liftOut';
 import { STAGE_MIN_EXPLODE } from '../stage/modelControl';
-import { STAGE_ELEVATION, nearestTurn, springStep, stageFit, stageLayout, stageStack } from './stageLayout';
+import { STAGE_ELEVATION, nearestTurn, springStep, stageAspect, stageDepthScale, stageFit, stageLayout, stageStack } from './stageLayout';
 import type { StageLayout } from './stageLayout';
 import { inView } from './labels';
 import type { LabelItem, StackBounds } from './labels';
@@ -84,7 +86,7 @@ export const TOP_MARGIN = 70;
 export const BOTTOM_MARGIN = 150;
 /** Stage: the assembled model's widest extent (any yaw), as a fraction of the view height. */
 export const STAGE_SIZE = 0.56;
-/** Stage: model units across the object's box (its height follows the box's aspect). */
+/** Stage: model units across the object's box (its depth: stageAspect, the object's real proportion). */
 const STAGE_UNITS = 600;
 /** Stage: the lift waits at most this long for the models still loading (s); the rest cross-fade in place. */
 const STAGE_MODEL_WAIT_S = 0.6;
@@ -240,11 +242,14 @@ export class BoxRig {
   /** reused by outline() */
   private readonly outlineOut = { box: { cx: 0, cy: 0, w: 0, h: 0 }, drawn: 0, opacity: 0 };
   private axis: Teardown['explode_axis'];
+  /** the object's real [width, depth, height] in mm (stage proportions), if the parts list has it */
+  private readonly dims: readonly [number, number, number] | null;
   private readonly meshOnly: boolean;
   private readonly planeGeo = new THREE.PlaneGeometry(1, 1);
 
   constructor(td: Teardown, scene: THREE.Scene, opts: BoxRigOptions = {}) {
     this.axis = td.explode_axis;
+    this.dims = td.dimensions_mm ?? null;
     this.meshOnly = opts.meshOnly === true;
     this.anim.setLayers(td.parts.map((p) => p.layer));
     this.root.add(this.tiltG);
@@ -554,6 +559,7 @@ export class BoxRig {
       this.stageActive = false;
       this.tiltG.rotation.set(0, 0, 0);
       this.spinG.rotation.set(0, 0, 0);
+      this.spinG.scale.set(1, 1, 1);
       if (this.groundShadow) this.groundShadow.visible = false;
     }
 
@@ -681,15 +687,14 @@ export class BoxRig {
     if (!this.stage) {
       const box = input.box ?? { cx: vw / 2, cy: vh * 0.47, w: vw * 0.3, h: vw * 0.3 * 0.68 };
       const from = sf.startBox ?? box;
+      // The object's own proportions (#120), not the detector's box (squashed by the camera angle).
+      const parts = this.parts.map((r) => r.part);
+      const rankOf = (layer: number) => this.anim.rankOf(layer);
       const W = STAGE_UNITS;
-      const H = STAGE_UNITS * Math.min(3, Math.max(0.2, box.h / Math.max(1, box.w)));
-      const layout = stageLayout(
-        this.parts.map((r) => r.part),
-        (layer) => this.anim.rankOf(layer),
-        this.anim.layerCount,
-        W,
-        H,
-      );
+      const H = STAGE_UNITS * stageAspect(parts, this.dims, box.h / Math.max(1, box.w));
+      const laid = stageLayout(parts, rankOf, this.anim.layerCount, W, H);
+      const depthScale = stageDepthScale(laid, parts, this.dims);
+      const layout = depthScale === 1 ? laid : stageLayout(parts, rankOf, this.anim.layerCount, W, H, depthScale);
       // Start facing the camera exactly as the real object does (a whole number of turns).
       const yaw0 = nearestTurn(sf.yaw);
       const fromPill = !!sf.startBox;
@@ -736,6 +741,11 @@ export class BoxRig {
     this.tiltG.rotation.set(-(Math.PI / 2 - elevation) * L, 0, 0);
     // the turn also travels on the lift's curve: on the object it is the object's own
     this.spinG.rotation.set(0, 0, st.yaw0 + (st.yaw - st.yaw0) * L01);
+    // On the object it has the box's proportion (as today: exactly over it), morphing to its own on
+    // the same curve (#120); a saved pill's round thumb gives no shape, so from there it keeps its own.
+    const fromAspect = Math.min(3, Math.max(0.2, st.from.h / Math.max(1, st.from.w)));
+    const ky0 = st.fromPill ? 1 : fromAspect / (lay.H / lay.W);
+    this.spinG.scale.set(1, ky0 + (1 - ky0) * L01, 1);
     // Seen from below (pitched far up), the deepest layer is the nearest: draw it last.
     const fromAbove = Math.sin(elevation * L01 + (Math.PI / 2) * (1 - L01)) >= 0;
 

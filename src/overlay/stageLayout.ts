@@ -17,6 +17,10 @@
  *    Parts of one layer that overlap (live parts lists often put several on one spot) are pushed
  *    apart as the layer explodes.
  *  - The stack is centred on z = 0 and the box centre on x = y = 0: the model turns about its middle.
+ *  - Proportions (#120, stageAspect / stageDepthScale): H / W comes from the parts list's real size
+ *    (dimensions_mm) when it has one, not from the detector's box (foreshortened by the camera angle);
+ *    without it, the box's own, kept between 2 : 3 and 3 : 2. The real thickness may thicken the
+ *    assembled stack, never thin it (the layers and their models need that room).
  */
 import type { TeardownPart } from '../../shared/teardown';
 import { PART_GAP, partDims } from './explodeLayout';
@@ -61,10 +65,63 @@ export interface StageLayout {
   H: number;
 }
 
-export function stageLayout(parts: TeardownPart[], rankOf: (layer: number) => number, ranks: number, W: number, H: number): StageLayout {
+/** Without a real size, the detector box's H / W is kept within these (a low view never makes a sliver). */
+export const STAGE_ASPECT_MIN = 2 / 3;
+export const STAGE_ASPECT_MAX = 3 / 2;
+/** The real thickness may thicken the assembled stack up to this much (stageDepthScale). */
+export const STAGE_DEPTH_MAX = 2;
+
+/**
+ * The fractions of the box the object's body covers: the part with the largest footprint (the
+ * shell, which live parts lists make fill the box; or a laptop's base, its open lid lying beyond
+ * it) if it covers at least half the box each way, else the whole box.
+ */
+function bodyFrac(parts: TeardownPart[]): [number, number] {
+  let best: TeardownPart | null = null;
+  for (const p of parts) if (!best || p.size[0] * p.size[1] > best.size[0] * best.size[1]) best = p;
+  return best && best.size[0] >= 0.5 && best.size[1] >= 0.5 ? [best.size[0], best.size[1]] : [1, 1];
+}
+
+/**
+ * The stage model's H / W. With the real size (dimensions_mm: width, depth, height in mm) the body
+ * gets the object's own width : depth, whatever angle it was seen from; else the box's, clamped.
+ */
+export function stageAspect(parts: TeardownPart[], dims: readonly [number, number, number] | null, boxAspect: number): number {
+  if (dims) {
+    const [fw, fh] = bodyFrac(parts);
+    const a = (dims[1] / dims[0]) * (fw / fh);
+    if (Number.isFinite(a) && a > 0) return Math.min(3, Math.max(0.2, a));
+  }
+  const b = Number.isFinite(boxAspect) && boxAspect > 0 ? boxAspect : 1;
+  return Math.min(STAGE_ASPECT_MAX, Math.max(STAGE_ASPECT_MIN, b));
+}
+
+/**
+ * How much the real thickness (dimensions_mm[2], on the body's width scale) thickens a layout made
+ * with depthScale 1: 1 = as laid out (also for a thing thinner than its stack), at most STAGE_DEPTH_MAX.
+ */
+export function stageDepthScale(layout: StageLayout, parts: TeardownPart[], dims: readonly [number, number, number] | null): number {
+  if (!dims) return 1;
+  const real = (dims[2] / dims[0]) * bodyFrac(parts)[0] * layout.W;
+  const laid = layout.thick.reduce((a, t) => a + t, 0);
+  const k = real / laid;
+  return Number.isFinite(k) ? Math.min(STAGE_DEPTH_MAX, Math.max(1, k)) : 1;
+}
+
+/** depthScale: thickens flat parts and the stack's steps (round parts keep their diameter). */
+export function stageLayout(
+  parts: TeardownPart[],
+  rankOf: (layer: number) => number,
+  ranks: number,
+  W: number,
+  H: number,
+  depthScale = 1,
+): StageLayout {
   const n = Math.max(1, ranks);
   const out: StagePart[] = parts.map((part) => {
-    const { w, h, d, round } = partDims(part, W, H);
+    const dims = partDims(part, W, H);
+    const { w, h, round } = dims;
+    const d = round ? dims.d : dims.d * depthScale;
     const ax = part.offset[0] * W;
     const ay = -part.offset[1] * H;
     const rank = Math.min(n - 1, Math.max(0, rankOf(part.layer)));
@@ -96,7 +153,7 @@ export function stageLayout(parts: TeardownPart[], rankOf: (layer: number) => nu
     for (const i of idx) out[i].py += shift;
   }
   const thick: number[] = new Array(n).fill(0);
-  const stepMax = STACK_STEP_MAX * W;
+  const stepMax = STACK_STEP_MAX * W * depthScale;
   for (const p of out) thick[p.rank] = Math.max(thick[p.rank], Math.min(p.d, stepMax));
   let radius = 1;
   for (const p of out) {

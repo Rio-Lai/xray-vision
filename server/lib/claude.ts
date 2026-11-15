@@ -93,6 +93,12 @@ function normalisePart(p: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+/** dimensions_mm (#120): kept only as three positive finite numbers, else dropped (never fails the list). */
+function realSize(v: unknown): [number, number, number] | undefined {
+  if (!Array.isArray(v) || v.length !== 3) return undefined;
+  return v.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0) ? [v[0], v[1], v[2]] : undefined;
+}
+
 function textOf(msg: Anthropic.Message): string {
   let text = '';
   for (const block of msg.content) if (block.type === 'text') text += block.text;
@@ -214,6 +220,7 @@ Schema:
   "anchor": "box" | "hand" | "face" | "pose",  // box = detector box (objects); hand/face/pose for body parts
   "explode_axis": "z",                 // use "z" (towards the camera) unless the object is long and thin
   "source": "live",
+  "dimensions_mm": [w, d, h],          // the real object's size in millimetres (see Rules)
   "parts": [ {
     "id": string,                      // kebab-case, unique
     "name": string,
@@ -247,6 +254,10 @@ Rules:
     see once that is off, and so on. Parts side by side at the same depth share a layer and do not overlap.
   - Pick the shape that matches the part: board for circuit boards and flat panels, cylinder for fans, motors, cells and
     lenses, tube for cables, hoses, tendons and vessels, sphere for round things.
+- dimensions_mm: your best estimate of the real object's size in millimetres, in the pose the parts are laid out in:
+  w = across the bounding box (left to right), d = its other side (top to bottom), h = its thickness towards the
+  camera; e.g. a 13-inch laptop base seen from above is about [304, 215, 11]. The floating 3D model takes its
+  proportions from it, so give the real object's proportions, not the camera's foreshortened view.
 - visual (every part): one plain phrase saying what that part looks like removed and seen on its own, written for an
   image model: shape, colour, material and one distinguishing feature, e.g. "a flat grey rectangular lithium-polymer
   pack of three cells joined by a thin flex cable". No brand or model names, no printed text, labels or logos, and
@@ -296,6 +307,7 @@ export async function teardownLive(req: TeardownRequest): Promise<Teardown> {
         lens,
         explode_axis: raw.explode_axis ?? 'z',
         source: 'live',
+        dimensions_mm: realSize(raw.dimensions_mm),
         parts,
         steps: Array.isArray(raw.steps) ? raw.steps : [],
       });
