@@ -41,7 +41,8 @@ Mock mode: a route with its key missing (or `MOCK=1`) answers from the cache.
 - Naming (#84): a cached demo object (the MacBook from a `laptop` label; a hand) opens at once from the detector label and Claude is asked in the background. Same `object_id`: the exact name is patched in. A different `object_id` with confidence >= 0.7 (`SWITCH_MIN_CONFIDENCE`): the app says so, loads that object's parts list and replaces the one on screen (the agent gets a "Correction" contextual update); if that fails the model is put away with one sentence. A different id below 0.7: the cached object stays. Any other detected object waits for Claude at most 6 s (`IDENTIFY_TIMEOUT_MS`), then goes on with the detector label. The server's identify call has a 7 s limit (11 s with no hint) and no retry. Model `claude-opus-5-5`; naming runs at `ANTHROPIC_IDENTIFY_EFFORT` (default low), parts lists at `ANTHROPIC_EFFORT` (default medium, 120 s timeout) (#95).
 - fal (#80, stopgap for #75): a live (uncached) parts list asks fal for at most 4 part models (`MAX_LIVE_MESHES`, outermost and largest first). Cached parts with a `mesh_url`, hands and the arm never ask fal.
 - `pickPart(partId)`: a silent pick (hidden arrow keys, mouse click, gaze dwell): highlights the part and sends the agent a contextual update naming it, never a user message, so no caption appears of words the wearer did not say; a spoken question goes through the `highlight_part` tool instead.
-- `resetAll()`: `store.resetView()` and drops any in-flight explode.
+- `resetAll()`: saves what was open first (#97, `src/lib/saved.ts`), then `store.resetView()` and drops any in-flight explode; returns the saved entry or null. Saved: `{ id (parts-list object_id), name, kind: 'stored' | 'live', savedAt, thumb, glyph, anchor, lens, label, box }`, newest first, one per id, at most 12, in memory and `localStorage` (`blowfish.saved.v1`). `thumb` is a ~96 px JPEG data URL of the object's crop taken when it was analysed; never for an eye, a hand or the arm, anything biological or a person (a glyph instead). Live parts lists are kept for the session and in `localStorage` (`blowfish.saved.parts.v1.<id>`) when they fit, oldest dropped first; a reopened live model uses its kept list (no Claude) and asks fal only for the parts it asked for the first time. `?saved=clear` forgets everything.
+- `resolveSavedObjectId(objectId, s)` (#97): a saved id or name (case-insensitive, partial) -> the same thing in view if there is one, else a pinned scene object at the saved box (as for the centre and the eye), so it opens when not in view. The arm reopens as the arm, the eye as the eye. `bringBack(id)` does the same for the saved pills (`src/hud/SavedRow.tsx`: top left, newest 6, only while the overlay is on and nothing is open or loading).
 - `describeTeardown(td)`: the text sent to the agent as a contextual update.
 
 ## Client tools (`src/voice/clientTools.ts`)
@@ -63,6 +64,8 @@ Names match `CLIENT_TOOL_NAMES`. Each takes a parameters object and returns a st
 There is no `set_lens` tool: Blowfish has no lenses.
 
 `get_pose` muscle mapping: index, middle, ring or pinky pressing -> `fdp`, `fds`, `flexor-tendons`; thumb pressing -> `fpl`, `thenar`; active finger not pressing (lifting) -> `extensor-digitorum`.
+
+Saved models (#97): `get_scene` also returns `saved: [{ id, name, saved_ago }]`. `explode` with an `object_id` that is not a scene object and matches a saved model brings it back; with nothing saved it resolves as before. `reset_view` returns "Put away. Saved <name>." when something was open, else "View reset.". For a new "analyse this" the agent should call `explode` with no `object_id`, so an old id does not reopen a saved model.
 
 ### A hand on stage is the arm (#74)
 
