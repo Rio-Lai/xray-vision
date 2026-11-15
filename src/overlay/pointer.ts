@@ -16,8 +16,8 @@
  *  - Nothing highlighted: it glides back towards the voice pill and fades to 0 in 300 ms.
  *  - Target outside the view: it waits at the nearest edge at half opacity.
  *  - Hidden in the clean view (overlay off). `?pointer=0`: not mounted at all.
- *  - One layer over the whole view above every stage canvas (z-index 1 in the stage), pointer
- *    events off; per frame one transform write, plus opacity only while it changes and the ring
+ *  - One layer over the whole view above every stage canvas (z-index 1 in the stage; the HUD,
+ *    .bf-hud, and the detail card are z-index 2, above it), pointer events off; per frame one transform write, plus opacity only while it changes and the ring
  *    only during its pulse. No layout reads.
  * The maths is in pure functions and PointerMotion (no DOM), checked under Node.
  */
@@ -243,7 +243,7 @@ export class PointerLayer {
     this.root = document.createElement('div');
     this.root.className = 'bf-pointer-layer';
     this.root.setAttribute('aria-hidden', 'true');
-    // z-index 1 in the stage: above every stage canvas (arm, eye, solid, detail) and their labels, below the HUD's voice pill
+    // z-index 1 in the stage: above every stage canvas (arm, eye, solid, detail) and their labels; below the HUD (.bf-hud) and the detail card (z-index 2) and the voice pill
     Object.assign(this.root.style, { position: 'absolute', inset: '0', pointerEvents: 'none', zIndex: '1', overflow: 'hidden' });
     this.mark = document.createElement('div');
     Object.assign(this.mark.style, { position: 'absolute', left: '0', top: '0', width: '0', height: '0', opacity: '0', willChange: 'transform, opacity' });

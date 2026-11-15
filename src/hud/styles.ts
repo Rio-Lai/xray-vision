@@ -41,6 +41,8 @@ export const CLASSIC_HUD_CSS = `
 .bf-hud, .bf-olayer, .bf-player { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .bf-hud, .bf-olayer, .bf-player, .bf-hud * { font-family: ${FONT}; -webkit-font-smoothing: antialiased; }
 .bf-hud { color: #fff; font-size: 18px; line-height: 1.4; }
+/* above the pointer layer (src/overlay/pointer.ts, z-index 1): cards, title, status and debug stay on top of the dot */
+.bf-hud { z-index: 2; }
 
 /* Frosted glass: white at ~14% with a hairline border; the backdrop is blurred and slightly darkened
    so white text stays readable on a bright desk. */

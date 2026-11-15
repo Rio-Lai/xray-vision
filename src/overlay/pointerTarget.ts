@@ -9,7 +9,9 @@
  * detail model). A stage writes its own slot only (null when it has nothing highlighted), so a
  * stage that is not up never overwrites the one that is. A slot not written for STALE_MS counts as
  * empty (a stage that stopped drawing or unmounted leaves nothing behind); stages also clear their
- * slot when they go. The detail model wins while it has a step lit, then the main stages.
+ * slot when they go. While the detail model is up its slot decides, even when it is empty (no step
+ * or no focus part lit: no pointer, rather than back to the main model's old highlight); then the
+ * main stages.
  *
  * `?pointer=0` turns the pointer off (read once, like DETAIL_ON): nothing is mounted, and these
  * functions do nothing.
@@ -158,11 +160,15 @@ export function clearPointer(source: PointerSource): void {
   slot.rank = -1;
 }
 
-/** The pointer's target now: the first fresh, non-empty slot in priority order, or null. */
+/**
+ * The pointer's target now: a fresh detail slot (the detail model is up) as it is, even when empty;
+ * else the first fresh, non-empty slot in priority order; else null.
+ */
 export function currentPointer(now: number = clock()): PointerAnchor | null {
   for (const s of PRIORITY) {
     const slot = slots.get(s)!;
-    if (slot.anchor && slot.at >= 0 && now - slot.at <= STALE_MS) return slot.anchor;
+    const fresh = slot.at >= 0 && now - slot.at <= STALE_MS;
+    if (fresh && (slot.anchor || s === 'detail')) return slot.anchor;
   }
   return null;
 }
