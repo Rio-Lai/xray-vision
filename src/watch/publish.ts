@@ -20,6 +20,7 @@ import { useHud } from '../hud/hudStore';
 import { useSaved } from '../lib/saved';
 import { modelControl } from '../stage/modelControl';
 import { shouldMute, usePtt } from '../voice/pushToTalk';
+import { detailInput, getDetailView } from '../stage/detailView';
 import { BigFields, bigValues, buildSnapshot } from './snapshot';
 import type { BigKey } from './snapshot';
 
@@ -116,6 +117,8 @@ export function startWatchPublisher(): () => void {
           saved,
           inputAt: modelControl.lastInputAt,
           micHold: shouldMute(usePtt.getState()),
+          dview: getDetailView(),
+          dviewAt: detailInput.at,
           frame: frameSize(),
           now: performance.now(),
         },

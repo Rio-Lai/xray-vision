@@ -64,6 +64,9 @@ export async function runLocalCommand(input: string): Promise<string | null> {
   }
   const ask = t.match(/^(?:highlight|show(?: me)?|what is|what's|tell me about)\s+(?:the\s+)?(.+?)\??$/);
   if (ask) return highlight(ask[1]);
+  // a follow-up about another part: "and the logic board?"
+  const more = t.match(/^and\s+(?:the\s+)?(.+?)\??$/);
+  if (more) return highlight(more[1]);
   return null;
 }
 

@@ -20,6 +20,7 @@ import type { GestureOutput } from '../detect/gestures';
 import { setBusyText } from '../hud/hudStore';
 import { useSaved } from '../lib/saved';
 import { modelControl } from '../stage/modelControl';
+import { applyDetailView, detailInput } from '../stage/detailView';
 import { TeardownSchema } from '../../shared/teardown';
 import { DetailSceneSchema } from '../../shared/detail';
 import { SnapshotApplier, isSnapshot } from './snapshot';
@@ -92,6 +93,10 @@ const target: ApplyTarget = {
   },
   setMicHold: (micHold) => {
     if (useWatch.getState().micHold !== micHold) useWatch.setState({ micHold });
+  },
+  setDetailView: (view, at) => {
+    applyDetailView(view);
+    detailInput.at = at;
   },
 };
 

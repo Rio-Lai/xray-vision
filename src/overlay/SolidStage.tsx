@@ -44,6 +44,7 @@ import { springStep } from './stageLayout';
 import { isSolidTeardown } from './stageState';
 import { partProgress, solidLayout } from './solidLayout';
 import type { SolidLayout } from './solidLayout';
+import { clearPointer, mainPointerIds, pointerBegin, pointerEnd, pointerOffer } from './pointerTarget';
 
 const DEG = Math.PI / 180;
 /** On stage it is seen a little from above and from the right: a three-quarter view that shows its depth. */
@@ -245,6 +246,7 @@ class SolidStageCtl {
     solidStage.tick = () => undefined;
     solidStage.pickAt = () => null;
     solidStage.arrived = () => false;
+    clearPointer('solid');
     this.clearParts();
     this.outline?.dispose();
     this.outline = null;
@@ -553,9 +555,11 @@ class SolidStageCtl {
     let right = -Infinity;
     let top = Infinity;
     let bottom = -Infinity;
+    pointerBegin('solid', on ? mainPointerIds(useStore.getState()) : []); // the pointer's target (pointerTarget.ts), off screen too
     for (const p of this.parts) {
       p.holder.getWorldPosition(this.v);
       this.toScreen(this.v, w, h);
+      pointerOffer('solid', p.label.id, this.v.x, this.v.y);
       const r = 0.5 * p.s.length() * this.ppu;
       left = Math.min(left, this.v.x - r);
       right = Math.max(right, this.v.x + r);
@@ -571,6 +575,7 @@ class SolidStageCtl {
       it.highlighted = highlighted;
       items.push(it);
     }
+    pointerEnd('solid', w, h);
     if (!Number.isFinite(left)) {
       left = right = w / 2;
       top = bottom = h / 2;

@@ -77,9 +77,34 @@ export const PHONE_MODE: boolean = urlFlag('phone');
 export const WATCH_MODE: boolean = urlFlag('watch');
 
 /**
+ * Phone mode: the page is laid out this many CSS px wide and the phone scales it to its screen (the
+ * viewport tag, set by index.html and src/phone/viewport.ts), so the phone shows the laptop's layout,
+ * only smaller: about 1400 x 646 on an iPhone 16 held sideways. `?vw=` (800 to 2400) changes it for one
+ * link (`npm run phone -- vw=1200`): a smaller number makes everything bigger. index.html has the same
+ * default: keep the two in step.
+ */
+export const PHONE_VW_DEFAULT = 1400;
+export const PHONE_VW: number = Math.round(Math.min(2400, Math.max(800, urlNumber('vw', PHONE_VW_DEFAULT))));
+
+/**
+ * Phone mode: real screen points per CSS px across the current orientation (about 0.61 on an iPhone 16
+ * held sideways at 1400); 1 everywhere else, and on a computer opening `?phone=1` (no scaling there).
+ */
+export function screenPointsPerPx(): number {
+  if (!PHONE_MODE) return 1;
+  const sw = window.screen?.width || 0;
+  const sh = window.screen?.height || 0;
+  const vw = Math.max(1, window.innerWidth);
+  if (sw <= 0 || sh <= 0) return 1;
+  const across = vw >= window.innerHeight ? Math.max(sw, sh) : Math.min(sw, sh);
+  return Math.min(1, Math.max(0.1, across / vw));
+}
+
+/**
  * #131: the most device pixels per CSS pixel any WebGL canvas draws (`?dpr=`, 1 to 2; default 1.5,
  * 1.25 in phone mode). On a 2x screen 1.5 draws 56% of the pixels (clears, antialiasing, shading,
  * compositing) for a picture that is only a little softer; `?dpr=2` is the old sharpness.
+ * Phone mode: per real screen point, so the scaled page (PHONE_VW) draws as many pixels as before.
  */
 export const MAX_DPR: number = Math.min(2, Math.max(1, urlNumber('dpr', PHONE_MODE ? 1.25 : 1.5)));
 
@@ -90,9 +115,12 @@ export const MAX_DPR: number = Math.min(2, Math.max(1, urlNumber('dpr', PHONE_MO
  */
 export const PERF_BUDGET: boolean = urlParam('budget') !== '0';
 
-/** The pixel ratio for a WebGL canvas: the screen's, at most MAX_DPR. */
+/**
+ * The pixel ratio for a WebGL canvas: the screen's, at most MAX_DPR (phone mode: MAX_DPR per real screen
+ * point, about 0.76 per CSS px on an iPhone 16 sideways: the same pixel count as before the scaled page).
+ */
 export function canvasDpr(): number {
-  return Math.min(MAX_DPR, window.devicePixelRatio || 1);
+  return Math.min(MAX_DPR * screenPointsPerPx(), window.devicePixelRatio || 1);
 }
 
 export interface FrameRuntime {

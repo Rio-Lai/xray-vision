@@ -8,6 +8,27 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Blowfish" />
+    <script>
+      // Phone mode (?phone=1, npm run phone): lay the page out 1400 CSS px wide (?vw=, 800 to 2400) before anything is
+      // drawn, so the phone shows the laptop's layout scaled to its screen. src/phone/viewport.ts sets the same tag
+      // again; the default is PHONE_VW_DEFAULT in src/camera/frame.ts (keep the two in step). Nothing without ?phone=1.
+      (function () {
+        try {
+          var q = new URLSearchParams(window.location.search);
+          var phone = q.get('phone');
+          if (phone !== '1' && phone !== 'true') return;
+          var raw = (q.get('vw') || '').trim();
+          var w = raw === '' ? 1400 : Number(raw);
+          if (!isFinite(w)) w = 1400;
+          w = Math.round(Math.min(2400, Math.max(800, w)));
+          var meta = document.querySelector('meta[name="viewport"]');
+          if (meta) meta.setAttribute('content', 'width=' + w + ', viewport-fit=cover, user-scalable=no');
+          document.documentElement.classList.add('bf-phone');
+        } catch (e) {
+          /* the app sets it again */
+        }
+      })();
+    </script>
     <title>Blowfish</title>
     <style>
       /* Black reads as transparent in the XREAL glasses. */

@@ -22,9 +22,10 @@ import type { AppState } from '../state/store';
 import { gestureLive } from '../detect/gestureDriver';
 import { describeGate } from '../voice/voiceGate';
 import { describeLock } from '../voice/voiceLock';
-import { GESTURE_TUNING_DEFAULTS } from '../detect/gestures';
+import { GESTURE_TUNING_DEFAULTS, TWO_FINGER_SIZE } from '../detect/gestures';
 import type { GestureTuning } from '../detect/gestures';
 import { gestureTuning, gestureTuningUrl, setGestureTuning } from '../detect/gestureTuning';
+import { detailInputActive, detailViewTarget } from '../stage/detailView';
 import { isPinnedId } from '../detect/centre';
 import { scanDebugLine } from '../detect/scan';
 import { shortName } from './names';
@@ -321,6 +322,11 @@ const GESTURE_SLIDERS: { key: NumKey; label: string; min: number; max: number; s
   { key: 'rotGain', label: 'Turn (radians per hand size dragged)', min: 0.2, max: 3, step: 0.05 },
   { key: 'spreadGain', label: 'Open per doubling of the two-hand distance', min: 0.2, max: 2, step: 0.05 },
   { key: 'panGain', label: 'Move: model / hands on screen', min: 0.2, max: 3, step: 0.05 },
+  { key: 'twoFingerReach', label: 'Two fingers: index and middle tips at least (from the wrist; hand sizes)', min: 1, max: 1.8, step: 0.01 },
+  { key: 'twoFingerGap', label: 'Two fingers: index and middle tips at most apart (hand sizes)', min: 0.15, max: 0.8, step: 0.01 },
+  { key: 'twoFingerCurl', label: 'Two fingers: ring and pinky tips at most (from the wrist; hand sizes)', min: 0.8, max: 1.6, step: 0.01 },
+  { key: 'twoFingerMargin', label: 'Two fingers: ring and pinky at least this much nearer the wrist than index and middle (hand sizes)', min: 0.2, max: 1, step: 0.01 },
+  { key: 'twoFingerHoldMs', label: 'Two fingers: held before the pan starts (ms)', min: 0, max: 400, step: 10 },
   { key: 'fistMax', label: 'Fist at or below (openness)', min: 0.5, max: 1.4, step: 0.01 },
   { key: 'spreadMin', label: 'Spread hand at or above (openness)', min: 1.1, max: 2.1, step: 0.01 },
   { key: 'burstMs', label: 'Fist to spread within (ms)', min: 150, max: 1000, step: 10 },
@@ -333,7 +339,9 @@ const GESTURE_SLIDERS: { key: NumKey; label: string; min: number; max: number; s
 
 const GESTURE_TOGGLES: { key: BoolKey; label: string }[] = [
   { key: 'enabled', label: 'Hand gestures on' },
-  { key: 'pinchTurns', label: 'One-hand pinch turns it (off: it moves it)' },
+  { key: 'twoFinger', label: 'Two fingers together (index + middle, ring + pinky curled): move it' },
+  { key: 'pinchDrag', label: 'One-hand pinch-drag moves the model (off: a lone pinch does nothing)' },
+  { key: 'pinchTurns', label: '...and that pinch-drag turns it (off: moves it)' },
   { key: 'grab', label: 'Open hand over it, then a fist: grab and move it' },
   { key: 'twoHand', label: 'Two hands pinch and pull apart / together to zoom' },
   { key: 'twoOpens', label: '...and that opens it first, then zooms' },
@@ -394,7 +402,7 @@ function gestureLines(now: number): string[] {
   const ago = gestureLive.lastAt ? `${((now - gestureLive.lastAt) / 1000).toFixed(1)}s ago` : '';
   const on = (b: boolean, name: string) => `${name} ${b ? 'on' : 'OFF'}`;
   lines.push(
-    `gestures ${t.enabled ? 'on' : 'OFF'} (${[t.pinchTurns ? 'pinch turns' : 'pinch moves', on(t.grab, 'grab'), on(t.snap, 'snap'), on(t.sweep, 'sweep'), on(t.globe, 'globe'), on(t.twoHand, 'two-hand'), on(t.world, '3D shape'), on(t.burst, 'burst'), on(t.pan, 'pan')].join(', ')}) | mode ${out?.mode ?? '-'} | cue ${gestureLive.hint ?? '-'} | last ${gestureLive.last} ${ago}`,
+    `gestures ${t.enabled ? 'on' : 'OFF'} (${[on(t.twoFinger, 'two-finger pan'), t.pinchDrag ? (t.pinchTurns ? 'pinch turns' : 'pinch moves') : 'lone pinch idle', on(t.grab, 'grab'), on(t.snap, 'snap'), on(t.sweep, 'sweep'), on(t.globe, 'globe'), on(t.twoHand, 'two-hand'), on(t.world, '3D shape'), on(t.burst, 'burst'), on(t.pan, 'pan')].join(', ')}) | mode ${out?.mode ?? '-'} | cue ${gestureLive.hint ?? '-'} | last ${gestureLive.last} ${ago}`,
   );
   for (const h of out?.hands ?? []) {
     const pinch = h.pinched ? (h.stale ? 'PINCH (let go first)' : 'PINCH') : '';
@@ -403,6 +411,7 @@ function gestureLines(now: number): string[] {
     lines.push(
       `  ${h.key} ${h.id.padEnd(10)} ${h.shape.toUpperCase().padEnd(5)} doing ${(h.doing || '-').padEnd(8)} size ${h.size.toFixed(2)} ${free}${h.inFrame ? '' : ', at the edge'}${h.held ? ', HELD (no frame)' : ''} ${pinch}`,
       `     ${h.world ? '3D' : 'image'} pinch ${h.pinchDist.toFixed(2)} reach ${h.reach.toFixed(2)} open ${h.open.toFixed(2)} open3D ${h.openW.toFixed(2)} rest ${h.restOpen.toFixed(2)} | last fist<->open ${Math.round(h.lastChangeMs)} ms, ${h.lastChangeRate.toFixed(1)}/s | why: ${why}`,
+      `     two fingers ${h.tfOn ? 'ON' : h.tfRaw ? 'pose (holding...)' : 'no'}: index ${h.reach.toFixed(2)} middle ${h.midReach.toFixed(2)} (>= ${t.twoFingerReach.toFixed(2)}) gap ${h.tipGap.toFixed(2)} (<= ${t.twoFingerGap.toFixed(2)}) ring ${h.ringReach.toFixed(2)} pinky ${h.pinkyReach.toFixed(2)} (<= ${t.twoFingerCurl.toFixed(2)}, ${Math.min(h.reach, h.midReach) - Math.max(h.ringReach, h.pinkyReach) >= t.twoFingerMargin ? 'margin ok' : `margin < ${t.twoFingerMargin.toFixed(2)}`}) size ${h.tfSize.toFixed(2)} (>= ${(TWO_FINGER_SIZE * t.restHandMax).toFixed(2)}${h.tfSize >= TWO_FINGER_SIZE * t.restHandMax ? '' : ': TOO SMALL, far away'})`,
     );
   }
   return lines;
@@ -457,6 +466,10 @@ function DebugPanel() {
   lines.push(`overlay ${overlayOn ? 'ON' : 'off'} | tracking ${mode}${frozen ? ' (FROZEN)' : ''} | explode ${explode.toFixed(2)} | teardown ${tdStatus}`);
   const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}\u00b0`;
   lines.push(`model yaw ${deg(yaw)} pitch ${deg(pitch)} zoom ${zoom.toFixed(2)} pan ${panX.toFixed(2)}, ${panY.toFixed(2)} | input ${modelControl.describe()}`);
+  if (detailInputActive(useStore.getState())) {
+    const dv = detailViewTarget();
+    lines.push(`detail model (hands, mouse, keys and voice move it now) yaw ${deg(dv.yaw)} pitch ${deg(dv.pitch)} zoom ${dv.zoom.toFixed(2)} pan ${dv.panX.toFixed(2)}, ${dv.panY.toFixed(2)}`);
+  }
   lines.push(`part models ${FIT_EVEN ? 'fit=even (one scale, fitted inside the slot, #98; drop ?fit=even to fill)' : 'fill (stretched to the slot; ?fit=even keeps proportions, #98)'}`);
   lines.push(`look ${LOOK === 'kit' ? 'kit (Figma Make interface kit, #86; ?look=classic for the previous look)' : 'classic (?look=classic; drop it for the Figma Make kit)'}`);
   lines.push(describeGate(), describeLock());

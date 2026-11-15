@@ -105,7 +105,7 @@ Works with the Wi-Fi off:
 
 - the camera, object detection and labels, hand tracking
 - the cached MacBook Air and hand: parts lists, all twelve MacBook models, the muscle and tendon overlay with key presses
-- gestures (pinch-drag, two hands apart), the hidden keys and the mouse
+- gestures (two fingers to move, two open hands to turn, two hands pinching apart to zoom), the hidden keys and the mouse
 - part cards, safety notes and steps (`Left` / `Right`, `S`)
 
 Needs the network:
@@ -132,14 +132,19 @@ On the phone:
 
 1. Open the link in Safari (or scan the QR code with the Camera app), tap "Tap to start", and allow the camera and the microphone.
 2. Turn the phone sideways (if it is upright, the screen says so), then plug in the glasses: they mirror the phone screen.
-3. Optional, for full screen without Safari's bars: Share > Add to Home Screen, then open Blowfish from the home screen. That icon only works until `npm run phone` stops: every restart makes a new link (a new tunnel address and code), so open the new link in Safari, then Add to Home Screen again (and delete the old icon).
+3. Full screen: Share, then Add to Home Screen, and open Blowfish from the icon (no Safari bars). That icon only works until `npm run phone` stops: every restart makes a new link (a new tunnel address and code), so open the new link in Safari, then Add to Home Screen again (and delete the old icon).
+4. Keep it sideways: turn on Portrait Orientation Lock, then AssistiveTouch (Settings > Accessibility > Touch) > Device > Rotate Screen.
 
-The buttons on the right do what the hidden keys do on the laptop: Voice (V), Analyse (A), Explode (E), Put away (R) and a small D for the debug panel. Touch drag turns the model on stage; a tap picks a part. Problems show as one sentence on the screen (camera blocked, voice could not connect, the Mac cannot be reached).
+The start screen shows steps 3 and 4 too (step 3 not once it runs from the icon). iPhone browsers (Safari and Chrome alike) have no full-screen or orientation lock for web pages, so there is no button for it there; where the browser has them (Android, iPad, a computer) the start screen and the settings sheet have a "Full screen" button instead, which also locks the screen sideways where it can, and hides while the page is full screen. The page is never turned with CSS: the glasses mirror the real screen.
+
+The phone shows the laptop's layout, only smaller: the page is laid out 1400 CSS pixels wide (about 1400 x 646 sideways) and the phone scales it to its screen, so the glasses and a projector show the same picture as the laptop. `?vw=` changes the width for one link, e.g. `npm run phone -- vw=1200` makes everything about a sixth bigger, `vw=1600` smaller (800 to 2400; the default is `PHONE_VW_DEFAULT` in `src/camera/frame.ts`, and the same number in `index.html`).
+
+The quiet gear at the top right opens the settings: the debug panel (D), full screen (where the browser has it), and, in case voice fails on stage, what the hidden keys do on the laptop: Voice on / off (V), Analyse (A), Explode (E), Put away (R). Touch drag turns the model on stage; a tap picks a part. Problems show as one sentence on the screen (camera blocked, voice could not connect, the Mac cannot be reached).
 
 - **Access code.** The tunnel link is public, and `/api` spends the API credits, so each run makes a new random code; it is the `code=` at the end of the link. The first visit with it sets a cookie on the phone; anything without the code or the cookie gets "this link needs its access code". Set `BLOWFISH_PHONE_CODE=` in `.env` to keep one code across runs; the tunnel address still changes on every run, so after a restart always open the new link. The Mac itself (http://localhost:8791) needs no code.
 - **Keep the Mac awake and online.** `npm run phone` keeps it from sleeping while it runs (`caffeinate`), but keep it plugged in with the lid open, and on a network. Ctrl-C in its window stops the server and the tunnel.
 - **What needs the internet:** everything in this mode goes through the tunnel, so both the Mac and the phone need a connection (the phone can use mobile data). The voice tutor, Claude and fal need it as on the laptop. The vision models come from the Mac (`npm run fetch-models` runs by itself if they are missing; otherwise the phone fetches them from Google).
-- The phone runs lighter settings: the small object detector (Lite0), canvases at 1.25 device pixels per CSS pixel (`?dpr=` changes it), no noise gate (on iOS a second use of the microphone can silence the voice session) and the phone's default microphone.
+- The phone runs lighter settings: the small object detector (Lite0), canvases at 1.25 device pixels per screen point (`?dpr=` changes it), no noise gate (on iOS a second use of the microphone can silence the voice session) and the phone's default microphone.
 - Without `?phone=1` nothing changes, and `npm run dev` on the laptop is exactly as before.
 
 ### On the big screen
@@ -153,16 +158,26 @@ The phone's screen goes to the glasses, so the audience sees the same view on th
 
 ## Controls
 
-While a model is on stage. Hands work only once a hand has been in view for a moment and is not typing or resting on the laptop; a small ring marks each hand Blowfish is following (filled while it is doing something), and one word ("Turning", "Opening", "Closing", "Zooming", "Moving") shows above the voice pill.
+While a model is on stage. Hands work only once a hand has been in view for a moment and is not typing or resting on the laptop; a small dot marks each fingertip of a hand Blowfish is following (the fingers doing the current gesture are filled), with one word under them ("Panning", "Rotating", "Zooming", "Exploding", "Closing"). With `?detail=1`, while a detail model is open, turning, zooming, moving and centring (hands, mouse, keys and voice) act on the detail model instead, even with no main model on stage; it starts facing its default view at the normal size every time it opens, and the main model is as it was when it closes. Opening / closing (snap, wheel, `A` / `E`) stays the main model's, and the sweep down puts everything away.
 
 | | Turn | Open / close | Zoom | Move | Centre |
 | --- | --- | --- | --- | --- | --- |
-| **Hands** | Pinch (thumb to index) and drag; or both hands open, move them like spinning a globe (both sideways, both up or down, or one hand pushed away while the other comes closer) | Snap your fingers: explodes it, or closes it back to analysed if open (`?twoopen=1`: the two-hand pinch opens it first); a flat hand swept down from the top of the view puts it away | Pinch with both hands and pull apart / bring together | An open hand over the model, then a fist: it follows the fist until you open the hand | |
+| **Hands** | Both hands open, move them like spinning a globe (both sideways, both up or down, or one hand pushed away while the other comes closer) | Snap your fingers: explodes it, or closes it back to analysed if open (`?twoopen=1`: the two-hand pinch opens it first); a flat hand swept down from the top of the view puts it away | Pinch with both hands and pull apart / bring together (it needs both hands, so it is never confused with the snap) | Two fingers: index and middle out and held together, ring and pinky curled (a closed peace sign); the model follows the two fingertips until you let the pose go | |
 | **Mouse, trackpad** | Drag | Wheel | Trackpad pinch (wheel + Ctrl) | Shift-drag or right-drag | Double-click |
 | **Keys** | | `A` analyse, `E` explode, `R` put away | `+` / `-` | Shift + arrow keys | `0` |
 | **Voice** | "turn it around" | "explode it", "put it back together", "collapse it", "put it away" | "zoom in", "closer", "normal size" | "move it left / right / up / down" | "recentre it" |
 
-Hands never open something from nothing (voice and `A` / `E` do); the sweep down puts it away (saved, as "put it away"). Sweep: start with the open hand near the top of the view (palm in the top 40 percent), then wipe it straight down past the middle, briskly (about a third of a second to a second; straight out of the bottom is fine). Snap: press the thumb on the middle fingertip for a moment, then snap; the camera sees the pose before and after, so 30 fps is enough. The pinch, the fist and the open hand are read from MediaPipe's 3D hand (its world landmarks), so they work with the hand seen from behind or pointing away from the head camera (`?world=0`: from the image, as before). The ring sits between the thumb and index fingertips (at the palm for a fist), fills as soon as a pinch counts, and shows one word under it while that hand does something ("Rotating", "Panning", "Zooming", "Exploding", "Closing"). A gesture misbehaving on the rig: `?snap=0`, `?sweep=0`, `?grab=0`, `?globe=0`, `?twohand=0`, or `?gestures=0` for all of them; `?pinchturn=0` makes the pinch move the model, `?burst=1` brings back the fist-flick open / close, `?pan=1` the two-hand move. `?mock=gesture` plays each hand gesture in turn with scripted hands.
+| Gesture | Does | URL switch |
+| --- | --- | --- |
+| Two fingers together, moved | Moves (pans) the model | `?twofinger=0` off; `?tfgap=0.4` `?tfcurl=1.1` `?tfmargin=0.6` `?tfreach=1.35` `?tfhold=120` tune it |
+| Snap | Explodes / closes it | `?snap=0` |
+| Two open palms, moved like a globe | Turns it | `?globe=0` |
+| Two hands pinching, apart / together | Zooms in / out | `?twohand=0` |
+| One hand pinching | Nothing | `?pinchturn=1` pinch-drag turns it, `?pinchmove=1` moves it |
+| Open hand over it, then a fist | Nothing (off) | `?grab=1` grabs and moves it |
+| Flat hand swept down from the top | Puts it away | `?sweep=0` |
+
+Two fingers: the index and middle tips must be well out from the wrist (`tfreach`, 1.35 hand sizes), within `tfgap` (0.4 hand sizes) of each other, the ring and pinky tips curled in (within `tfcurl`, 1.1 hand sizes, of the wrist, and `tfmargin`, 0.6, nearer it than the index and middle), the thumb not on the index or middle tip, the hand not tiny in the frame (a hand on a mouse across the desk), held `tfhold` ms; read from MediaPipe's 3D hand, so it works with the hand at any angle. The model follows the palm, so closing the hand to stop does not drag it. Too picky on the camera: raise `tfgap` or `tfcurl`, or lower `tfreach` or `tfmargin`; too eager: the other way (all are sliders in the debug panel, `D`, which also shows each hand's numbers and which condition fails). After a two-hand zoom, one hand can let go and pinch again to carry on zooming. Hands never open something from nothing (voice and `A` / `E` do); the sweep down puts it away (saved, as "put it away"). Sweep: start with the open hand near the top of the view (palm in the top 40 percent), then wipe it straight down past the middle, briskly (about a third of a second to a second; straight out of the bottom is fine). Snap: press the thumb on the middle fingertip for a moment, then snap; the camera sees the pose before and after, so 30 fps is enough. The two fingers, the pinch, the fist and the open hand are read from MediaPipe's 3D hand (its world landmarks), so they work with the hand seen from behind or pointing away from the head camera (`?world=0`: from the image, as before). The fingertip dots light up for the fingers doing the gesture (two-finger pan: index and middle; pinch and zoom: thumb and index; globe: all five; snap: thumb and middle), and the word sits under them. A gesture misbehaving on the rig: `?twofinger=0`, `?snap=0`, `?sweep=0`, `?globe=0`, `?twohand=0`, or `?gestures=0` for all of them; `?burst=1` brings back the fist-flick open / close, `?pan=1` the two-hand move. `?mock=gesture` plays each hand gesture in turn with scripted hands (two-finger pan, two-hand zoom, globe, snap, sweep).
 
 ## Developer fallback
 
@@ -187,10 +202,12 @@ Never shown on screen during the demo; voice does all of this. The keys show not
 
 Mouse and keys for the model on stage: see "Controls" above. A click without dragging picks a part.
 
+The pointer: while the tutor talks about a part (`highlight_part`, `show_step`, or a lit step of the detail model), a small blue dot flies from the voice pill to that part, pulses once and stays on it as the model turns, zooms or opens, or the hand moves; it fades out when nothing is highlighted. To try it without voice: `?mock=1&overlay=1`, press `A`, then in the `/` box type "tell me about the battery", then "and the logic board?" (or "what is the logic board"), "step 2", and "reset" to see it fade; with `&detail=mock` also "detail key press" then "detail step 1", "detail step 2". `?pointer=0` turns it off.
+
 URL options:
 
 - `?mock=1` (or `?mock=laptop`, `?mock=hand`): no camera or vision models needed; a fake laptop, phone and typing hand (`hand` puts the hand in the centre of view). Fake data: never film it for the product shots.
-- `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands play every hand control in turn: pinch turn, two-hand zoom, fist grab and move, globe turn, finger snap (explodes), sweep down (puts it away; analysed again for the next loop)
+- `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands play every hand control in turn: two-finger pan, two-hand zoom, globe turn, finger snap (explodes), sweep down (puts it away; analysed again for the next loop)
 - `?mock=eye`: a fake face in the middle of the view, to open the eye without a camera
 - `?look=classic`: the interface as it was before the Figma Make kit, to compare or fall back
 - `?lift=0`: the model cross-fades in on the stage instead of lifting out of the real object (a fallback if the transition misbehaves)
@@ -198,12 +215,13 @@ URL options:
 - `?resthand=0.22&typingms=1500`: a hand smaller than this share of the frame height counts as "on the desk" and is ignored for gestures while it has typed within that many milliseconds or rests on a laptop (0 turns either rule off)
 - `?facecrop=0.45`: the face tracker looks at a tighter square in the middle of the view (finds a face further away; default 0.6, `1` = the whole frame)
 - `?overlay=1`: start with the overlay on
+- `?pointer=0`: no pointer (the dot that shows which part the tutor is talking about)
 - `?blur=0`: only dim the video behind the model, no blur (default 4; up to 12)
 - `?dwell=1`: pick a part by looking at it for 1.2 s
 - `?hands=raw`: use if left and right hands look swapped
 - `?mic=<part of the name>`: pick the microphone, for example `?mic=c920` or `?mic=iphone` (remembered)
 - `?ptt=1` / `?ptt=0`: push-to-talk only on / off (remembered)
-- Gesture tuning: `?pinch=0.3&unpinch=0.45&hold=90&reach=1&rot=1.1&spread=1&burstms=400&globegain=1.3&pangain=1`; `?snap=0`, `?sweep=0`, `?grab=0`, `?globe=0`, `?twohand=0` turn one gesture off, `?gestures=0` all of them; `?pinchturn=0`, `?twoopen=1`, `?burst=1`, `?pan=1`, `?world=0` as above. URL values override the debug panel sliders (saved in this browser). Voice: `?gate=0` turns the noise gate off, `?gatedb=12` sets how far above the room the wearer must be, `?lock=1` mutes the microphone from the end of a command until Blowfish has answered.
+- Gesture tuning: `?pinch=0.3&unpinch=0.45&hold=90&reach=1&rot=1.1&spread=1&burstms=400&globegain=1.3&pangain=1`; `?twofinger=0`, `?snap=0`, `?sweep=0`, `?globe=0`, `?twohand=0` turn one gesture off, `?gestures=0` all of them; `?tfreach=1.35&tfgap=0.4&tfcurl=1.1&tfmargin=0.6&tfhold=120` tune the two-finger pose; `?pinchturn=1`, `?pinchmove=1`, `?grab=1`, `?twoopen=1`, `?burst=1`, `?pan=1`, `?world=0` as above. URL values override the debug panel sliders (saved in this browser). Voice: `?gate=0` turns the noise gate off, `?gatedb=12` sets how far above the room the wearer must be, `?lock=1` mutes the microphone from the end of a command until Blowfish has answered.
 - Key-press tuning: `?press=0.6&release=0.15&extend=1.2`
 
 ## Scripts

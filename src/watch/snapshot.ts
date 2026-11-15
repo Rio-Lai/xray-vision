@@ -11,7 +11,9 @@
  *    every change), else only their version in `ver`. The server keeps the latest of each, so a watcher
  *    that comes late gets them all with its first snapshot (server/lib/watchHub.ts).
  *  - the frame size, the tracked objects (with their names) and hands (landmarks, finger glows and press
- *    times), the gesture markers and cue word, the busy text, when the model was last touched, push-to-talk.
+ *    times), the gesture markers (with the palm and the five fingertips) and cue word, the busy text, when the
+ *    model was last touched, push-to-talk, and the detail model's own view (src/stage/detailView.ts: turn,
+ *    zoom, pan, and when it was last touched, so its idle sway rests when the phone's does).
  * Times (press times, last input) are the phone's performance.now(); the watch maps them onto its own clock
  * with one steady offset, so a press is seen once.
  */
@@ -77,8 +79,20 @@ export interface WatchSnapshot {
   inputAt: number;
   /** push-to-talk: the microphone is muted until held (the voice pill says "Hold to talk") */
   micHold: boolean;
+  /** the detail model's target view (getDetailView()), and detailInput.at (phone ms) */
+  dview: DetailView;
+  dviewAt: number;
   /** set by the server on a watcher's first snapshot: ms since the phone sent it */
   age?: number;
+}
+
+/** The detail model's own view (src/stage/detailView.ts DetailViewState): radians, zoom, stage sizes. */
+export interface DetailView {
+  yaw: number;
+  pitch: number;
+  zoom: number;
+  panX: number;
+  panY: number;
 }
 
 export interface SnapshotSource {
@@ -91,6 +105,8 @@ export interface SnapshotSource {
   saved: SavedItem[];
   inputAt: number;
   micHold: boolean;
+  dview: DetailView;
+  dviewAt: number;
   frame: { w: number; h: number };
   now: number;
 }
@@ -210,11 +226,23 @@ export function buildSnapshot(
     ver: fields.ver,
     objects: src.liveObjects.map((o) => wireObject(o, names.get(o.id))),
     hands: src.liveHands.filter((h) => h.lm.length >= 21).map(wireHand),
-    marks: src.marks.map((m) => ({ key: m.key, x: r4(m.x), y: r4(m.y), active: m.active, label: m.label })),
+    marks: src.marks.map((m) => ({
+      key: m.key,
+      x: r4(m.x),
+      y: r4(m.y),
+      palmX: r4(m.palmX),
+      palmY: r4(m.palmY),
+      tips: m.tips.map(r4),
+      fingers: m.fingers,
+      active: m.active,
+      label: m.label,
+    })),
     hint: src.hint,
     busy: src.busy,
     inputAt: rt(src.inputAt),
     micHold: src.micHold,
+    dview: { yaw: r4(src.dview.yaw), pitch: r4(src.dview.pitch), zoom: r4(src.dview.zoom), panX: r4(src.dview.panX), panY: r4(src.dview.panY) },
+    dviewAt: rt(src.dviewAt),
   };
   if (Object.keys(fields.big).length > 0) snap.big = fields.big;
   return snap;
@@ -238,6 +266,8 @@ export interface ApplyTarget {
   setInputAt: (t: number) => void;
   setFrame: (w: number, h: number) => void;
   setMicHold: (held: boolean) => void;
+  /** after setState (a new `detail` resets the view first): the detail model's target view and last input time (watch clock) */
+  setDetailView: (view: Partial<DetailView>, at: number) => void;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -344,7 +374,31 @@ function validObject(o: unknown): o is SceneObject {
 }
 
 function validMark(m: unknown): m is GestureMark {
-  return isRecord(m) && typeof m.key === 'string' && isNum(m.x) && isNum(m.y) && typeof m.active === 'boolean' && typeof m.label === 'string';
+  return (
+    isRecord(m) &&
+    typeof m.key === 'string' &&
+    isNum(m.x) &&
+    isNum(m.y) &&
+    isNum(m.palmX) &&
+    isNum(m.palmY) &&
+    Array.isArray(m.tips) &&
+    m.tips.length === 10 &&
+    (m.tips as unknown[]).every(isNum) &&
+    isNum(m.fingers) &&
+    Number.isInteger(m.fingers) &&
+    m.fingers >= 0 &&
+    m.fingers < 32 &&
+    typeof m.active === 'boolean' &&
+    typeof m.label === 'string'
+  );
+}
+
+/** The finite numbers of a mirrored detail view (applyDetailView clamps them). */
+function cleanDetailView(v: unknown): Partial<DetailView> | null {
+  if (!isRecord(v)) return null;
+  const out: Partial<DetailView> = {};
+  for (const k of ['yaw', 'pitch', 'zoom', 'panX', 'panY'] as const) if (isNum(v[k])) out[k] = v[k];
+  return out;
 }
 
 /** A check that throws counts as a failed check. */
@@ -421,6 +475,9 @@ export class SnapshotApplier {
     }
     target.setLive(objects, tracked);
     target.setState(patch);
+    // after the store's `detail` (a new detail model resets its view)
+    const dview = cleanDetailView(snap.dview);
+    if (dview) target.setDetailView(dview, this.local(num(snap.dviewAt, -1e9)));
     target.setGesture(marks, typeof snap.hint === 'string' ? snap.hint : null);
     target.setBusy(typeof snap.busy === 'string' ? snap.busy : null);
     target.setInputAt(this.local(num(snap.inputAt, -1e9)));
