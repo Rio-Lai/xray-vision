@@ -19,7 +19,8 @@ const HL_REMOTE =
 /**
  * COCO classes worth labelling: everyday things that could be on a desk or handed over by a judge
  * (#80). Not `person` (the room would be covered in labels), not furniture that fills the view
- * (dining table, couch, bed). Friendly names for each: src/hud/names.ts.
+ * (dining table, couch, bed), and not chairs, plants or umbrellas: in a room full of them a background
+ * box at the centre of the view would take "this" away from the thing the wearer is holding up. Friendly names for each: src/hud/names.ts.
  */
 export const USEFUL_CLASSES = [
   'laptop',
@@ -42,9 +43,6 @@ export const USEFUL_CLASSES = [
   'orange',
   'backpack',
   'handbag',
-  'umbrella',
-  'chair',
-  'potted plant',
   'vase',
   'teddy bear',
   'toothbrush',
