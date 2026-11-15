@@ -25,6 +25,7 @@ import { api } from '../lib/api';
 import { modelControl, STAGE_MIN_EXPLODE } from '../stage/modelControl';
 import { setStatus, showToast, toggleDebug, useHud } from '../hud/hudStore';
 import { phoneVoice } from './phoneVoice';
+import { useWatchPublisher } from '../watch/publish';
 
 const VIEWPORT = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
 const HEALTH_EVERY_MS = 20_000;
@@ -197,6 +198,7 @@ export function PhoneApp() {
   }, []);
   useWakeLock(started);
   useServerCheck(started);
+  useWatchPublisher(started); // the big-screen view (src/watch/): frames and state to the Mac while it watches
 
   return (
     <VoiceProvider>

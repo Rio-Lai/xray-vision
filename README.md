@@ -142,6 +142,15 @@ The buttons on the right do what the hidden keys do on the laptop: Voice (V), An
 - The phone runs lighter settings: the small object detector (Lite0), canvases at 1.25 device pixels per CSS pixel (`?dpr=` changes it), no noise gate (on iOS a second use of the microphone can silence the voice session) and the phone's default microphone.
 - Without `?phone=1` nothing changes, and `npm run dev` on the laptop is exactly as before.
 
+### On the big screen
+
+The phone's screen goes to the glasses, so the audience sees the same view on the Mac instead: after the phone link, `npm run phone` prints a second one, "For the projector, open this on this Mac (Chrome): http://localhost:8791/?watch=1", and opens it in Chrome by itself (`npm run phone -- nowatch` skips that). Connect the Mac to the projector over HDMI, drag that window to the projector screen and click it once for full screen (or press F; Esc leaves full screen).
+
+- It shows the phone's camera picture with the same overlay on top: the model on stage and its parts, labels, the part and step cards, the captions and the voice pill, the hand markers. It is drawn from the phone's state for the projector's size, so it is not pixel-identical to the glasses, and it runs a fraction of a second behind the phone (expect about 0.2 to 0.5 s; the picture is about 8 frames a second). Before the phone has tapped "Tap to start" it says "Waiting for the phone..."; if the phone goes quiet for 3 seconds (locked, Safari in the background, no signal) it says "Phone connection lost, reconnecting..." and carries on by itself when the phone is back.
+- The page only follows: no camera, no vision, no voice, no gestures, nothing that spends API credit, no controls. It needs no code on the Mac itself; through the tunnel the frames are behind the same access code as everything else.
+- The phone sends its state only while the page is open, plus camera frames (640 px wide, about 8 a second, roughly 1.5 Mbit/s, so about 10 MB a minute of mobile data). `?publish=0` in the phone link turns it off.
+- **Sound for the audience:** the tutor's voice plays on the phone (the voice session lives there), not on the Mac. Pair the Bluetooth speaker with the iPhone. If the speaker has its own microphone, iOS may switch the microphone to it too: then pick the iPhone's microphone in Control Centre (long-press the audio card, then the microphone / audio route), or use a speaker without a microphone.
+
 ## Controls
 
 While a model is on stage. Hands work only once a hand has been in view for a moment and is not typing or resting on the laptop; a small ring marks each hand Blowfish is following (filled while it is doing something), and one word ("Turning", "Opening", "Closing", "Zooming", "Moving") shows above the voice pill.

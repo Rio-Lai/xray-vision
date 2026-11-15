@@ -12,12 +12,15 @@ import { agentToken } from './routes/agent-token';
 import { sketch } from './routes/sketch';
 import { enrich } from './routes/enrich';
 import { detail } from './routes/detail';
+import { watchRoutes } from './routes/watch';
 
 const app = express();
 // npm run phone only (BLOWFISH_SERVE_DIST=1): the access code first, then the built app on this port too.
 if (serveDistOn()) mountPhone(app);
 // The browser reaches us through the Vite proxy (same origin); only allow local pages to call directly.
 app.use(cors({ origin: [/^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/] }));
+// The big-screen view (?watch=1): the phone's frames and state. Before the JSON parser (its own body limits).
+app.use('/api/watch', watchRoutes());
 app.use(express.json({ limit: '15mb' }));
 
 app.get('/api/health', (_req, res) => {

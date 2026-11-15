@@ -70,6 +70,13 @@ export function urlNumber(name: string, fallback: number): number {
 export const PHONE_MODE: boolean = urlFlag('phone');
 
 /**
+ * `?watch=1` (npm run phone opens http://localhost:8791/?watch=1 on the Mac, src/watch/): the big-screen
+ * view for the projector, a passive copy of the phone's view (its camera frames and state, no camera,
+ * vision, voice or gestures here). The phone publishes them unless `?publish=0`. Without it nothing changes.
+ */
+export const WATCH_MODE: boolean = urlFlag('watch');
+
+/**
  * #131: the most device pixels per CSS pixel any WebGL canvas draws (`?dpr=`, 1 to 2; default 1.5,
  * 1.25 in phone mode). On a 2x screen 1.5 draws 56% of the pixels (clears, antialiasing, shading,
  * compositing) for a picture that is only a little softer; `?dpr=2` is the old sharpness.
