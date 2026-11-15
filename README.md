@@ -29,6 +29,7 @@ What we show live:
 
 - A **MacBook Air 13-inch (M3)** on a desk with someone typing on it: labels, analyse, turn it and explode it by hand, a tour of the parts, battery replacement steps.
 - The **typing hands**: a live muscle and tendon overlay that reacts to key presses, explained by the tutor.
+- The **eye**: look at someone's face and say "analyse the eye". The stored eye model (cornea to optic nerve) floats up; its steps follow the path of light. No picture of a face is sent anywhere for this.
 - A **judge's object**, identified and pulled apart live if the network allows. Live parts lists are marked "AI-estimated".
 
 Parts lists that were made live by AI are always shown as "AI-estimated". Biology content is educational, not medical advice.
@@ -140,6 +141,9 @@ URL options:
 
 - `?mock=1` (or `?mock=laptop`, `?mock=hand`): no camera or vision models needed; a fake laptop, phone and typing hand (`hand` puts the hand in the centre of view). Fake data: never film it for the product shots.
 - `?mock=gesture`: the fake laptop is analysed by itself, then scripted hands turn it and pull it apart
+- `?mock=eye`: a fake face in the middle of the view, to open the eye without a camera
+- `?look=classic`: the interface as it was before the Figma Make kit, to compare or fall back
+- `?facecrop=0.45`: the face tracker looks at a tighter square in the middle of the view (finds a face further away; default 0.6, `1` = the whole frame)
 - `?overlay=1`: start with the overlay on
 - `?blur=0`: only dim the video behind the model, no blur (default 4; up to 12)
 - `?dwell=1`: pick a part by looking at it for 1.2 s
@@ -173,6 +177,7 @@ URL options:
 - **Google MediaPipe Tasks Vision** 0.10.14, in the browser:
   - Object Detector with **EfficientDet-Lite0** (float16), trained on **COCO**: finds laptops, phones, cups, bottles, books and other everyday objects (every third frame)
   - **Hand Landmarker** (float16): 21 landmarks per hand, up to two hands, every frame, for the gestures, the muscle overlay and key-press detection
+  - **Face Landmarker** (float16): face landmarks with irises, blink and gaze values, every third frame, for the eyes as objects
 - **Dataset:** COCO, through the pre-trained EfficientDet-Lite0 object classes. We trained no models.
 - **Libraries:** three.js, React 18, Vite, TypeScript, zustand, zod, Express, glTF Transform (compressing the committed 3D models, building the eye), sharp (eye texture preparation).
 - **Hardware:** XREAL Air 2 Pro glasses, a USB webcam or an iPhone as a Continuity Camera, a MacBook Pro.
