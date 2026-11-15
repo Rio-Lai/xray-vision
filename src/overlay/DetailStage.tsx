@@ -25,6 +25,7 @@ import { canvasDpr, errorText } from '../camera/frame';
 import { perfCount } from '../detect/live';
 import { devLog, setStatus } from '../hud/hudStore';
 import { DETAIL_MOCK } from '../lib/detail';
+import { clearPointer, pointerBegin, pointerEnd, pointerOffer } from './pointerTarget';
 
 const DEG = Math.PI / 180;
 const FOV = 30;
@@ -153,6 +154,12 @@ class DetailView {
   private unsub: (() => void) | null = null;
   private area: Area = { x: 0, y: 0, w: 0, h: 0 };
   private dpr = 1;
+  /** the canvas's viewport rect for the pointer (pointAt): read only when the area or DPR changes and on window resize */
+  private rect = { left: 0, top: 0, width: 0, height: 0 };
+  private rectDirty = true;
+  private readonly onResize = (): void => {
+    this.rectDirty = true;
+  };
   private stepSeen: number | null = -1;
   private focus = new Set<string>();
   // scratch (no allocation per frame)
@@ -175,6 +182,7 @@ class DetailView {
 
   attach(host: HTMLDivElement): void {
     this.host = host;
+    window.addEventListener('resize', this.onResize);
     try {
       const r = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
       r.setClearColor(0x000000, 0);
@@ -195,6 +203,8 @@ class DetailView {
   detach(): void {
     this.unsub?.();
     this.unsub = null;
+    clearPointer('detail');
+    window.removeEventListener('resize', this.onResize);
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
@@ -341,6 +351,12 @@ class DetailView {
       if (this.host) Object.assign(this.host.style, { left: `${a.x}px`, top: `${a.y}px`, width: `${a.w}px`, height: `${a.h}px` });
       this.renderer?.setPixelRatio(dpr);
       this.renderer?.setSize(Math.max(1, a.w), Math.max(1, a.h), false);
+      this.rectDirty = true;
+    }
+    if (this.rectDirty && this.renderer) {
+      const r = this.renderer.domElement.getBoundingClientRect();
+      this.rect = { left: r.left, top: r.top, width: r.width, height: r.height };
+      this.rectDirty = false;
     }
     // fit the whole model whichever way it sways
     const aspect = Math.max(0.1, a.w / Math.max(1, a.h));
@@ -379,6 +395,7 @@ class DetailView {
     this.appear += ((want ? 1 : 0) - this.appear) * (1 - Math.exp(-dt * APPEAR_RATE));
     if (!want && this.appear < 0.01) {
       this.appear = 0;
+      clearPointer('detail');
       this.hide();
       this.clearScene();
       return false;
@@ -392,7 +409,36 @@ class DetailView {
     this.renderer.render(this.scene3, this.camera);
     this.drawn = true;
     perfCount('detail');
+    // the pointer: this model's lit step while it is up; closing, its slot is cleared (the main model's highlight may show again)
+    if (want) this.pointAt(s.detailStep);
+    else clearPointer('detail');
     return true;
+  }
+
+  /**
+   * The pointer (pointer.ts): while a step is lit, its first focus part's centre on this model, in
+   * viewport px, for pointerTarget.ts (no step or no focus part: an empty slot, which hides the pointer
+   * while this model is up). Called right after render, so it projects through the camera and world
+   * matrices that were just drawn, and maps through the canvas's own viewport rect (cached in layout()).
+   * Assumes turning, zoom and pan are done in the scene graph or the camera, not by a CSS transform on
+   * the host after the rect was read (a CSS change that does not resize the window is not seen).
+   */
+  private pointAt(step: number | null): void {
+    const focus = step !== null && this.scene ? this.scene.steps[step - 1]?.focus ?? [] : [];
+    pointerBegin('detail', focus);
+    const r = this.rect;
+    if (r.width > 0 && r.height > 0) {
+      this.camera.updateMatrixWorld();
+      for (const id of focus) {
+        const p = this.byId.get(id);
+        if (!p) continue;
+        p.holder.updateWorldMatrix(true, false);
+        this.v.setFromMatrixPosition(p.holder.matrixWorld).project(this.camera);
+        pointerOffer('detail', id, r.left + ((this.v.x + 1) / 2) * r.width, r.top + ((1 - this.v.y) / 2) * r.height);
+        break;
+      }
+    }
+    pointerEnd('detail', Math.max(1, window.innerWidth), Math.max(1, window.innerHeight));
   }
 
   private animate(t: number, dt: number, step: number | null): void {
@@ -563,7 +609,8 @@ export function DetailStage() {
           background: 'radial-gradient(closest-side, rgba(8, 10, 14, 0.42), rgba(8, 10, 14, 0))',
         }}
       />
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+      {/* zIndex 2: above the pointer layer (src/overlay/pointer.ts, z-index 1) */}
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}>
         <DetailCard />
       </div>
     </>

@@ -57,6 +57,7 @@ import { reopenedSavedId } from '../lib/flow';
 import { setStageArrived } from '../hud/hudStore';
 import type { LabelItem } from './labels';
 import { springStep } from './stageLayout';
+import { clearPointer, mainPointerIds, pointerBegin, pointerEnd, pointerOffer } from './pointerTarget';
 
 /** Fully apart: the clear gap along the visual axis between neighbouring layers (eyeball widths). */
 export const ROW_GAP = 0.1;
@@ -345,6 +346,7 @@ class EyeStageCtl {
     eyeStage.pickAt = () => null;
     eyeStage.warm = () => false;
     setStageArrived('eye', false);
+    clearPointer('eye');
     this.outline?.dispose();
     this.outline = null;
     this.labels?.dispose();
@@ -827,6 +829,7 @@ class EyeStageCtl {
     let top = Infinity;
     let bottom = -Infinity;
     const v = new THREE.Vector3();
+    pointerBegin('eye', on ? mainPointerIds(s) : []); // the pointer's target (pointerTarget.ts), off screen too
     for (const p of this.parts) {
       const c = this.toScreen(p.holder.localToWorld(v.copy(p.bounds.centre)), w, h);
       const r = p.bounds.radius * this.ppu;
@@ -836,10 +839,12 @@ class EyeStageCtl {
       bottom = Math.max(bottom, c.y + r);
       const highlighted = hlIds.has(p.id);
       const a = this.toScreen(p.holder.localToWorld(v.copy(p.anchor)), w, h);
+      pointerOffer('eye', p.id, a.x, a.y);
       const opacity = base * (highlighted ? 1 : hlIds.size > 0 ? all * 0.6 : all) * inView(a.x, a.y, w, h);
       if (opacity < 0.02) continue;
       items.push({ id: p.id, text: names.get(p.id) ?? sentenceCase(p.id.replace(/-/g, ' ')), ax: a.x, ay: a.y, opacity, highlighted });
     }
+    pointerEnd('eye', w, h);
     if (!Number.isFinite(left)) {
       left = right = w / 2;
       top = bottom = h / 2;

@@ -45,6 +45,7 @@ import { reopenedSavedId } from '../lib/flow';
 import { setStageArrived } from '../hud/hudStore';
 import type { LabelItem } from './labels';
 import { springStep } from './stageLayout';
+import { clearPointer, mainPointerIds, publishPointer } from './pointerTarget';
 
 /** Idle drift, as for the box model (Overlay.tsx): after this long without input... */
 const IDLE_MS = 4000;
@@ -155,6 +156,7 @@ class ArmStageCtl {
   detach(): void {
     armStage.pickAt = () => null;
     setStageArrived('arm', false);
+    clearPointer('arm');
     this.outline?.dispose();
     this.outline = null;
     this.labels?.dispose();
@@ -389,6 +391,7 @@ class ArmStageCtl {
       top = bottom = oy;
     }
     const pad = 0.035 * Math.min(w, h) * s;
+    publishPointer('arm', items, isArmTeardown(st.teardown) ? mainPointerIds(st) : [], w, h); // the pointer's target (pointerTarget.ts)
     this.labels.update(items, { left: left - pad, right: right + pad, top: top - pad, bottom: bottom + pad }, w, h);
   };
 
