@@ -24,7 +24,8 @@ import { urlNumber } from '../camera/frame';
 import { GESTURE_TUNING_DEFAULTS } from './gestures';
 import type { GestureTuning } from './gestures';
 
-const KEY = 'blowfish.gestureTuning.v5';
+// v6 (Rio, 15 Nov 10:39): a one-hand pinch-drag turns the model again; the two-palm globe and the sweep down are off (?globe=1, ?sweep=1).
+const KEY = 'blowfish.gestureTuning.v6';
 
 function urlBool(name: string): boolean | null {
   try {
