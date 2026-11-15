@@ -34,13 +34,27 @@ export function makeCode(length = 10) {
 
 /** Extra URL switches from the command line (`npm run phone -- detail=1 dpr=1`): only plain name=value words. */
 export function extraParams(args) {
-  return (args ?? []).filter((a) => /^[a-z][a-z0-9]*=[a-z0-9._-]+$/i.test(a) && !/^(phone|overlay|code)=/i.test(a));
+  return (args ?? []).filter((a) => /^[a-z][a-z0-9]*=[a-z0-9._-]+$/i.test(a) && !/^(phone|overlay|code|watch)=/i.test(a));
 }
 
 /** The link to open on the phone (`extra`: more switches, e.g. ['detail=1']). */
 export function phoneLink(base, code, extra = []) {
   const more = extra.length ? `&${extra.join('&')}` : '';
   return `${String(base).replace(/\/+$/, '')}/?phone=1&overlay=1${more}&code=${encodeURIComponent(code)}`;
+}
+
+/** `npm run phone -- nowatch`: no big-screen page on the Mac. */
+export function wantsWatch(args) {
+  return !(args ?? []).some((a) => /^-*no-?watch$/i.test(a));
+}
+
+/**
+ * The big-screen page on this Mac (src/watch/, `?watch=1`): localhost needs no code. The same extra
+ * switches as the phone link, so e.g. detail=1 mounts the detail model there too.
+ */
+export function watchLink(port, extra = []) {
+  const more = extra.length ? `&${extra.join('&')}` : '';
+  return `http://localhost:${port}/?watch=1${more}`;
 }
 
 /** The official cloudflared release file for this machine, or null if there is none. */

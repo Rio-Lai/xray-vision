@@ -12,6 +12,8 @@
  *      installed (brew, PATH), else the official release, downloaded once into .bin/
  *   5. prints the phone link, its QR code and what to do on the phone
  *      (`npm run phone -- detail=1 dpr=1` adds those switches to the link)
+ *   6. prints the big-screen link for the projector (http://localhost:<PORT>/?watch=1, src/watch/) and
+ *      opens it in Chrome on this Mac (`npm run phone -- nowatch`: neither)
  *
  * While it runs the Mac is kept awake (caffeinate). Ctrl-C stops the server and the tunnel.
  * Plain Node (no build step); `npm run phone` puts node_modules/.bin on PATH.
@@ -21,7 +23,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, stat
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { extraParams, findTunnelUrl, isTunnelReady, makeCode, phoneLink, releaseAsset } from './phone-lib.mjs';
+import { extraParams, findTunnelUrl, isTunnelReady, makeCode, phoneLink, releaseAsset, wantsWatch, watchLink } from './phone-lib.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
@@ -351,7 +353,8 @@ async function main() {
 
   // 5. the link
   // (`npm run phone -- detail=1` adds switches to the link, e.g. the detail explainer)
-  const link = phoneLink(url, code, extraParams(process.argv.slice(2)));
+  const extra = extraParams(process.argv.slice(2));
+  const link = phoneLink(url, code, extra);
   say('');
   say('  ============================================================================');
   say('  Blowfish is ready for the iPhone. Open this link on the phone (or scan the QR');
@@ -377,6 +380,33 @@ async function main() {
   say('  plugged in and online, with the lid open. Ctrl-C here stops everything.');
   say('  ============================================================================');
   say('');
+
+  // 6. the big screen: the phone's view (camera and overlay) on this Mac, for the projector
+  if (wantsWatch(process.argv.slice(2))) {
+    const watch = watchLink(port, extra);
+    say('  For the projector, open this on this Mac (Chrome):');
+    say('');
+    say(`  ${watch}`);
+    say('');
+    say('  It opens by itself. Drag that window to the projector screen and click it for full');
+    say('  screen (Esc leaves it). It shows the phone\'s view once the phone has tapped "Tap to');
+    say('  start". The sound plays on the phone: pair the Bluetooth speaker with the iPhone.');
+    say('  (npm run phone -- nowatch: no big-screen window)');
+    say('');
+    openInChrome(watch);
+  }
+}
+
+/** macOS: open the link in Google Chrome, else in the default browser. Elsewhere nothing (the link is printed). */
+function openInChrome(link) {
+  if (process.platform !== 'darwin') return;
+  try {
+    const r = spawnSync('open', ['-a', 'Google Chrome', link], { stdio: 'ignore', timeout: 15_000 });
+    if (r.status === 0) return;
+    spawnSync('open', [link], { stdio: 'ignore', timeout: 15_000 });
+  } catch {
+    /* the link is printed above */
+  }
 }
 
 main().catch((e) => giveUp(`Something went wrong: ${e instanceof Error ? e.message : String(e)}. Run the command again.`));

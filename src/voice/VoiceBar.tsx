@@ -18,9 +18,9 @@ import { PHONE_MODE } from '../camera/frame';
 import { showToast } from '../hud/hudStore';
 import { registerPhoneVoice } from '../phone/phoneVoice';
 
-type PillState = 'off' | 'connecting' | 'hold' | 'listening' | 'thinking' | 'speaking';
+export type PillState = 'off' | 'connecting' | 'hold' | 'listening' | 'thinking' | 'speaking';
 
-const PILL_TEXT: Record<PillState, string> = {
+export const PILL_TEXT: Record<PillState, string> = {
   off: 'Voice off',
   connecting: 'Connecting',
   hold: 'Hold to talk',
@@ -57,7 +57,7 @@ function isTypingTarget(t: EventTarget | null): boolean {
 }
 
 /** Subtitle-style captions from the store transcript. Each new line appears, then fades out. */
-function useCaptions(): Caption[] {
+export function useCaptions(): Caption[] {
   const transcript = useStore((s) => s.transcript);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const lastSeen = useRef<TranscriptLine | undefined>(transcript[transcript.length - 1]);
@@ -89,7 +89,7 @@ function useCaptions(): Caption[] {
 }
 
 /** "Thinking": connected, the agent is not speaking, and the last line was the user's (recently). */
-function useThinking(connected: boolean, speaking: boolean): boolean {
+export function useThinking(connected: boolean, speaking: boolean): boolean {
   const transcript = useStore((s) => s.transcript);
   const last = transcript[transcript.length - 1];
   const waiting = connected && !speaking && last?.role === 'user';

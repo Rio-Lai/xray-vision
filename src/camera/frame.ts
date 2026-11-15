@@ -70,6 +70,13 @@ export function urlNumber(name: string, fallback: number): number {
 export const PHONE_MODE: boolean = urlFlag('phone');
 
 /**
+ * `?watch=1` (npm run phone opens http://localhost:8791/?watch=1 on the Mac, src/watch/): the big-screen
+ * view for the projector, a passive copy of the phone's view (its camera frames and state, no camera,
+ * vision, voice or gestures here). The phone publishes them unless `?publish=0`. Without it nothing changes.
+ */
+export const WATCH_MODE: boolean = urlFlag('watch');
+
+/**
  * Phone mode: the page is laid out this many CSS px wide and the phone scales it to its screen (the
  * viewport tag, set by index.html and src/phone/viewport.ts), so the phone shows the laptop's layout,
  * only smaller: about 1400 x 646 on an iPhone 16 held sideways. `?vw=` (800 to 2400) changes it for one
@@ -162,10 +169,24 @@ export function computeCoverMap(fw: number, fh: number, vw: number, vh: number):
   return { scale, ox: (vw - fw * scale) / 2, oy: (vh - fh * scale) / 2, fw, fh, vw, vh };
 }
 
-/** Cover mapping for the current frame size and viewport. */
+/**
+ * `?watch=1` only: cover as usual, but when the frame's shape and the window's differ by more than
+ * WATCH_CONTAIN_RATIO (a phone held upright on a 16:9 projector) contain instead: the whole frame with
+ * black bars, so nothing is cropped away. The watch page places the picture with this map too.
+ */
+export const WATCH_CONTAIN_RATIO = 1.5;
+export function computeWatchMap(fw: number, fh: number, vw: number, vh: number): CoverMap {
+  const r = fw / fh / (vw / vh);
+  if (r <= WATCH_CONTAIN_RATIO && r >= 1 / WATCH_CONTAIN_RATIO) return computeCoverMap(fw, fh, vw, vh);
+  const scale = Math.min(vw / fw, vh / fh);
+  return { scale, ox: (vw - fw * scale) / 2, oy: (vh - fh * scale) / 2, fw, fh, vw, vh };
+}
+
+/** Cover mapping for the current frame size and viewport (the watch page's own fit with `?watch=1`). */
 export function getCoverMap(): CoverMap {
   const f = frameSize();
   const v = viewportSize();
+  if (WATCH_MODE) return computeWatchMap(f.w, f.h, v.w, v.h);
   return computeCoverMap(f.w, f.h, v.w, v.h);
 }
 

@@ -33,6 +33,7 @@ import { enterFullscreen, fullscreenSupported, isStandalone, useFullscreenButton
 import { modelControl, STAGE_MIN_EXPLODE } from '../stage/modelControl';
 import { setStatus, showToast, toggleDebug, useHud } from '../hud/hudStore';
 import { phoneVoice } from './phoneVoice';
+import { useWatchPublisher } from '../watch/publish';
 
 const VIEWPORT = PHONE_VIEWPORT;
 // before the first render: the page width and --bf-pt (does nothing without ?phone=1)
@@ -297,6 +298,7 @@ export function PhoneApp() {
   }, []);
   useWakeLock(started);
   useServerCheck(started);
+  useWatchPublisher(started); // the big-screen view (src/watch/): frames and state to the Mac while it watches
 
   return (
     <VoiceProvider>
