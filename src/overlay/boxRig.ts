@@ -15,7 +15,8 @@
  *
  * Real models (part.mesh_url): loaded through glbCache (shared, preloaded for the demo laptop),
  * centred, turned to the axis-aligned orientation that best matches the part's box, scaled to fill
- * its width and height (as the camera sees it), and cross-faded in over 0.6 s with a soft shadow. Highlight tints
+ * its width and height (as the camera sees it; `?fit=even`: one factor, fitted inside, never stretched),
+ * and cross-faded in over 0.6 s with a soft shadow. Highlight tints
  * the model accent blue and draws the part's box edge in accent blue around it. A missing or
  * broken model keeps its placeholder (and says why in the debug panel).
  *
@@ -33,6 +34,7 @@
  */
 import * as THREE from 'three';
 import type { Teardown, TeardownPart } from '../../shared/teardown';
+import { FIT_EVEN } from '../camera/frame';
 import { devLog } from '../hud/hudStore';
 import { ExplodeAnimator, smoothstep } from './explodeAnimator';
 import {
@@ -472,10 +474,13 @@ export class BoxRig {
       // (foreshortened), so all full-width parts line up. Depth follows the smaller scale, but a
       // model is never more than MODEL_MAX_DEPTH x as thick as its placeholder (no spill into
       // the next layer when a generated "hinge" is really a plate).
+      // ?fit=even (#98): one factor, the largest that keeps the model inside that same envelope
+      // (width, height, MODEL_MAX_DEPTH x depth); centred because the model is centred on its box.
       const sx = w / Math.max(1e-6, rig.glbNorm.x);
       const sy = h / Math.max(1e-6, rig.glbNorm.y);
       const sz = Math.min(sx, sy, (MODEL_MAX_DEPTH * d) / Math.max(1e-6, rig.glbNorm.z));
-      rig.glbHolder.scale.set(sx, sy, sz);
+      if (FIT_EVEN) rig.glbHolder.scale.setScalar(sz);
+      else rig.glbHolder.scale.set(sx, sy, sz);
       for (const gm of rig.glbMats) {
         gm.mat.opacity = gm.base * rig.vis * gf * dimF;
         if (gm.emissive && gm.emissiveBase) gm.emissive.copy(gm.emissiveBase).lerp(ACCENT, GLB_HL_TINT * rig.hl);
@@ -483,7 +488,8 @@ export class BoxRig {
       // Soft shadow just behind the model, slightly low, so it lifts off the dimmed frame.
       rig.shadow.visible = partShadow && rig.shadowMat.map !== null;
       rig.shadow.position.set(0, -0.06 * h, -MODEL_MAX_DEPTH * d / 2 - 2);
-      rig.shadow.scale.set(w * 1.15, h * 1.25, 1);
+      if (FIT_EVEN) rig.shadow.scale.set(rig.glbNorm.x * sz * 1.15, rig.glbNorm.y * sz * 1.25, 1);
+      else rig.shadow.scale.set(w * 1.15, h * 1.25, 1);
       rig.shadowMat.opacity = partShadow ? SHADOW_OPACITY * rig.vis * gf * dimF : 0;
     }
 
