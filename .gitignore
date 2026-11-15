@@ -10,3 +10,5 @@ dist
 # MediaPipe models and wasm from npm run fetch-models (about 15 MB): local only, never committed.
 public/models/*
 !public/models/.gitkeep
+# npm run agent:prompt -- --apply saves the ElevenLabs agent's config here before it changes it: local only.
+.agent-backup/

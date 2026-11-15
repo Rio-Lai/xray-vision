@@ -29,7 +29,7 @@ export async function runLocalCommand(input: string): Promise<string | null> {
     return 'View reset.';
   }
   const overlay = t.match(/\boverlay\s+(on|off)\b/);
-  if (overlay) return clientTools.set_overlay({ on: overlay[1] === 'on' });
+  if (overlay) return sayOf(await clientTools.set_overlay({ on: overlay[1] === 'on' }));
   if (/muscle/.test(t) && /\b(which|what)\b/.test(t)) {
     const pose = JSON.parse(await clientTools.get_pose()) as { hands: { muscles: string[] }[] };
     const id = pose.hands.find((h) => h.muscles.length > 0)?.muscles[0];
@@ -40,6 +40,16 @@ export async function runLocalCommand(input: string): Promise<string | null> {
   const ask = t.match(/^(?:highlight|show(?: me)?|what is|what's|tell me about)\s+(?:the\s+)?(.+?)\??$/);
   if (ask) return highlight(ask[1]);
   return null;
+}
+
+/** An action tool's reply is JSON with the line to show in `say` (#96). */
+function sayOf(out: string): string {
+  try {
+    const say = (JSON.parse(out) as { say?: unknown }).say;
+    return typeof say === 'string' ? say : out;
+  } catch {
+    return out;
+  }
 }
 
 async function highlight(query: string): Promise<string> {

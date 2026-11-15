@@ -2,13 +2,16 @@
  * The ElevenLabs client tools (names from CLIENT_TOOL_NAMES in shared/teardown.ts).
  * Each takes the agent's parameters object and returns a short string for the agent.
  * In the ElevenLabs dashboard every tool must be set to "wait for response".
+ * #96, short by default: every action tool (select_object, explode, reset_view, set_overlay, rotate_model)
+ * returns JSON whose `say` is the exact line to speak, and nothing that asks for more. What to do only when
+ * the user asks to be taught or toured is in `if_asked`; highlight_part and show_step are the teaching tools.
  */
 import { useStore, type FingerName, type HandState } from '../state/store';
 import type { ClientToolName, Teardown, TeardownPart } from '../../shared/teardown';
 import { explodeObject, resetAll, resolveSavedObjectId } from '../lib/flow';
 // #97: saved models ("put it away" keeps them; explode with a saved id or name brings one back)
 import { describeSaved } from '../lib/saved';
-import { shortName } from '../hud/names';
+import { displayName, shortName } from '../hud/names';
 import { armPose } from '../biology/arm/tour';
 import { startArmLive } from '../biology/arm/armLive';
 import { ARM_MUSCLE_IDS, armLayerNames, armPartExtras, armStepExtras, isArmTeardown, resolveObjectId } from '../stage/armTeardown';
@@ -76,7 +79,7 @@ function describeHand(h: HandState, ids: MuscleIds) {
   return { handedness: h.handedness, activeFinger: active, action, muscles, fingers };
 }
 
-/** Up to three parts for the short tour after an explode: the two outermost, then one with a safety note (e.g. the battery). */
+/** Up to three parts for a tour when the user asks for one (#96): the two outermost, then one with a safety note (e.g. the battery). */
 function tourParts(td: Teardown): TeardownPart[] {
   const byLayer = [...td.parts].sort((a, b) => a.layer - b.layer);
   const withSafety = byLayer.filter((p) => p.safety);
@@ -131,9 +134,9 @@ const tools: Record<ClientToolName, Tool> = {
     const s = useStore.getState();
     const id = str(p, 'object_id') ?? s.focusedObjectId;
     const obj = id ? s.objects.find((o) => o.id === id) : undefined;
-    if (!obj) return 'No such object in view. Call get_scene to see what is visible.';
+    if (!obj) return json({ ok: false, say: 'I cannot see that.', note: 'Use an object id from get_scene.' });
     s.selectObject(obj.id);
-    return `Selected ${obj.name ?? obj.label} (${obj.id}).`;
+    return json({ ok: true, say: `Selected ${displayName(obj)}.`, object_id: obj.id });
   },
 
   async explode(p) {
@@ -144,26 +147,32 @@ const tools: Record<ClientToolName, Tool> = {
     const resolved = asked === undefined ? undefined : resolveEyeObjectId(asked, s) ?? resolveObjectId(asked, s);
     // #97: not in view (or not a scene id): a saved model with that id or name, brought back
     const objectId = asked !== undefined && (resolved === null || resolved === asked) ? resolveSavedObjectId(asked, s) ?? resolved : resolved;
-    if (objectId === null) return 'No hand in view. Ask the user to hold a hand in front of the camera, then call explode again.';
+    if (objectId === null) return json({ ok: false, say: 'No hand in view. Hold a hand in front of the camera.' });
     if (amount !== undefined && amount <= 0) {
       s.setExplode(0);
-      return 'Collapsed the view.';
+      return json({ ok: true, say: 'Closed.' });
     }
     // Teardown already loaded and no other object asked for: just change the spread.
     if (s.teardown && (!objectId || objectId === s.selectedObjectId) && amount !== undefined) {
+      const before = s.explodeAmount;
       s.setExplode(amount);
-      return `Explode set to ${round(Math.min(1, amount))}.`;
+      const name = shortName(s.teardown.name);
+      const say = amount >= 0.5 ? `${name} exploded.` : before > amount + 0.01 ? 'Put back together.' : `${name} analysed.`;
+      return json({ ok: true, say, explode_amount: round(Math.min(1, amount)) });
     }
     const result = await explodeObject(objectId);
     if (result.ok && amount !== undefined) useStore.getState().setExplode(amount);
     const td = useStore.getState().teardown;
-    if (!result.ok || !td) return result.message;
+    if (!result.ok || !td) return json({ ok: false, say: result.message });
     const tour = tourParts(td);
     const arm = isArmTeardown(td);
     const eye = isEyeTeardown(td);
+    const opened = useStore.getState().explodeAmount >= 0.5 ? 'exploded' : 'analysed';
     return json({
       ok: true,
-      message: result.message,
+      // The whole spoken reply (#96). A live parts list says once that it is AI-estimated.
+      say: `${shortName(td.name)} ${opened}.${td.source === 'live' ? ' Parts are AI-estimated.' : ''}`,
+      name: td.name,
       source: td.source,
       part_ids: td.parts.map((x) => x.id),
       // Kash's arm: its layers (0 = skin) and its guided tour
@@ -171,13 +180,12 @@ const tools: Record<ClientToolName, Tool> = {
       // Kash's eye: its steps are the path of light, offered instead of a part tour
       ...(eye ? { steps: td.steps.length, steps_are: 'the path of light, from the cornea to the optic nerve' } : {}),
       ...(eye ? {} : { tour: tour.map((x) => ({ id: x.id, name: x.name, summary: x.summary, safety: x.safety ?? null })) }),
-      next: arm
-        ? `This is a layered 3D model of the arm and hand. Say that in one sentence, then walk through it: call show_step with n 1, then 2, up to ${td.steps.length}, one short sentence each.`
+      // Only on request (#96): never a cue to start talking.
+      if_asked: arm
+        ? `Only if the user asks how it works, or to be taught or walked through: call show_step with n 1, then 2, up to ${td.steps.length}, one short sentence each.`
         : eye
-          ? `This is the checked 3D model of the human eye. Say it is open in one short sentence and stop. When the user asks how the eye works, how it focuses or how light gets in, walk the path of light: call show_step with n 1, then 2, up to ${td.steps.length}, one short sentence each.`
-          : `Give a short tour of these ${tour.length} parts in order: call highlight_part before you mention each one, one short sentence each, and say any safety note.${
-            td.source === 'live' ? ' Say once that the parts are AI-estimated.' : ''
-          }`,
+          ? `Only if the user asks how the eye works, how it focuses or how light gets in: call show_step with n 1, then 2, up to ${td.steps.length}, one short sentence each (the path of light).`
+          : `Only if the user asks for a tour or to be taught: for each part in tour, call highlight_part, then say one short sentence and its safety note.`,
     });
   },
 
@@ -196,7 +204,7 @@ const tools: Record<ClientToolName, Tool> = {
     return json({
       ok: true,
       part: { id: part.id, name: part.name, summary: part.summary, details: part.details, safety: part.safety ?? null, ...extras },
-      ...(part.safety ? { remember: 'Say the safety note.' } : {}),
+      present: `Two or three short sentences from summary and details (one in a tour)${part.safety ? ', and say the safety note' : ''}.`,
     });
   },
 
@@ -222,13 +230,20 @@ const tools: Record<ClientToolName, Tool> = {
       part_ids: step.part_ids,
       part_names: partNames(step.part_ids),
       ...(arm ? await armStepExtras(step.n) : {}),
-      next: step.n < td.steps.length ? `Say this step in one sentence, then call show_step with n ${step.n + 1}.` : 'That was the last step.',
+      present:
+        step.n < td.steps.length
+          ? `Say this step in one short sentence. If you are walking through the steps, call show_step with n ${step.n + 1} next.`
+          : 'Say this step in one short sentence. That was the last step: stop.',
     });
   },
 
   async reset_view() {
     const saved = resetAll();
-    return saved ? `Put away. Saved ${shortName(saved.name)}.` : 'View reset.';
+    return json(
+      saved
+        ? { ok: true, say: `Put away. Saved ${shortName(saved.name)}.`, saved: { id: saved.id, name: saved.name } }
+        : { ok: true, say: 'View reset.' },
+    );
   },
 
   async set_overlay(p) {
@@ -236,13 +251,14 @@ const tools: Record<ClientToolName, Tool> = {
     const on =
       typeof v === 'boolean' ? v : typeof v === 'string' ? /^(true|on|yes|1)$/i.test(v.trim()) : true;
     useStore.getState().setOverlayOn(on);
-    if (!on) resetAll();
-    return on ? 'Overlay on. Objects in view are now labelled.' : 'Overlay off. Clean view.';
+    if (on) return json({ ok: true, say: 'Labels on.' });
+    const saved = resetAll();
+    return json({ ok: true, say: 'Labels off.', ...(saved ? { saved: { id: saved.id, name: saved.name } } : {}) });
   },
 
   async rotate_model(p) {
     const s = useStore.getState();
-    if (!s.teardown) return 'Nothing is on stage yet. Call explode first.';
+    if (!s.teardown) return json({ ok: false, say: 'Nothing is open yet.' });
     const dir = (str(p, 'direction') ?? 'right').toLowerCase();
     const deg = Math.min(360, Math.max(5, num(p, 'degrees') ?? (dir === 'around' || dir === 'flip' ? 180 : 45)));
     const rad = (deg * Math.PI) / 180;
@@ -250,7 +266,8 @@ const tools: Record<ClientToolName, Tool> = {
     else if (dir === 'up') s.rotateModel(0, -rad);
     else if (dir === 'down') s.rotateModel(0, rad);
     else s.rotateModel(rad, 0); // right, around, flip
-    return `Turned ${dir} by ${Math.round(deg)} degrees.`;
+    const way = dir === 'around' || dir === 'flip' ? 'around' : ['left', 'up', 'down'].includes(dir) ? dir : 'right';
+    return json({ ok: true, say: `Turned ${way}.`, degrees: Math.round(deg) });
   },
 
   async get_pose() {
@@ -276,7 +293,7 @@ const tools: Record<ClientToolName, Tool> = {
       ...eyeField,
       note:
         arm.activity === 'typing' && !armOnStage
-          ? 'The arm is typing: answer from arm.active_parts, then call explode with object_id "arm-hand" and show_step 1 to 6.'
+          ? 'The arm is typing: answer from arm.active_parts in one or two short sentences. Only if the user asks to see it or how it works: call explode with object_id "arm-hand", then show_step 1 to 6.'
           : !handLoaded
             ? 'The hand layers are not shown yet. Call explode with no object_id while the user looks at their hand, then call highlight_part with the first muscle id.'
             : active

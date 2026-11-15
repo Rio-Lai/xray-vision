@@ -102,6 +102,8 @@ export function describeTeardown(td: Teardown): string {
     }).`,
     `Parts (use these ids with highlight_part):\n${parts}`,
     steps ? `Steps (use show_step with n):\n${steps}` : '',
+    // #96: short by default; this is background for questions, not a cue to talk.
+    'For questions only: do not describe these parts or steps unless the user asks.',
   ]
     .filter(Boolean)
     .join('\n\n');
