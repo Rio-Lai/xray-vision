@@ -99,6 +99,12 @@ export interface AppState {
    */
   modelYaw: number;
   modelPitch: number;
+  /**
+   * How big the model on stage is drawn: 1 = the normal stage size, MODEL_ZOOM_MIN..MODEL_ZOOM_MAX.
+   * Hand gestures, the mouse and the zoom_model voice tool write it; every stage renderer
+   * (box rig, arm, eye) multiplies its size by it and eases towards it.
+   */
+  modelZoom: number;
 
   voiceStatus: VoiceStatus;
   agentSpeaking: boolean;
@@ -126,6 +132,10 @@ export interface AppState {
   setTrackingMode: (mode: TrackingMode) => void;
   /** Add to the model's target orientation (radians). Pitch is clamped to about +-70 degrees. */
   rotateModel: (dYaw: number, dPitch: number) => void;
+  /** Multiply the model's zoom by `factor` (clamped to MODEL_ZOOM_MIN..MODEL_ZOOM_MAX). */
+  zoomModel: (factor: number) => void;
+  /** Set the model's zoom (clamped). 1 = the normal stage size. */
+  setModelZoom: (zoom: number) => void;
   /** Collapse, clear the selection, unfreeze. */
   resetView: () => void;
 
@@ -137,6 +147,11 @@ export interface AppState {
 }
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+
+/** Limits for `modelZoom`: half the normal stage size up to four times it. */
+export const MODEL_ZOOM_MIN = 0.5;
+export const MODEL_ZOOM_MAX = 4;
+const clampZoom = (n: number) => (Number.isFinite(n) ? Math.min(MODEL_ZOOM_MAX, Math.max(MODEL_ZOOM_MIN, n)) : 1);
 
 export const useStore = create<AppState>((set) => ({
   overlayOn: false,
@@ -157,6 +172,7 @@ export const useStore = create<AppState>((set) => ({
   trackingMode: 'stage',
   modelYaw: 0,
   modelPitch: 0,
+  modelZoom: 1,
 
   voiceStatus: 'disconnected',
   agentSpeaking: false,
@@ -197,6 +213,8 @@ export const useStore = create<AppState>((set) => ({
       modelYaw: s.modelYaw + dYaw,
       modelPitch: Math.min(1.2, Math.max(-1.2, s.modelPitch + dPitch)),
     })),
+  zoomModel: (factor) => set((s) => ({ modelZoom: clampZoom(s.modelZoom * (Number.isFinite(factor) && factor > 0 ? factor : 1)) })),
+  setModelZoom: (zoom) => set({ modelZoom: clampZoom(zoom) }),
   resetView: () =>
     set({
       selectedObjectId: null,
@@ -209,6 +227,7 @@ export const useStore = create<AppState>((set) => ({
       frozen: false,
       modelYaw: 0,
       modelPitch: 0,
+      modelZoom: 1,
     }),
 
   setVoiceStatus: (voiceStatus) => set({ voiceStatus }),
