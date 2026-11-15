@@ -48,8 +48,8 @@ let aside: { objectId: string; panX: number; panY: number; zoom: number } | null
 export type DetailOpen = { ok: true; scene: DetailScene } | { ok: false; say: string; superseded?: undefined } | { ok: false; superseded: true; say?: undefined };
 
 /**
- * The pan (stage sizes) that puts the main model in the middle of the left half of the view (short wide views,
- * the phone: of the left 55 percent, beside the detail model's 45, src/overlay/DetailStage.tsx).
+ * The pan (stage sizes) that puts the main model in the middle of the left half of the view (phone mode: of the
+ * left 55 percent, beside the detail model's 45, src/overlay/DetailStage.tsx).
  */
 export function asidePanX(vw: number, vh: number): number {
   const offset = isShortWide(vw, vh) ? (vw * (1 - WIDE_DETAIL_SPLIT)) / 2 : vw / 4;

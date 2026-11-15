@@ -133,9 +133,9 @@ interface Area {
 
 /**
  * Where the model is drawn. Laptop: the right half of the view beside a model on stage, else the middle; below
- * the card's top edge. Short wide views (the phone sideways, about 1400 x 646; any view 1.9 times as wide as
- * tall, src/phone/viewport.ts): the right 45 percent (the main model has the left 55, src/lib/detail.ts),
- * inside the safe area, between the compact card at the top and the captions at the bottom.
+ * the card's top edge. Phone mode (sideways about 1400 x 646, src/phone/viewport.ts): the right 45 percent (the
+ * main model has the left 55, src/lib/detail.ts), inside the safe area, between the compact card at the top and
+ * the captions at the bottom.
  */
 function detailArea(beside: boolean, vw: number, vh: number): Area {
   if (isShortWide(vw, vh)) {
@@ -349,7 +349,7 @@ class DetailView {
     devLog(`Detail model: ${sc.title}, ${sc.parts.length} parts, ${sc.paths.length} paths, ${sc.animations.length} animations`);
   }
 
-  /** Right half of the view beside a model on stage, else the middle (short wide views: detailArea). */
+  /** Right half of the view beside a model on stage, else the middle (phone mode: detailArea). */
   private layout(beside: boolean): void {
     const vw = Math.max(1, window.innerWidth);
     const vh = Math.max(1, window.innerHeight);
@@ -516,9 +516,9 @@ const BODY: CSSProperties = { margin: 0, fontSize: 18, lineHeight: 1.4, color: '
 const MUTED: CSSProperties = { margin: '8px 0 0', fontSize: 16, lineHeight: 1.35, color: 'rgba(255, 255, 255, 0.62)' };
 
 /*
- * Short wide views (the phone, detailArea): a compact card at the top right, clear of the phone's settings gear
- * (--bf-phone-* come from src/phone/PhoneApp.tsx; elsewhere the fallbacks): the tag and the step marks, the title
- * on one line, the step's sentence (or the summary) on at most two; no part names, no caveat (the tag says it).
+ * Phone mode (detailArea): a compact card at the top right, clear of the settings gear (--bf-phone-* come from
+ * src/phone/PhoneApp.tsx): the tag and the step marks, the title on one line, the step's sentence (or the summary)
+ * on at most two; no part names, no caveat (the tag says it).
  */
 const CARD_WIDE: CSSProperties = {
   ...CARD,
@@ -528,11 +528,11 @@ const CARD_WIDE: CSSProperties = {
   padding: '10px 14px 12px',
   borderRadius: 16,
 };
-const CHIP_WIDE: CSSProperties = { ...CHIP, padding: '2px 8px', fontSize: 13 };
+const CHIP_WIDE: CSSProperties = { ...CHIP, padding: '2px 8px', fontSize: 15 };
 const TITLE_WIDE: CSSProperties = { ...TITLE, margin: '6px 0 4px', fontSize: 17, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 const BODY_WIDE: CSSProperties = {
   ...BODY,
-  fontSize: 15,
+  fontSize: 16,
   lineHeight: 1.35,
   display: '-webkit-box',
   WebkitBoxOrient: 'vertical',
@@ -540,17 +540,6 @@ const BODY_WIDE: CSSProperties = {
   overflow: 'hidden',
 };
 
-/** isShortWide for the current view, updated on resize and rotation. */
-function useShortWide(): boolean {
-  const read = () => isShortWide(window.innerWidth, window.innerHeight);
-  const [wide, setWide] = useState(read);
-  useEffect(() => {
-    const update = () => setWide(isShortWide(window.innerWidth, window.innerHeight));
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-  return wide;
-}
 
 function DetailCard() {
   const detail = useStore((s) => s.detail);
@@ -558,7 +547,8 @@ function DetailCard() {
   const topic = useStore((s) => s.detailTopic);
   const error = useStore((s) => s.detailError);
   const step = useStore((s) => s.detailStep);
-  const wide = useShortWide();
+  // phone mode only (a constant): the laptop always gets the laptop card
+  const wide = isShortWide(window.innerWidth, window.innerHeight);
   if (status === 'idle') return null;
   const title = wide ? TITLE_WIDE : TITLE;
   const body = wide ? BODY_WIDE : BODY;

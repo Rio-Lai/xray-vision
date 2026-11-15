@@ -14,9 +14,13 @@
 import { useEffect, useState } from 'react';
 import { showToast } from '../hud/hudStore';
 
-/** The Fullscreen API for the page (missing on iPhone). */
+/** The Fullscreen API for the page, and allowed (missing on iPhone). */
 export function fullscreenSupported(): boolean {
-  return typeof document !== 'undefined' && typeof document.documentElement.requestFullscreen === 'function';
+  return (
+    typeof document !== 'undefined' &&
+    document.fullscreenEnabled === true &&
+    typeof document.documentElement.requestFullscreen === 'function'
+  );
 }
 
 function fullscreenOn(): boolean {

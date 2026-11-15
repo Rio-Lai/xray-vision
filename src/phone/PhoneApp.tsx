@@ -351,9 +351,10 @@ html.bf-phone {
   /* the gear's square (44 points), which the detail card keeps clear of (DetailStage.tsx) */
   --bf-phone-gear: ${pt(44)};
   --bf-edge: 16px;
-  --bf-font-size-label: 15px; --bf-font-size-body: 15px; --bf-font-size-title: 17px; --bf-font-size-card-name: 18px;
-  --bf-font-size-kicker: 13px; --bf-font-size-caption: 16px; --bf-font-size-caption-reply: 18px;
-  --bf-font-size-error: 15px; --bf-font-size-safety: 14px;
+  /* nothing under about 9 points on the glass (16 px = 9.7 points sideways) */
+  --bf-font-size-label: 16px; --bf-font-size-body: 16px; --bf-font-size-title: 17px; --bf-font-size-card-name: 18px;
+  --bf-font-size-kicker: 15px; --bf-font-size-caption: 16px; --bf-font-size-caption-reply: 18px;
+  --bf-font-size-error: 16px; --bf-font-size-safety: 15px;
   --bf-size-pill-height: 32px; --bf-size-icon: 16px; --bf-size-voice-pill-min: 120px; --bf-size-voice-zone-width: 600px;
   --bf-size-caption-max: 560px; --bf-size-error-max: 600px;
   --bf-size-card-width: 300px; --bf-size-step-width: 280px; --bf-size-card-max-vw: 24vw; --bf-size-step-max-vw: 22vw;
@@ -391,9 +392,14 @@ html.bf-phone body:has(.bf-part-card, .bf-step-card) .bf-vcaps {
 html.bf-phone body:has(.bf-detail-card) .bf-title-pill,
 html.bf-phone body:has(.bf-detail-card) .bf-status-pill { left: 27.5%; }
 html.bf-phone body:has(.bf-detail-card) .bf-status-pill { max-width: calc(55vw - 2 * var(--bf-phone-left)); }
-/* debug panel (D): inside the safe area, the tuning column under the gear */
+/* ...and the main model's step card (bottom right) would cover the detail model's lower part: hidden meanwhile */
+html.bf-phone body:has(.bf-detail-card) .bf-step-card { display: none; }
+/* debug panel (D): readable (16 px), inside the safe area beside the tuning column, scrolls with a finger */
 html.bf-phone .bf-debug { left: var(--bf-phone-left); top: calc(var(--bf-phone-top) + 40px);
-  max-width: calc(100vw - var(--bf-phone-left) - var(--bf-phone-right)); max-height: calc(100% - 200px); font-size: 11px !important; }
+  max-width: calc(100vw - var(--bf-phone-left) - var(--bf-phone-right) - 312px);
+  max-height: calc(100% - var(--bf-phone-top) - 40px - var(--bf-phone-bottom) - 8px); overflow: auto;
+  font-size: 16px !important; pointer-events: auto; -webkit-overflow-scrolling: touch; }
+html.bf-phone #root .bf-debug { touch-action: pan-x pan-y; }
 html.bf-phone .bf-tuning-col { top: calc(var(--bf-safe-top) + var(--bf-phone-gear) + 8px); right: var(--bf-phone-right); width: 300px;
   max-height: calc(100% - var(--bf-safe-top) - var(--bf-phone-gear) - 8px - var(--bf-phone-bottom)); }
 

@@ -9,7 +9,7 @@
  */
 import { KIT_LOOK } from '../hud/look';
 import { PHONE_MODE } from '../camera/frame';
-import { phoneSafeX } from '../phone/viewport';
+import { phoneGearBottom, phoneSafeX } from '../phone/viewport';
 
 export interface LabelItem {
   id: string;
@@ -245,8 +245,10 @@ export class LabelLayer {
       }
 
       const rects = avoidRects();
-      // phone mode: pills stay out of the safe area (sideways, the Dynamic Island on either side)
+      // phone mode: pills stay out of the safe area (sideways, the Dynamic Island on either side), and the right
+      // column starts below the settings gear at the top right (PhoneApp.tsx); off the phone EDGE and TOP_MARGIN
       const edge = Math.max(EDGE, phoneSafeX());
+      const rightTop = Math.max(TOP_MARGIN, phoneGearBottom() > 0 ? phoneGearBottom() + GAP : 0);
       for (const side of ['left', 'right'] as const) {
         const col = bySy.filter((e) => e.node.side === side);
         if (col.length === 0) continue;
@@ -257,10 +259,11 @@ export class LabelLayer {
         for (const r of rects) {
           if (r.right > colLeft && r.left < colRight && r.top > vh * 0.3) bottom = Math.min(bottom, r.top - GAP);
         }
+        const top = side === 'right' ? rightTop : TOP_MARGIN;
         const ys = stackColumn(
           col.map((e) => ({ want: e.item.ay - e.node.h / 2, h: e.node.h })),
-          TOP_MARGIN,
-          Math.max(TOP_MARGIN + 40, bottom),
+          top,
+          Math.max(top + 40, bottom),
           GAP,
         );
         const placed: Placed[] = col.map((e, i) => ({ item: e.item, node: e.node, y: ys[i] }));
