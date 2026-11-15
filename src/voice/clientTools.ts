@@ -23,6 +23,7 @@ import { live } from '../detect/live';
 import { voiceTurn } from '../stage/turnLimit';
 // ?detail=1 only: show_detail / detail_step / close_detail (without the flag they answer DETAIL_UNAVAILABLE and do nothing)
 import { DETAIL_ON, closeDetail, openDetail, setDetailStep } from '../lib/detail';
+import { railsStep } from '../../shared/rails';
 // ...and while a detail model is up, rotate_model and adjust_view turn, zoom and move it instead of the main model
 import { DETAIL_ZOOM_MAX, DETAIL_ZOOM_MIN, centreDetail, detailInputActive, detailViewTarget, panDetail, setDetailZoom, voiceTurnDetail, zoomDetail } from '../stage/detailView';
 
@@ -114,6 +115,10 @@ const DETAIL_UNAVAILABLE = json({
 const DETAIL_PRESENT =
   'Say the summary in one sentence, then for each step call detail_step with n 1, 2 and so on and say that step in one short sentence. Stop after the last step.';
 
+/** How the agent presents a checked rails view (show_detail's `present`): each step's sentence word for word. */
+const RAILS_PRESENT = (steps: number): string =>
+  `For each step call detail_step n (1 to ${steps}) and say exactly that step's sentence, nothing else. Stop after step ${steps}.`;
+
 const tools: Record<ClientToolName, Tool> = {
   async get_scene() {
     const s = useStore.getState();
@@ -152,9 +157,11 @@ const tools: Record<ClientToolName, Tool> = {
         ? {
             detail: s.detail
               ? { title: s.detail.title, steps: s.detail.steps.length, step: s.detailStep, source: s.detail.source === 'sample' ? 'Sample (test fixture)' : 'AI sketch' }
-              : s.detailStatus === 'loading'
-                ? { loading: s.detailTopic }
-                : null,
+              : s.rails
+                ? { title: s.rails.title, steps: s.rails.steps.length, step: s.detailStep, source: 'Checked' }
+                : s.detailStatus === 'loading'
+                  ? { loading: s.detailTopic }
+                  : null,
           }
         : {}),
     });
@@ -374,6 +381,16 @@ const tools: Record<ClientToolName, Tool> = {
     });
     // a newer show_detail (or close, or put away) took over while this one was built: nothing to say
     if (!res.ok) return json(res.superseded ? { ok: false, superseded: true } : { ok: false, say: res.say });
+    // a checked rails view (shared/rails.ts): reviewed by hand, so no "AI sketch"; each step is said word for word
+    if (res.rails) {
+      return json({
+        ok: true,
+        say: `${res.rails.title}.`,
+        summary: res.rails.summary,
+        steps: res.rails.steps.map((x) => x.say),
+        present: RAILS_PRESENT(res.rails.steps.length),
+      });
+    }
     const sc = res.scene;
     return json({
       ok: true,
@@ -388,6 +405,25 @@ const tools: Record<ClientToolName, Tool> = {
 
   async detail_step(p) {
     if (!DETAIL_ON) return DETAIL_UNAVAILABLE;
+    const rails = useStore.getState().rails;
+    if (rails) {
+      const n = num(p, 'n');
+      if (n === undefined) return 'n is required.';
+      const k = Math.round(n);
+      const st = railsStep(rails, k);
+      if (!st || !setDetailStep(k)) return `No step ${k}. There are ${rails.steps.length} steps.`;
+      return json({
+        ok: true,
+        step: k,
+        of: rails.steps.length,
+        say: st.step.say,
+        focus: [st.column.iphone.label, st.column.eye.label],
+        present:
+          k < rails.steps.length
+            ? `Say exactly this step's sentence, nothing else, then call detail_step with n ${k + 1}.`
+            : "Say exactly this step's sentence, nothing else. That was the last step: stop.",
+      });
+    }
     const sc = useStore.getState().detail;
     if (!sc) return json({ ok: false, say: 'No detail model is open.' });
     const n = num(p, 'n');

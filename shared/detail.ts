@@ -15,6 +15,7 @@
  * and scaled to fit the unit box. Pure (no I/O), so scripts can check it on its own.
  */
 import { z } from 'zod';
+import type { RailsScene } from './rails';
 
 /* ---------- limits ---------- */
 
@@ -95,6 +96,24 @@ export const DetailSceneSchema = z.object({
   caveat: z.string().optional(),
 });
 export type DetailScene = z.infer<typeof DetailSceneSchema>;
+
+/*
+ * A checked "rails" view (shared/rails.ts): a flat comparison written and reviewed by hand, bundled into the
+ * app, never sent by the server. Its own kind, so nothing that reads a DetailScene ever gets one.
+ */
+const RailsPartSchema = z.object({ part_id: z.string().nullable(), label: z.string().min(1), also: z.array(z.string()).optional() });
+const RailsRailSchema = z.object({ id: z.enum(['iphone', 'eye']), label: z.string().min(1), object_id: z.string().min(1) });
+export const RailsSceneSchema: z.ZodType<RailsScene> = z.object({
+  id: z.string().min(1),
+  kind: z.literal('rails'),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  source: z.literal('checked'),
+  triggers: z.array(z.string().min(1)).min(1),
+  rails: z.tuple([RailsRailSchema, RailsRailSchema]),
+  columns: z.array(z.object({ id: z.string().min(1), iphone: RailsPartSchema, eye: RailsPartSchema })).min(1).max(8),
+  steps: z.array(z.object({ column: z.string().min(1), say: z.string().min(1) })).min(1).max(DETAIL_LIMITS.steps),
+});
 
 /** POST /api/detail */
 export const DetailRequestSchema = z.object({
