@@ -105,6 +105,13 @@ export interface AppState {
    * (box rig, arm, eye) multiplies its size by it and eases towards it.
    */
   modelZoom: number;
+  /**
+   * Where the model on stage sits, as an offset from the middle of the view in stage sizes
+   * (x to the right, y down; 0, 0 = centred). Lets the wearer look at an off-centre part when zoomed
+   * in. Clamped to MODEL_PAN_MAX each way; every stage renderer applies it, eased.
+   */
+  modelPanX: number;
+  modelPanY: number;
 
   voiceStatus: VoiceStatus;
   agentSpeaking: boolean;
@@ -136,6 +143,10 @@ export interface AppState {
   zoomModel: (factor: number) => void;
   /** Set the model's zoom (clamped). 1 = the normal stage size. */
   setModelZoom: (zoom: number) => void;
+  /** Move the model on stage by (dx, dy) stage sizes (clamped to MODEL_PAN_MAX each way). */
+  panModel: (dx: number, dy: number) => void;
+  /** Put the model back in the middle of the view. */
+  centreModel: () => void;
   /** Collapse, clear the selection, unfreeze. */
   resetView: () => void;
 
@@ -152,6 +163,10 @@ const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 export const MODEL_ZOOM_MIN = 0.5;
 export const MODEL_ZOOM_MAX = 4;
 const clampZoom = (n: number) => (Number.isFinite(n) ? Math.min(MODEL_ZOOM_MAX, Math.max(MODEL_ZOOM_MIN, n)) : 1);
+
+/** Limit for `modelPanX` / `modelPanY`, in stage sizes each way. */
+export const MODEL_PAN_MAX = 2;
+const clampPan = (n: number) => (Number.isFinite(n) ? Math.min(MODEL_PAN_MAX, Math.max(-MODEL_PAN_MAX, n)) : 0);
 
 export const useStore = create<AppState>((set) => ({
   overlayOn: false,
@@ -173,6 +188,8 @@ export const useStore = create<AppState>((set) => ({
   modelYaw: 0,
   modelPitch: 0,
   modelZoom: 1,
+  modelPanX: 0,
+  modelPanY: 0,
 
   voiceStatus: 'disconnected',
   agentSpeaking: false,
@@ -215,6 +232,8 @@ export const useStore = create<AppState>((set) => ({
     })),
   zoomModel: (factor) => set((s) => ({ modelZoom: clampZoom(s.modelZoom * (Number.isFinite(factor) && factor > 0 ? factor : 1)) })),
   setModelZoom: (zoom) => set({ modelZoom: clampZoom(zoom) }),
+  panModel: (dx, dy) => set((s) => ({ modelPanX: clampPan(s.modelPanX + dx), modelPanY: clampPan(s.modelPanY + dy) })),
+  centreModel: () => set({ modelPanX: 0, modelPanY: 0 }),
   resetView: () =>
     set({
       selectedObjectId: null,
@@ -228,6 +247,8 @@ export const useStore = create<AppState>((set) => ({
       modelYaw: 0,
       modelPitch: 0,
       modelZoom: 1,
+      modelPanX: 0,
+      modelPanY: 0,
     }),
 
   setVoiceStatus: (voiceStatus) => set({ voiceStatus }),

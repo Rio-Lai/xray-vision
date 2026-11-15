@@ -8,6 +8,7 @@ See `TeardownSchema` in `shared/teardown.ts`. Conventions:
 
 - `id`: kebab-case, unique within the teardown.
 - `layer`: 0 = outermost, nearest the camera. Higher = deeper. Sets explode order.
+- `dimensions_mm` (optional, top level): the object's real [width, depth, height] in millimetres. On stage the model's proportions come from it, not from the detector's on-screen box (which is squashed by the camera angle).
 - `visual` (optional, per part): one plain phrase saying what the part looks like. Used only to write the fal image prompt (`partPrompt` in `shared/prompts.ts`); never shown or spoken.
   - Laptop: camera looks down at an open laptop's keyboard deck. Keyboard and display are 0, bottom case is deepest.
   - Hand: camera looks down at the back of a typing hand. Skin is 0, then extensor tendons, bones, the small hand muscles, the forearm flexors, and the palm pads (thenar, hypothenar) deepest.
@@ -112,6 +113,7 @@ Saved models (#97): `get_scene` also returns `saved: [{ id, name, saved_ago }]`.
 - `src/state/store.ts` is the only shared state. Read with `useStore(selector)` in React, `useStore.getState()` elsewhere.
 - detect writes `objects`, `focusedObjectId`, `hands`. The camera module calls `registerCamera`.
 - overlay reads `teardown`, `explodeAmount`, `highlightedPartId`, `activeStep`, `frozen`.
+- `modelPanX` / `modelPanY` (offset from the middle of the view in stage sizes, clamped to 2 each way; `panModel(dx, dy)`, `centreModel()`; back to 0 on reset): every stage renderer applies it.
 - `modelZoom` (1 = the normal stage size, 0.5 to 4; `zoomModel(factor)`, `setModelZoom(z)`; back to 1 on reset): every stage renderer multiplies its size by it.
 - voice and flow call the actions. `voiceStatus`, `agentSpeaking`, `transcript` are written only by `src/voice/`.
 
